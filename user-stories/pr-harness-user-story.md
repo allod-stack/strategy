@@ -1,6 +1,6 @@
 # User Stories: Agentic Development Flow
 
-Requirements analysis for notes #36.
+Requirements analysis for tools #63 (originally notes #36).
 
 ## Context
 
@@ -301,22 +301,16 @@ Both agents are in `/home/vnprc/work/allod/tools`. Agent A creates `agent/git-ce
 ### With worktree isolation
 
 ```
-Agent A: creates worktree → .claude/worktrees/<uuid-a>/
-         creates agent/git-ceremony branch
+Agent A: path=$(allod change begin -d git-ceremony)
+         creates agent/git-ceremony branch in worktree
          works in isolated directory
 
-Agent B: creates worktree → .claude/worktrees/<uuid-b>/
-         creates agent/forge-base-default branch
+Agent B: path=$(allod change begin -d forge-base-default)
+         creates agent/forge-base-default branch in worktree
          works in isolated directory
 ```
 
-Both finish independently. Both run git-ceremony. Both create separate PRs. No collision.
-
-**Key insight for git-ceremony scope:** The tool can either:
-(a) Manage worktree lifecycle itself (`git worktree add/remove`), or
-(b) Assume the caller already isolated (Claude Code's EnterWorktree, or a custom harness)
-
-Option (a) makes the tool more self-contained. Option (b) keeps it simpler and avoids duplicating harness logic. Both are valid — depends on how much the tool should own.
+Both finish independently. Both run `allod change record` / `allod change submit`. Both create separate PRs. No collision.
 
 ### Branch name collision risk
 
@@ -329,19 +323,19 @@ If two agents both use `-d "fix-bug"`, they'd both try to create `agent/fix-bug`
 
 ## Scenario D: Post-Merge Discovery
 
-**Setup:** git-ceremony has been merged to allod/tools. User uses it in practice.
+**Setup:** `allod change` has been merged to allod/tools. User uses it in practice.
 
 ```
-User: agent uses git-ceremony in nexus repo
+User: agent uses allod change in nexus repo
       Agent is on a detached HEAD (mid-way through nix flake update)
-      git-ceremony fails: "not a branch" error with no useful message
-User: opens notes issue #42
+      allod change record fails: "not a branch" error with no useful message
+User: opens tools issue
 ```
 
 New agent session:
 
 ```
-Agent: reads issue #42, explores git-ceremony source
+Agent: reads the issue, explores allod change source
 Agent: small fix, no formal plan review needed
 Agent: isolates tools repo, creates agent/fix-detached-head branch
 Agent: adds detached HEAD detection + useful error message + test
@@ -357,13 +351,13 @@ Agent: adds detached HEAD detection + useful error message + test
 
 User reviews, merges. The tool that failed is fixed by the same workflow it supports.
 
-**Insight:** Git-ceremony's own error messages matter. When it refuses an operation, the message should tell the agent (or human) exactly what to do instead.
+**Insight:** Error messages matter. When `allod change` refuses an operation, the message should tell the agent (or human) exactly what to do instead.
 
 ---
 
 ## Derived Requirements
 
-### What git-ceremony must handle
+### What `allod change` must handle
 
 From the scenarios above, every touchpoint needs some subset of:
 
@@ -381,7 +375,7 @@ From the scenarios above, every touchpoint needs some subset of:
 
 The first five rows (check, branch, stage, commit, push) fire at almost every touchpoint. The PR rows fire less often.
 
-### What git-ceremony must refuse
+### What `allod change` must refuse
 
 1. Direct commit to a protected branch (force branch creation)
 2. `--amend` on any commit (not even exposed as a flag)
@@ -389,34 +383,33 @@ The first five rows (check, branch, stage, commit, push) fire at almost every to
 4. PR creation without `## Validation` in the body
 5. Staging when nothing changed (exit with clear message)
 
-### What git-ceremony must not do
+### What `allod change` must not do
 
-1. Worktree management (belongs to the agent harness — Claude Code, custom FOSS harness, etc.)
-2. Plan review orchestration (that's the agent's job)
-3. Multi-repo sequencing in a single invocation (caller handles ordering)
-4. Merge PRs (user action)
-5. Guess — if the state is ambiguous (wrong branch, detached HEAD, dirty unrelated changes), fail with a clear message
+1. Plan review orchestration (that's the agent's job)
+2. Multi-repo sequencing in a single invocation (caller handles ordering)
+3. Merge PRs (user action)
+4. Guess — if the state is ambiguous (wrong branch, detached HEAD, dirty unrelated changes), fail with a clear message
 
 ### Must-have error messages
 
-From Scenario D: when git-ceremony refuses an operation, the error message should say what the problem is AND what to do about it. Examples:
+From Scenario D: when `allod change` refuses an operation, the error message should say what the problem is AND what to do about it. Examples:
 
 ```
-git-ceremony: allod/tools master is protected; use -d <description> to create an agent branch
-git-ceremony: already on agent/foo — adding commit (use a new -d to start a fresh branch)
-git-ceremony: PR body is missing a ## Validation section — add one with concrete test commands
-git-ceremony: nothing to commit (working tree clean)
-git-ceremony: detached HEAD — checkout a branch first or use -d to create one
-git-ceremony: refusing push — git-ceremony never force-pushes
+allod change: allod/tools master is protected; use allod change begin -d <description>
+allod change: already on agent/foo — adding commit (use begin -d to start a fresh branch)
+allod change: PR body is missing a ## Validation section — add one with concrete test commands
+allod change: nothing to commit (working tree clean)
+allod change: detached HEAD — checkout a branch first or use begin -d to create one
+allod change: branch agent/foo already exists; use a different -d or clean up the old branch
 ```
 
 ## Design Decisions (resolved)
 
-1. **Worktree scope.** git-ceremony owns the worktree lifecycle. This makes the tool self-contained — a FOSS harness on pi+openrouter calls `git-ceremony begin` and gets isolation for free, no need to reimplement EnterWorktree.
+1. **Worktree scope.** `allod change begin` owns the worktree lifecycle. This makes the tool self-contained — a FOSS harness on pi+openrouter calls `allod change begin` and gets isolation for free, no need to reimplement EnterWorktree.
 
-2. **PR commenting.** Separate from git-ceremony. The agent calls `forge pr comment` directly. git-ceremony owns the mechanical git+forge-PR pipeline, not the conversational parts. Keeps the tool focused.
+2. **PR commenting.** Separate from `allod change`. The agent calls `forge pr comment` directly. `allod change` owns the mechanical git+forge-PR pipeline, not the conversational parts. Keeps the tool focused.
 
-3. **Commit-only vs PR mode.** Single `ship` subcommand. Body-presence triggers PR creation: pass `-b`/`-B` to create a PR, omit them for commit+push only. `--commit-only` is a safety override that skips PR even if a body is present.
+3. **Split record and submit.** Commit+push (`record`) and PR creation (`submit`) are separate commands. Most touchpoints (C1, C2, C4, C5) only need `record`. Splitting eliminates the `--commit-only` flag and makes partial failure recovery clean: if `record` succeeds but `submit` fails (network, Forgejo down), the agent retries just `submit`.
 
 4. **Branch reuse.** When already on `agent/*`, skip branch creation. Don't query forge for open PRs — that adds latency and complexity. The agent is responsible for knowing whether it wants a new branch or to continue on the current one.
 
