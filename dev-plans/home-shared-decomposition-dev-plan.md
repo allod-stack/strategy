@@ -9,8 +9,10 @@ Split `profiles/modules/home-shared.nix` into a framework module (stays in profi
 **In scope:**
 - `profiles/modules/home-shared.nix` — trim to framework-only
 - `profiles/flake.nix` — remove `nvim-config` and `nur` inputs, import preferences from secrets
+- `profiles/README.md` — update the flake-input diagram so `nvim-config` and `nur` are no longer shown as direct profiles inputs
 - `secrets/modules/preferences.nix` — new module with personal desktop opinions
 - `secrets/flake.nix` — add `nvim-config` and `nur` inputs, export `homeModules.preferences`
+- `secrets/README.md` — update the repo-purpose and architecture text because secrets will own one private Home Manager preferences module after this split
 
 **Out of scope:**
 - Other modules moved in PR #60 (already pure framework or infrastructure plumbing)
@@ -245,6 +247,16 @@ jq -e --arg node "$profiles_secrets_node" '.nodes[$node].inputs | has("nvim-conf
 
 # In secrets repo:
 jq -e '.nodes.root.inputs | has("nvim-config") and has("nur")' flake.lock
+```
+
+**Docs verification:**
+```bash
+# In profiles repo:
+! rg 'profiles (→|->) (nvim-config|nur)' README.md
+
+# In secrets repo:
+rg 'modules/preferences.nix|homeModules.preferences' README.md
+! rg 'pure data repo|does not.*Home Manager modules|does not.*NixOS or Home Manager modules' README.md
 ```
 
 **Negative tests:**
