@@ -80,6 +80,8 @@ Behavior:
 6. `forge pr create -t <title> -H <branch> [-B <base>] -F <body-file>`
 7. Print PR URL
 
+`--dry-run` behavior: runs steps 1, 3, and 4 (branch resolution, body validation, depends-on assembly) but skips steps 2, 5, and 6 (forge availability check, existing-PR check, PR creation). Prints the resolved branch, base, title, and assembled body. Does not require `forge` on PATH.
+
 #### `allod change cleanup <worktree-path>`
 
 Removes a worktree after the PR is merged.
@@ -145,7 +147,8 @@ Setup: temporary git repos with a local "remote" (bare repo), mock `protected-br
 - With body containing ## Validation → calls forge pr create with correct args
 - Body missing ## Validation → exits 3
 - `--depends-on` → appended to body passed to forge
-- `--dry-run` → prints plan, no forge call
+- `--dry-run` → prints resolved branch, base, title, and assembled body; no forge call; succeeds even when forge is not on PATH
+- `--dry-run` with body missing ## Validation → exits 3 (local validations still run)
 - forge not on PATH → exits 1 with message
 - PR already exists for branch → exits 6 with message directing to forge pr edit
 - Not on a branch (detached HEAD) → exits with actionable message
