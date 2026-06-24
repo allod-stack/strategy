@@ -48,7 +48,7 @@ Options:
 
 Behavior:
 1. Stage files (`-f` list, or `git add -u` for all tracked modified)
-2. Refuse if nothing staged (exit 4, actionable message)
+2. If nothing staged: check for unpushed commits (`git log @{u}..HEAD`). If unpushed commits exist, skip to step 5 (retry push). Otherwise exit 4 with actionable message.
 3. Refuse if commit message is empty (exit 1)
 4. `git commit` with message (never `--amend`)
 5. `git push -u origin HEAD` (never `--force`, never `--force-with-lease`)
