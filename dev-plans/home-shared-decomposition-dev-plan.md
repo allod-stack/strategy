@@ -152,9 +152,20 @@ This applies to both `mkDevVm` and `mkHypervisor` builders. Privacy VMs are unaf
 
 Do not add a second nixpkgs input or a Home Manager input to `secrets` for this split. The NUR overlay is applied through the Home Manager user's `nixpkgs.overlays` option, so `pkgs.nur.repos.rycee.firefox-addons` should resolve in the Home Manager module using the pkgs instance constructed by profiles.
 
+#### PR sequencing
+
+Implement and land the secrets change first. Until that commit is on the secrets branch consumed by profiles, profiles will evaluate against a secrets flake that does not export `homeModules.preferences`.
+
+For local profiles testing before the secrets PR lands, add a temporary flake override to every profiles `nix` command:
+```bash
+--override-input secrets /home/vnprc/work/allod/secrets
+```
+
+Do not commit that override. After the secrets PR lands, update `profiles/flake.lock` so the committed profiles change points at the secrets commit that exports `homeModules.preferences`; then run the profiles checks without the override.
+
 ### Agent Gates
 
-**Human must update secrets flake inputs.** Adding `nvim-config` as an SSH-fetched flake input to secrets may require the same netrc/SSH wiring that profiles already has. Verify that the dev VM can fetch `nvim-config` from forge.anarch.diy via the secrets flake before proceeding.
+No human gate is needed for editing flake inputs or lock files; the agent can do that in the dev VM. If `nix flake check` in secrets cannot fetch `nvim-config` through the existing Forge HTTPS credentials path, stop and surface that as an implementation blocker.
 
 **Human must rebuild and test on at least one dev VM and the hypervisor** after merging both PRs to confirm the effective Home Manager configuration is unchanged.
 
@@ -200,9 +211,9 @@ diff /tmp/before.json /tmp/after.json
 
 ### Rollback Plan
 
-Two PRs (one per repo), both must land together:
+Two PRs (one per repo), landed in this order:
 1. **secrets PR** — adds `modules/preferences.nix`, new flake inputs, `homeModules` output
-2. **profiles PR** — trims `home-shared.nix`, removes inputs, imports preferences from secrets
+2. **profiles PR** — trims `home-shared.nix`, removes inputs, imports preferences from secrets, and updates `profiles/flake.lock` to the landed secrets commit
 
 If verification fails: revert the profiles PR first (restores the old home-shared.nix and inputs), then revert the secrets PR. Order matters because profiles depends on secrets' new export. Reverting profiles first breaks the dependency cleanly; reverting secrets first would leave profiles referencing a nonexistent `homeModules.preferences`.
 
