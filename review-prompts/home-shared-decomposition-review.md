@@ -31,17 +31,7 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
-
-1. **Implementation replay.** Walk the revised plan in execution order and verify a cold implementer can still run every command with the current branch state. Pay special attention to when the local `--override-input secrets /home/vnprc/work/allod/secrets` is required and when it must be removed after the secrets PR lands.
-
-2. **Boundary residue.** After implementation, check `profiles/modules/home-shared.nix`, `profiles/flake.nix`, and `profiles/README.md` for remaining direct personal desktop dependencies: private editor package/config wiring, browser settings/addons, shell preferences, editor-specific Git defaults, `nvim-config`, and `nur`.
-
-3. **Lock-file shape.** Verify the committed locks match the intended graph: `profiles` has no direct root `nvim-config` or `nur` inputs, `secrets` owns them directly, and profiles reaches them only through the landed secrets input. Watch for accidental duplicate `nixpkgs` or Home Manager inputs in secrets.
-
-4. **Private diff coverage.** Confirm the implementer used a local, uncommitted, redacted preservation snapshot for the moved Home Manager option surface. The public plan must not publish private option values, host lists, aliases, addon lists, browser settings, or full option-subtree dumps.
-
-5. **Docs ownership boundary.** Check that `secrets/README.md` no longer describes the repo as data-only and that it names `modules/preferences.nix` or `homeModules.preferences`; check that `profiles/README.md` shows `nvim-config` and `nur` as transitive through secrets, not direct profiles inputs.
+No remaining focus areas. The previous pass produced zero BLOCKERs, zero QUESTIONs, and one GAP (hypervisor build verification) which was fixed in commit 7175028. Implementation replay, boundary residue, lock-file shape, private diff coverage, and docs ownership boundary were all fully addressed by the plan.
 
 ## Review Guidelines
 
