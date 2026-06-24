@@ -109,9 +109,19 @@ Exit codes (shared across all subcommands):
 
 #### Packaging contract
 
-- Dev VM and nexus Home Manager modules must install a binary named `allod`.
+- Dev VM and nexus Home Manager modules must install an executable command named `allod`, packaged from the Bash script at `${allod-tools}/allod`.
 - Use the existing `workspaceTool` wrapper style for `allod` so `lib/workspace.sh` is embedded and `git` is in `runtimeInputs`.
 - `forge` remains an external command. `allod change submit` checks for `forge` on PATH at runtime instead of sourcing or packaging it into `allod`.
+
+#### Flake lock contract
+
+- `allod change` does not call `flake-status` or `flake-update-cascade`. It is the generic git/PR workflow tool; flake lock updates remain explicit implementation steps in the consuming repo.
+- After the `allod/tools` and `allod/nexus` changes are merged, update the profiles pins with:
+  ```bash
+  nix flake update allod-tools nexus --flake /home/vnprc/work/allod/profiles
+  ```
+- Do not use a blanket `nix flake update` for this change; only the `allod-tools` and `nexus` inputs should move.
+- `flake-status allod-tools` and `flake-status nexus` are useful read-only sanity checks before or after the targeted update, but they are not part of the `allod` command contract.
 
 ### Reusable code
 
@@ -178,6 +188,8 @@ nix build .#nixosConfigurations.nix-dev.config.system.build.toplevel --dry-run
 nix build .#nixosConfigurations.nexus.config.system.build.toplevel --dry-run
 ```
 
+The profiles PR should include the targeted lock update above and no unrelated flake input churn.
+
 **Smoke test (manual):**
 ```bash
 # From any repo:
@@ -195,4 +207,4 @@ git -C /home/vnprc/work/allod/tools push origin ":$branch"  # remove the smoke-t
 
 ### Rollback Plan
 
-Revert the `allod/tools` commit that adds the script and tests, the `allod/nexus` packaging commit, and the `allod/profiles` packaging/lock update commit. If smoke-test worktrees or remote branches were created, run `allod change cleanup <path>` for local worktrees and delete the smoke remote branch with `git push origin ":<branch>"`. Worktrees created by the tool are in `/tmp` and self-clean on reboot.
+Revert the `allod/tools` commit that adds the script and tests, the `allod/nexus` packaging commit, and the `allod/profiles` packaging/lock update commit. If the profiles lock update is wrong before commit, restore `flake.lock` and rerun the targeted `nix flake update allod-tools nexus --flake /home/vnprc/work/allod/profiles`; do not use a blanket update as rollback. If smoke-test worktrees or remote branches were created, run `allod change cleanup <path>` for local worktrees and delete the smoke remote branch with `git push origin ":<branch>"`. Worktrees created by the tool are in `/tmp` and self-clean on reboot.

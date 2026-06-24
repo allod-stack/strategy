@@ -33,7 +33,7 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-No remaining focus areas. Pass 4 fixed the begin naming and package deployment gaps, then produced 0 BLOCKERs, 0 GAPs, and 0 QUESTIONs. The plan is ready for implementation.
+Flake lock deployment path: verify the plan's targeted `profiles/flake.lock` update command, human merge gates, acceptance checks, and rollback behavior. Confirm `allod change` stays a generic git/PR workflow tool and does not grow flake-specific calls to `flake-status` or `flake-update-cascade`.
 
 ## Review Guidelines
 
