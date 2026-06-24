@@ -23,11 +23,10 @@ A shell script (`allod`) with a `change` command namespace that mechanically enf
 Prepares a workspace. Checks protected-branches and sets up isolation if needed.
 
 - Resolves repo path (arg or cwd), validates it's a git repo
-- Derives the repo's `$HOME`-relative path for protected-branches lookup: from a worktree, use `git rev-parse --path-format=absolute --git-common-dir` to find the main repo's `.git` dir, take its parent; from a regular repo, use `--show-toplevel`. Strip `$HOME/` to get the lookup key (e.g., `work/allod/tools`).
+- Derives the repo's `$HOME`-relative path for protected-branches lookup: from a worktree, use `git rev-parse --path-format=absolute --git-common-dir` to find the main repo's `.git` dir, take its parent; from a regular repo, use `--show-toplevel`. If the resolved repo path is under `$HOME`, strip `$HOME/` to get the lookup key (e.g., `work/allod/tools`). If it is outside `$HOME`, it does not match the protected-branches file and is treated as unprotected.
 - Reads `~/.config/git/protected-branches`, matches the `$HOME`-relative path
-- Fetches from origin before creating the worktree so the base is current
-- If protected: `git worktree add <tmpdir> -b agent/<desc> origin/<protected-branch>` where `<protected-branch>` is the branch named in the protected-branches file entry (not from `git symbolic-ref refs/remotes/origin/HEAD`). Prints worktree path.
-- If not protected: prints repo path (no-op — no worktree, no branch)
+- If not protected: prints repo path (no-op — no fetch, no worktree, no branch)
+- If protected: fetches from origin, then `git worktree add <tmpdir> -b agent/<desc> origin/<protected-branch>` where `<protected-branch>` is the branch named in the protected-branches file entry (not from `git symbolic-ref refs/remotes/origin/HEAD`). Prints worktree path.
 - Exits non-zero with actionable message if `-d` is missing for a protected repo
 - Exits non-zero with actionable message if `agent/<desc>` branch already exists
 
@@ -47,14 +46,15 @@ Options:
 ```
 
 Behavior:
+0. Before staging, resolve the current branch. If HEAD is detached, exit 1 with an actionable message. Also run the protected-branch safety check before staging or committing so a refused command leaves the index untouched.
 1. Stage files (`-f` list, or `git add -u` for all tracked modified)
-2. If nothing staged: check for unpushed commits (`git log @{u}..HEAD`). If unpushed commits exist, skip to step 5 (retry push). Otherwise exit 4 with actionable message.
+2. If nothing staged: check for unpushed commits. Use `git log @{u}..HEAD` when an upstream exists; if no upstream exists yet, handle that explicitly instead of failing on `@{u}` (first-push retry after a failed `git push -u origin HEAD` is the important case). If unpushed commits exist, skip to step 5 (retry push). Otherwise exit 4 with actionable message.
 3. Refuse if commit message is empty (exit 1)
 4. `git commit` with message (never `--amend`)
 5. `git push -u origin HEAD` (never `--force`, never `--force-with-lease`)
 6. Print summary: branch, commit SHA
 
-Safety check: resolve the repo's `$HOME`-relative path (same logic as `begin` — use `--git-common-dir` from worktrees). If the current branch matches the protected branch for this repo in `~/.config/git/protected-branches`, refuse with exit 2 and tell the user to run `allod change begin` first.
+Protected-branch safety check: resolve the repo's `$HOME`-relative path (same logic as `begin` — use `--git-common-dir` from worktrees). If the current branch matches the protected branch for this repo in `~/.config/git/protected-branches`, refuse with exit 2 and tell the user to run `allod change begin` first.
 
 #### `allod change submit [options]`
 
@@ -71,25 +71,28 @@ Options:
 ```
 
 Behavior:
-1. Fail early if `forge` is not on PATH (exit 1)
-2. Validate body contains `## Validation` heading (exit 3 if missing)
-3. If `--depends-on`, append dependency line to body
-4. Check for an existing PR: `forge pr find-by-head <branch>` returns the PR number if an open PR exists, empty otherwise. If found, exit 6 with message directing the agent to use `forge pr edit` instead
-5. `forge pr create -t <title> -H <branch> [-B <base>] -F <body-file>`
-6. Print PR URL
+1. Resolve the current branch. If HEAD is detached, exit 1 with an actionable message.
+2. Fail early if `forge` is not on PATH (exit 1)
+3. Validate body contains `## Validation` heading (exit 3 if missing)
+4. If `--depends-on`, append dependency line to body
+5. Check for an existing PR: `forge pr find-by-head <branch>` returns the PR number if an open PR exists, empty otherwise. If found, exit 6 with message directing the agent to use `forge pr edit` instead
+6. `forge pr create -t <title> -H <branch> [-B <base>] -F <body-file>`
+7. Print PR URL
 
 #### `allod change cleanup <worktree-path>`
 
 Removes a worktree after the PR is merged.
 
-- `git worktree remove <path>` if clean
 - If dirty: warns and exits non-zero (user decides whether to force)
+- If the worktree has unpushed commits: warns and exits non-zero (same upstream/no-upstream detection as `record`)
+- Records the current branch, then `git worktree remove <path>` if clean
+- Deletes the local `agent/*` branch with `git branch -D <branch>` after removing the worktree; the unpushed-commit check is the safety gate. Does not delete the remote branch.
 - Runs `git worktree prune` in the parent repo
 
 Exit codes (shared across all subcommands):
 ```
 0  success
-1  usage error / missing required args / empty message / forge not found
+1  usage error / missing required args / empty message / detached HEAD / forge not found / cleanup refused
 2  would commit to protected branch directly (use allod change begin first)
 3  PR body missing ## Validation section
 4  nothing to commit
@@ -114,20 +117,25 @@ Test script: `allod/tools/tests/allod-change.sh`
 Setup: temporary git repos with a local "remote" (bare repo), mock `protected-branches` file, mock `forge` that records its arguments.
 
 **begin tests:**
-- Protected repo → fetches, creates worktree + agent branch from origin default, prints path
+- Protected repo → fetches, creates worktree + agent branch from the protected-branches entry's `origin/<branch>`, prints path
 - Protected repo, missing `-d` → exits non-zero with message
 - Non-protected repo → prints repo path, no worktree created
+- Non-protected repo outside `$HOME` with no origin → prints repo path, no fetch, no worktree created
 - Called twice with same description → second call fails with exit 5 and actionable message
 - Branch already exists on remote → fails with exit 5
 
 **record tests:**
 - Non-protected: stages, commits, pushes to current branch
 - Protected worktree: stages, commits, pushes agent/* branch
-- On protected default branch without begin → exits 2
+- On protected default branch without begin → exits 2 before staging and leaves the index unchanged
+- Detached HEAD → exits 1 with actionable message
 - Nothing to commit → exits 4
 - Empty commit message → exits 1
 - `-f file1 -f file2` → stages only specified files
 - Without `-f` → stages all tracked modified (`git add -u`)
+- After a failed push leaves an unpushed local commit, rerunning `record` with no staged changes retries the push
+- With existing unpushed commits and new staged changes, `record` creates a new commit and pushes both commits
+- On a branch with no upstream yet, the unpushed-commit check does not fail on `@{u}` and the push retry succeeds
 - Never amends (verify by checking commit count)
 - Never force-pushes (verify push args passed to git)
 
@@ -141,18 +149,23 @@ Setup: temporary git repos with a local "remote" (bare repo), mock `protected-br
 - Not on a branch (detached HEAD) → exits with actionable message
 
 **cleanup tests:**
-- Clean worktree → removed successfully
+- Clean worktree → worktree removed successfully and local agent branch deleted
 - Dirty worktree → warns, exits non-zero
+- Clean worktree with unpushed commits → warns, exits non-zero
 
 **Smoke test (manual):**
 ```bash
 # From any repo:
-path=$(allod change begin -d "test" /home/vnprc/work/allod/tools)
+desc="smoke-$(date +%s)"
+path=$(allod change begin -d "$desc" /home/vnprc/work/allod/tools)
 cd "$path"
 echo "test" > scratch.txt
 allod change record -m "test commit" -f scratch.txt
+branch=$(git branch --show-current)
 git log --oneline -1  # shows "test commit"
+cd -
 allod change cleanup "$path"
+git -C /home/vnprc/work/allod/tools push origin ":$branch"  # remove the smoke-test branch
 ```
 
 ### Rollback Plan
