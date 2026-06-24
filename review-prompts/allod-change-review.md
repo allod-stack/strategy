@@ -33,11 +33,7 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **`-d` branch suffix normalization.** The plan calls the value a "description" but uses it in `agent/<desc>` and `/tmp/allod-change-<repo>-<desc>-XXXXXX`. Should the tool validate branch-safe input, slugify arbitrary text, or rename the flag to make the contract explicit? Check branch names with spaces, slashes, repeated punctuation, and empty-after-normalization input.
-
-2. **`submit --dry-run` sequencing.** The plan says dry-run prints the plan and makes no forge call, while normal submit fails early if `forge` is missing and checks duplicate PRs through `forge pr find-by-head`. Verify the dry-run path is explicit enough: which validations still run, whether `forge` must be on PATH, and whether temporary body files are avoided or cleaned up.
-
-3. **`cleanup` branch and remote side effects.** The plan now deletes local `agent/*` branches after an unpushed-commit check but intentionally does not delete remote branches. Verify this matches branch-collision recovery, the manual smoke test, and rollback expectations without hiding a leftover remote branch problem.
+No remaining focus areas. Pass 3 produced 0 BLOCKERs, 0 GAPs, and 0 QUESTIONs. The plan is ready for implementation.
 
 ## Review Guidelines
 
