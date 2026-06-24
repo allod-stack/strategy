@@ -165,8 +165,10 @@ nix flake show            # all VM configurations still present
 
 **Build verification (automated):**
 ```bash
-# Build a dev VM configuration to verify the split produces a valid system:
+# Build a dev VM and the hypervisor to verify the split produces valid systems.
+# Both mkDevVm and mkHypervisor import sites change; test both.
 nix build .#nixosConfigurations.<dev-vm-name>.config.system.build.toplevel --dry-run
+nix build .#nixosConfigurations.<hypervisor-name>.config.system.build.toplevel --dry-run
 ```
 
 **Private preservation verification (manual):**
