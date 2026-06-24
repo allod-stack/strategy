@@ -111,18 +111,23 @@ Takes `nvim-config` and `nur` as closure parameters. Contains everything persona
 
 **secrets/flake.nix** adds two inputs:
 ```nix
-nvim-config = { url = "git+ssh://..."; flake = false; };
+nvim-config = {
+  url = "git+https://forge.anarch.diy/vnprc/nvim-config.git";
+  flake = false;
+};
 nur = { url = "github:nix-community/NUR"; inputs.nixpkgs.follows = "nixpkgs"; };
 ```
 
-**secrets/flake.nix** adds a `homeModules` output:
+**secrets/flake.nix** binds the new inputs in its `outputs` argument list and adds a `homeModules` output:
 ```nix
+outputs = { self, nixpkgs, nvim-config, nur, ... }:
+
 homeModules.preferences = import ./modules/preferences.nix {
   inherit nvim-config nur;
 };
 ```
 
-**profiles/flake.nix** removes `nvim-config` and `nur` from its inputs.
+**profiles/flake.nix** removes `nvim-config` and `nur` from both its `inputs` set and its `outputs` argument list.
 
 **profiles/flake.nix** import sites change from:
 ```nix
@@ -143,7 +148,9 @@ This applies to both `mkDevVm` and `mkHypervisor` builders. Privacy VMs are unaf
 
 #### nixpkgs follows chain
 
-secrets currently gets nixpkgs transitively. Verify that `nur.inputs.nixpkgs.follows` resolves correctly inside secrets' flake. If secrets does not have a top-level nixpkgs input, add one that follows the same source (the `vm` flake's nixpkgs) or adjust the follows chain.
+`secrets` already has a top-level `nixpkgs` input. Keep it. Add `nur.inputs.nixpkgs.follows = "nixpkgs"` in `secrets`; `profiles` already has `secrets.inputs.nixpkgs.follows = "nixpkgs"`, so when profiles consumes secrets, NUR follows the same nixpkgs source as profiles through that existing edge.
+
+Do not add a second nixpkgs input or a Home Manager input to `secrets` for this split. The NUR overlay is applied through the Home Manager user's `nixpkgs.overlays` option, so `pkgs.nur.repos.rycee.firefox-addons` should resolve in the Home Manager module using the pkgs instance constructed by profiles.
 
 ### Agent Gates
 
