@@ -173,11 +173,13 @@ No human gate is needed for editing flake inputs or lock files; the agent can do
 
 All tests run in the dev VM.
 
+If testing profiles before the secrets PR lands, include the local override from **PR sequencing** in every profiles `nix` command. If any Nix command says it would modify a lock file, update and commit the relevant lock before declaring the plan complete.
+
 **Nix evaluation (automated):**
 ```bash
 # In secrets repo:
 nix flake check           # existing checks still pass
-nix eval .#homeModules    # preferences module is exported
+nix eval --json .#homeModules --apply 'm: builtins.hasAttr "preferences" m'
 
 # In profiles repo:
 nix flake check           # existing checks still pass
@@ -192,18 +194,58 @@ nix build .#nixosConfigurations.<dev-vm-name>.config.system.build.toplevel --dry
 
 **Diff verification (manual):**
 ```bash
-# Before the split, capture the effective home-manager config:
-nix eval .#nixosConfigurations.<dev-vm-name>.config.home-manager.users.<username> --json > /tmp/before.json
+home_snapshot='u: {
+  home = { inherit (u.home) username homeDirectory stateVersion; };
+  git = {
+    userName = u.programs.git.settings.user.name;
+    userEmail = u.programs.git.settings.user.email;
+    coreEditor = u.programs.git.settings.core.editor;
+    credentialHelper = u.programs.git.settings.credential.helper;
+    signingKey = u.programs.git.signing.key or null;
+  };
+  sshHosts = builtins.attrNames u.programs.ssh.matchBlocks;
+  bash = { inherit (u.programs.bash) shellAliases sessionVariables initExtra; };
+  neovim = {
+    inherit (u.programs.neovim) enable defaultEditor viAlias vimAlias;
+    plugins = map (p: p.pname or (builtins.parseDrvName p.name).name) u.programs.neovim.plugins;
+    extraPackages = map (p: p.pname or (builtins.parseDrvName p.name).name) u.programs.neovim.extraPackages;
+  };
+  nvimConfig = {
+    initLua = toString u.xdg.configFile."nvim/init.lua".source;
+    lua = toString u.xdg.configFile."nvim/lua".source;
+    cheatsheet = toString u.xdg.configFile."nvim/CHEATSHEET.md".source;
+  };
+  firefox = {
+    inherit (u.programs.firefox) enable;
+    search = { inherit (u.programs.firefox.profiles.default.search) default force; };
+    extensions = map (p: p.pname or (builtins.parseDrvName p.name).name) u.programs.firefox.profiles.default.extensions.packages;
+    settings = u.programs.firefox.profiles.default.settings;
+  };
+}'
+
+# Before the split, capture only concrete options that should be preserved:
+nix eval --no-write-lock-file --json \
+  .#nixosConfigurations.<dev-vm-name>.config.home-manager.users.<username> \
+  --apply "$home_snapshot" > /tmp/before.json
 
 # After the split, capture again and diff:
-nix eval .#nixosConfigurations.<dev-vm-name>.config.home-manager.users.<username> --json > /tmp/after.json
+nix eval --no-write-lock-file --json \
+  .#nixosConfigurations.<dev-vm-name>.config.home-manager.users.<username> \
+  --apply "$home_snapshot" > /tmp/after.json
 diff /tmp/before.json /tmp/after.json
 # Must produce no differences
 ```
 
 **Input verification:**
-- `profiles/flake.lock` no longer contains `nvim-config` or `nur` entries
-- `secrets/flake.lock` contains both `nvim-config` and `nur` entries
+```bash
+# In profiles repo: direct root inputs are gone, but transitive secrets inputs remain expected.
+profiles_secrets_node=$(jq -r '.nodes.root.inputs.secrets' flake.lock)
+jq -e '.nodes.root.inputs | (has("nvim-config") | not) and (has("nur") | not)' flake.lock
+jq -e --arg node "$profiles_secrets_node" '.nodes[$node].inputs | has("nvim-config") and has("nur")' flake.lock
+
+# In secrets repo:
+jq -e '.nodes.root.inputs | has("nvim-config") and has("nur")' flake.lock
+```
 
 **Negative tests:**
 - `profiles/modules/home-shared.nix` contains no references to `nvim-config`, `nur`, `programs.bash`, `programs.neovim`, `programs.firefox`, or `xdg.configFile`
