@@ -17,7 +17,7 @@ Split `profiles/modules/home-shared.nix` into a framework module (stays in profi
 - `profiles/hosts/dev/home-shared.nix` (workspace tool wiring, already clean)
 - Privacy VM configuration (does not import home-shared.nix)
 - Audit and sanitize work (step 9)
-- `nixpkgs.config.allowUnfree` placement (verify during implementation whether anything outside preferences needs it; move it with preferences if not)
+- `nixpkgs.config.allowUnfree` placement, except removing the duplicate setting from `profiles/modules/home-shared.nix`. Existing explicit `allowUnfree` sites in `profiles/flake.nix` and host configuration stay where they are because dev, privacy, and hypervisor configs use unfree packages outside the preferences module.
 
 ### Interface Contracts
 
@@ -36,7 +36,6 @@ Signature changes from `{ identity, nvim-config, nur }` to `{ identity }`:
     settings = {
       user.name = identity.username;
       user.email = identity.email;
-      core.editor = "nvim";
       credential.helper = "store";
     };
   };
@@ -63,7 +62,6 @@ Takes `nvim-config` and `nur` as closure parameters. Contains everything persona
 { nvim-config, nur }: { pkgs, ... }:
 {
   nixpkgs.overlays = [ nur.overlays.default ];
-  nixpkgs.config.allowUnfree = true;
 
   programs.bash = {
     enable = true;
@@ -76,6 +74,8 @@ Takes `nvim-config` and `nur` as closure parameters. Contains everything persona
       unset SSH_ASKPASS
     '';
   };
+
+  programs.git.settings.core.editor = "nvim";
 
   programs.neovim = {
     enable = true;
@@ -248,8 +248,9 @@ jq -e '.nodes.root.inputs | has("nvim-config") and has("nur")' flake.lock
 ```
 
 **Negative tests:**
-- `profiles/modules/home-shared.nix` contains no references to `nvim-config`, `nur`, `programs.bash`, `programs.neovim`, `programs.firefox`, or `xdg.configFile`
-- `secrets/modules/preferences.nix` contains no references to `identity`, `programs.git`, `programs.ssh`, `home.username`, or `home.stateVersion`
+- `profiles/modules/home-shared.nix` contains no references to `nvim-config`, `nur`, `programs.bash`, `programs.neovim`, `programs.firefox`, `xdg.configFile`, or `core.editor = "nvim"`
+- `secrets/modules/preferences.nix` contains no references to `identity`, `programs.ssh`, `home.username`, `home.stateVersion`, `programs.git.settings.user`, or `programs.git.settings.credential`
+- `secrets/modules/preferences.nix` does not set `nixpkgs.config.allowUnfree`
 
 ### Rollback Plan
 
