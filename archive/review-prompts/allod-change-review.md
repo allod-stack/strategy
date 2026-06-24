@@ -4,11 +4,11 @@ You are a senior CLI toolsmith — not a coder, a toolsmith. The difference matt
 
 ## Your Task
 
-Review the [allod change dev plan](../dev-plans/pr-harness-script-dev-plan.md) for gaps, misunderstandings, bugs, and flaws. Be direct and specific. Flag anything that will block implementation, create unnecessary work, or leave a landmine for future changes.
+Review the [allod change dev plan](../dev-plans/allod-change-dev-plan.md) for gaps, misunderstandings, bugs, and flaws. Be direct and specific. Flag anything that will block implementation, create unnecessary work, or leave a landmine for future changes.
 
 Read the actual codebase to ground the review in reality. Don't review the plan in isolation.
 
-The [user story](../user-stories/pr-harness-user-story.md) documents the scenarios and derived requirements that drove the plan. Consult it for context on why decisions were made, but review the plan as the source of truth for what gets implemented.
+The [user story](../user-stories/allod-change-user-story.md) documents the scenarios and derived requirements that drove the plan. Consult it for context on why decisions were made, but review the plan as the source of truth for what gets implemented.
 
 ## Project Context
 
