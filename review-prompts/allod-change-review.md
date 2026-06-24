@@ -33,15 +33,11 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **Protected-branch detection fidelity.** The plan matches repo paths against `protected-branches` using the `~/work/`-relative convention. What happens when `begin` is called from a worktree (which lives in `/tmp/`)? Does the detection still resolve to the right repo identity? Trace the path resolution logic from worktree cwd back to the original repo and confirm it works.
+1. **`record` push-retry test coverage.** The plan now detects unpushed commits and retries just the push. Verify the acceptance tests cover: (a) record after a failed push retries the push, (b) record with unpushed commits and new staged changes commits and pushes both, (c) record on a branch with no upstream yet (first push — `@{u}` doesn't exist).
 
-2. **`record` default staging behavior.** `git add -u` stages all tracked modified files. In practice, agents often touch files while exploring (flake.lock, test fixtures, config files they read-then-accidentally-modified). Is the default too broad? Should the plan require explicit `-f` flags, or is `git add -u` acceptable with the safety check that `begin` isolates into a clean worktree?
+2. **`begin` from non-`~/work/` repo path.** The path resolution assumes repos live under `~/work/`. What happens if someone passes a repo path outside that tree (e.g., `/tmp/scratch-repo`)? The `$HOME`-relative path won't match anything in protected-branches, which correctly treats it as unprotected. Confirm this is the intended behavior and that no edge case panics.
 
-3. **`submit` duplicate-PR detection.** The plan says `submit` should check whether a PR already exists for the current branch and refuse. How does it check? `forge pr list` with a branch filter? What if the previous PR was closed (not merged) — should `submit` allow creating a new one? Trace the exact forge commands needed and confirm the detection is reliable.
-
-4. **Exit code contract across subcommands.** The plan defines shared exit codes (0-6). Some codes only apply to specific subcommands (e.g., exit 3 only from `submit`, exit 5 only from `begin`). Is that clear enough for callers, or will an agent misinterpret exit 4 from `record` vs a hypothetical exit 4 from another subcommand? Consider whether per-subcommand exit codes or a consistent scheme is better.
-
-5. **Worktree cleanup after failed push.** If `record` commits successfully but `git push` fails (auth error, network, remote rejection), the local commit exists in the worktree but isn't on the remote. The agent can retry `record`, but it'll hit "nothing to commit." What should the recovery path be? Does the plan need to address this or is it the caller's problem?
+3. **`cleanup` interaction with `record` push-retry.** If push fails, the agent retries `record` (which now retries push). But if the agent instead runs `cleanup` on the worktree before retrying, the local unpushed commit is lost. Should `cleanup` warn about unpushed commits the same way it warns about dirty files?
 
 ## Review Guidelines
 
