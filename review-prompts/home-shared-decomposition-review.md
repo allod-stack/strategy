@@ -33,13 +33,15 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **Flake input wiring.** Moving `nvim-config` and `nur` from profiles to secrets changes the flake dependency graph. Does secrets currently have a nixpkgs input that `nur` can follow? Does the `nur` overlay resolution work when applied inside a Home Manager module imported from a different flake than the one that owns nixpkgs? Will `pkgs.nur.repos.rycee.firefox-addons` resolve correctly when the overlay is applied in secrets but pkgs comes from profiles?
+1. **Implementation replay.** Walk the revised plan in execution order and verify a cold implementer can still run every command with the current branch state. Pay special attention to when the local `--override-input secrets /home/vnprc/work/allod/secrets` is required and when it must be removed after the secrets PR lands.
 
-2. **homeModules export pattern.** Secrets has no `homeModules` output today. The plan introduces one. Does the proposed `homeModules.preferences` export pattern match how profiles actually consumes flake outputs? Check whether profiles uses `secrets.homeModules.x` anywhere or only `secrets.lib.x`, and whether the Home Manager import machinery in profiles' flake.nix can accept a bare module alongside closure-parameterized imports.
+2. **Boundary residue.** After implementation, check `profiles/modules/home-shared.nix`, `profiles/flake.nix`, and `profiles/README.md` for remaining direct personal desktop dependencies: `nvim-config`, `nur`, Neovim package/config wiring, Firefox settings/addons, Bash aliases, and `core.editor = "nvim"`.
 
-3. **allowUnfree placement.** The plan marks `nixpkgs.config.allowUnfree` as out-of-scope to verify during implementation, but the interface contracts show it moving to preferences. If any framework module or dev VM host config depends on unfree packages, the build will break silently (unfree packages just fail to evaluate). Check whether anything outside home-shared.nix sets or depends on allowUnfree.
+3. **Lock-file shape.** Verify the committed locks match the intended graph: `profiles` has no direct root `nvim-config` or `nur` inputs, `secrets` owns them directly, and profiles reaches them only through the landed secrets input. Watch for accidental duplicate `nixpkgs` or Home Manager inputs in secrets.
 
-4. **Two-PR atomicity.** The rollback plan says "revert profiles PR first, then secrets PR" but doesn't address the forward case: the secrets PR must land and the flake lock in profiles must be updated before the profiles PR can build. Is this sequencing captured in the plan? Can the profiles PR be tested before the secrets PR is merged (e.g., with a local flake override)?
+4. **Targeted diff coverage.** Re-run the Home Manager snapshot expression against the implemented split. It should cover every moved option without serializing unset option subtrees; adjust the plan only if implementation changes the option paths being moved.
+
+5. **Docs ownership boundary.** Check that `secrets/README.md` no longer describes the repo as data-only and that it names `modules/preferences.nix` or `homeModules.preferences`; check that `profiles/README.md` shows `nvim-config` and `nur` as transitive through secrets, not direct profiles inputs.
 
 ## Review Guidelines
 
