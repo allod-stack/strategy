@@ -28,12 +28,12 @@ Prepares a workspace. Checks protected-branches and sets up isolation if needed.
 - If not protected: prints repo path (no-op — no fetch, no worktree, no branch)
 - If protected: fetches from origin, then `git worktree add <tmpdir> -b agent/<desc> origin/<protected-branch>` where `<protected-branch>` is the branch named in the protected-branches file entry (not from `git symbolic-ref refs/remotes/origin/HEAD`). Prints worktree path.
 - Exits non-zero with actionable message if `-d` is missing for a protected repo
-- Validates the `-d` value is branch-name safe: must match `[a-zA-Z0-9._-]+` (no spaces, slashes, or git-forbidden characters). Exits 1 with actionable message if invalid. This ensures both `agent/<desc>` branch names and `/tmp/allod-change-<repo>-<desc>-XXXXXX` tmpdir paths are well-formed.
+- Validates the `-d` value in two layers: it must match `[a-zA-Z0-9._-]+` (no spaces or slashes), and the resulting `agent/<desc>` branch must pass `git check-ref-format --branch`. Exits 1 with actionable message if invalid.
 - Exits non-zero with actionable message if `agent/<desc>` branch already exists
 
 The caller captures the printed path and operates there.
 
-Worktree path: `/tmp/allod-change-<repo>-<desc>-XXXXXX` (via mktemp). Human-readable prefix for debugging, random suffix for uniqueness.
+Worktree path: `/tmp/allod-change-<repo-slug>-<desc>-XXXXXX` (via mktemp). `<repo-slug>` is derived from the protected-branches lookup key by replacing every character outside `[a-zA-Z0-9._-]` with `-` (for example, `work/allod/tools` becomes `work-allod-tools`). Repos outside `$HOME` use the resolved repo basename with the same sanitization. The mktemp template must never contain slashes from the repo key. Human-readable prefix for debugging, random suffix for uniqueness.
 
 #### `allod change record [options]`
 
@@ -126,7 +126,8 @@ Setup: temporary git repos with a local "remote" (bare repo), mock `protected-br
 - Non-protected repo outside `$HOME` with no origin → prints repo path, no fetch, no worktree created
 - Called twice with same description → second call fails with exit 5 and actionable message
 - Branch already exists on remote → fails with exit 5
-- Invalid `-d` value (spaces, slashes, empty) → exits 1 with actionable message before any git operations
+- Protected repo with a nested `$HOME`-relative path such as `work/allod/tools` → creates the worktree under `/tmp` using a sanitized repo slug, not nested directories
+- Invalid `-d` value (spaces, slashes, empty, or git-invalid values such as `.foo`, `foo..bar`, `foo.lock`) → exits 1 with actionable message before any git operations
 
 **record tests:**
 - Non-protected: stages, commits, pushes to current branch
