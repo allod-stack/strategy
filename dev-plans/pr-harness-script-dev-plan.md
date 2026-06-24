@@ -26,7 +26,7 @@ Prepares a workspace. Checks protected-branches and sets up isolation if needed.
 - Derives the repo's `$HOME`-relative path for protected-branches lookup: from a worktree, use `git rev-parse --path-format=absolute --git-common-dir` to find the main repo's `.git` dir, take its parent; from a regular repo, use `--show-toplevel`. Strip `$HOME/` to get the lookup key (e.g., `work/allod/tools`).
 - Reads `~/.config/git/protected-branches`, matches the `$HOME`-relative path
 - Fetches from origin before creating the worktree so the base is current
-- If protected: `git worktree add <tmpdir> -b agent/<desc>` from `origin/<default-branch>`, prints worktree path
+- If protected: `git worktree add <tmpdir> -b agent/<desc> origin/<protected-branch>` where `<protected-branch>` is the branch named in the protected-branches file entry (not from `git symbolic-ref refs/remotes/origin/HEAD`). Prints worktree path.
 - If not protected: prints repo path (no-op — no worktree, no branch)
 - Exits non-zero with actionable message if `-d` is missing for a protected repo
 - Exits non-zero with actionable message if `agent/<desc>` branch already exists
