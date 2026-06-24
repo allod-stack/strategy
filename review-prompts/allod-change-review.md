@@ -33,11 +33,11 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **`record` push-retry test coverage.** The plan now detects unpushed commits and retries just the push. Verify the acceptance tests cover: (a) record after a failed push retries the push, (b) record with unpushed commits and new staged changes commits and pushes both, (c) record on a branch with no upstream yet (first push — `@{u}` doesn't exist).
+1. **`-d` branch suffix normalization.** The plan calls the value a "description" but uses it in `agent/<desc>` and `/tmp/allod-change-<repo>-<desc>-XXXXXX`. Should the tool validate branch-safe input, slugify arbitrary text, or rename the flag to make the contract explicit? Check branch names with spaces, slashes, repeated punctuation, and empty-after-normalization input.
 
-2. **`begin` from non-`~/work/` repo path.** The path resolution assumes repos live under `~/work/`. What happens if someone passes a repo path outside that tree (e.g., `/tmp/scratch-repo`)? The `$HOME`-relative path won't match anything in protected-branches, which correctly treats it as unprotected. Confirm this is the intended behavior and that no edge case panics.
+2. **`submit --dry-run` sequencing.** The plan says dry-run prints the plan and makes no forge call, while normal submit fails early if `forge` is missing and checks duplicate PRs through `forge pr find-by-head`. Verify the dry-run path is explicit enough: which validations still run, whether `forge` must be on PATH, and whether temporary body files are avoided or cleaned up.
 
-3. **`cleanup` interaction with `record` push-retry.** If push fails, the agent retries `record` (which now retries push). But if the agent instead runs `cleanup` on the worktree before retrying, the local unpushed commit is lost. Should `cleanup` warn about unpushed commits the same way it warns about dirty files?
+3. **`cleanup` branch and remote side effects.** The plan now deletes local `agent/*` branches after an unpushed-commit check but intentionally does not delete remote branches. Verify this matches branch-collision recovery, the manual smoke test, and rollback expectations without hiding a leftover remote branch problem.
 
 ## Review Guidelines
 
