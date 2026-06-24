@@ -33,7 +33,7 @@ Prepares a workspace. Checks protected-branches and sets up isolation if needed.
 - If protected: fetches from origin, then `git worktree add <tmpdir> -b agent/<desc> origin/<protected-branch>` where `<protected-branch>` is the branch named in the protected-branches file entry (not from `git symbolic-ref refs/remotes/origin/HEAD`). Prints worktree path.
 - Exits non-zero with actionable message if `-d` is missing for a protected repo
 - Validates the `-d` value in two layers: it must match `[a-zA-Z0-9._-]+` (no spaces or slashes), and the resulting `agent/<desc>` branch must pass `git check-ref-format --branch`. Exits 1 with actionable message if invalid.
-- Exits non-zero with actionable message if `agent/<desc>` branch already exists
+- Checks both local refs and `git ls-remote --heads origin agent/<desc>` before creating the branch. Exits non-zero with actionable message if `agent/<desc>` already exists locally or on origin
 
 The caller captures the printed path and operates there.
 
