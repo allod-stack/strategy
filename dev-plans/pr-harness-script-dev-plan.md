@@ -23,7 +23,8 @@ A shell script (`allod`) with a `change` command namespace that mechanically enf
 Prepares a workspace. Checks protected-branches and sets up isolation if needed.
 
 - Resolves repo path (arg or cwd), validates it's a git repo
-- Reads `~/.config/git/protected-branches`, matches repo's `~/work/`-relative path
+- Derives the repo's `$HOME`-relative path for protected-branches lookup: from a worktree, use `git rev-parse --path-format=absolute --git-common-dir` to find the main repo's `.git` dir, take its parent; from a regular repo, use `--show-toplevel`. Strip `$HOME/` to get the lookup key (e.g., `work/allod/tools`).
+- Reads `~/.config/git/protected-branches`, matches the `$HOME`-relative path
 - Fetches from origin before creating the worktree so the base is current
 - If protected: `git worktree add <tmpdir> -b agent/<desc>` from `origin/<default-branch>`, prints worktree path
 - If not protected: prints repo path (no-op — no worktree, no branch)
@@ -53,7 +54,7 @@ Behavior:
 5. `git push -u origin HEAD` (never `--force`, never `--force-with-lease`)
 6. Print summary: branch, commit SHA
 
-Safety check: if cwd is on a protected branch's default branch (e.g. master on allod/tools), `record` refuses with exit 2 and tells the user to run `allod change begin` first.
+Safety check: resolve the repo's `$HOME`-relative path (same logic as `begin` — use `--git-common-dir` from worktrees). If the current branch matches the protected branch for this repo in `~/.config/git/protected-branches`, refuse with exit 2 and tell the user to run `allod change begin` first.
 
 #### `allod change submit [options]`
 
