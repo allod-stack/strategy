@@ -163,6 +163,7 @@ Setup: temporary git repos with a local "remote" (bare repo), mock `protected-br
 - After a failed push leaves an unpushed local commit, rerunning `record` with no staged changes retries the push
 - With existing unpushed commits and new staged changes, `record` creates a new commit and pushes both commits
 - On a branch with no upstream yet, the unpushed-commit check does not fail on `@{u}` and the push retry succeeds
+- `-M <file>` reads commit message from file; `-M -` reads from stdin
 - Never amends (verify by checking commit count)
 - Never force-pushes (verify push args passed to git)
 
@@ -177,9 +178,10 @@ Setup: temporary git repos with a local "remote" (bare repo), mock `protected-br
 - Not on a branch (detached HEAD) → exits with actionable message
 
 **cleanup tests:**
-- Clean worktree → worktree removed successfully and local agent branch deleted
+- Clean worktree → worktree removed successfully and local agent branch deleted; verify no `git push origin :<branch>` (remote branch must not be deleted)
 - Dirty worktree → warns, exits non-zero
 - Clean worktree with unpushed commits → warns, exits non-zero
+- Non-worktree path (regular repo) → exits non-zero with actionable message before any branch deletion
 
 **packaging tests:**
 ```bash
