@@ -9,12 +9,16 @@ A shell script (`allod`) with a `change` command namespace that mechanically enf
 **In scope:**
 - `allod/tools/allod` — new bash script
 - `allod/tools/tests/allod-change.sh` — tests
+- `allod/profiles/hosts/dev/home-shared.nix` — package `allod` on dev VMs
+- `allod/nexus/nix/home.nix` — package `allod` for the human/nexus Home Manager module
+- `allod/profiles/flake.lock` — update the `allod-tools` and `nexus` pins after the tool and nexus packaging changes land
 
 **Out of scope:**
-- Multi-repo sequencing (caller invokes once per repo, handles ordering)
+- Multi-repo sequencing inside the `allod` command (caller invokes once per repo, handles ordering)
 - PR commenting (caller uses `forge pr comment` directly)
 - Plan review orchestration (that's the agent's job)
 - Pre-push hook (issue #35, separate concern)
+- Rebuilding dev VMs or nexus after package wiring lands
 
 ### Interface Contracts
 
@@ -103,6 +107,12 @@ Exit codes (shared across all subcommands):
 6  PR already exists for this branch (use forge pr edit)
 ```
 
+#### Packaging contract
+
+- Dev VM and nexus Home Manager modules must install a binary named `allod`.
+- Use the existing `workspaceTool` wrapper style for `allod` so `lib/workspace.sh` is embedded and `git` is in `runtimeInputs`.
+- `forge` remains an external command. `allod change submit` checks for `forge` on PATH at runtime instead of sourcing or packaging it into `allod`.
+
 ### Reusable code
 
 - `allod/tools/lib/workspace.sh` — `workspace_is_repo_root()` for repo validation
@@ -111,7 +121,9 @@ Exit codes (shared across all subcommands):
 
 ### Agent Gates
 
-None. The script and its tests run entirely in the dev VM.
+- Human merges the `allod/tools` implementation before `profiles` can update its `allod-tools` pin to a revision containing `${allod-tools}/allod`.
+- Human merges the `allod/nexus` packaging change before `profiles` can update its `nexus` pin for the nexus Home Manager module.
+- Human rebuilds dev VMs and nexus after the profiles change lands. Until then, local tests can run the script by path, but `allod` is not guaranteed to be on PATH in live agent or human shells.
 
 ### Acceptance Tests
 
@@ -159,6 +171,13 @@ Setup: temporary git repos with a local "remote" (bare repo), mock `protected-br
 - Dirty worktree → warns, exits non-zero
 - Clean worktree with unpushed commits → warns, exits non-zero
 
+**packaging tests:**
+```bash
+cd /home/vnprc/work/allod/profiles
+nix build .#nixosConfigurations.nix-dev.config.system.build.toplevel --dry-run
+nix build .#nixosConfigurations.nexus.config.system.build.toplevel --dry-run
+```
+
 **Smoke test (manual):**
 ```bash
 # From any repo:
@@ -176,4 +195,4 @@ git -C /home/vnprc/work/allod/tools push origin ":$branch"  # remove the smoke-t
 
 ### Rollback Plan
 
-New script and test file in allod/tools. `git revert` the commit that adds them. No existing workflow files modified, no config changes, no side effects. Worktrees created by the tool are in /tmp and self-clean on reboot.
+Revert the `allod/tools` commit that adds the script and tests, the `allod/nexus` packaging commit, and the `allod/profiles` packaging/lock update commit. If smoke-test worktrees or remote branches were created, run `allod change cleanup <path>` for local worktrees and delete the smoke remote branch with `git push origin ":<branch>"`. Worktrees created by the tool are in `/tmp` and self-clean on reboot.
