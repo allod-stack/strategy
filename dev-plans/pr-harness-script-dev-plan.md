@@ -74,7 +74,7 @@ Behavior:
 1. Fail early if `forge` is not on PATH (exit 1)
 2. Validate body contains `## Validation` heading (exit 3 if missing)
 3. If `--depends-on`, append dependency line to body
-4. Check whether a PR already exists for the current branch; if so, exit with message directing the agent to use `forge pr edit` instead
+4. Check for an existing PR: `forge pr find-by-head <branch>` returns the PR number if an open PR exists, empty otherwise. If found, exit 6 with message directing the agent to use `forge pr edit` instead
 5. `forge pr create -t <title> -H <branch> [-B <base>] -F <body-file>`
 6. Print PR URL
 
