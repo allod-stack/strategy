@@ -64,7 +64,7 @@ Runs from inside the working directory (worktree or repo). Creates a PR for the 
 Options:
   -t, --title <text>         PR title (required)
   -b, --body <text>          PR body text
-  -B, --body-file <file>     PR body from file (- for stdin)
+  -F, --body-file <file>     PR body from file (- for stdin)
   --base <branch>            PR base branch (default: repo default branch)
   --depends-on <text>        Appends "Depends on: <text>" line to PR body
   --dry-run                  Print plan, don't execute
