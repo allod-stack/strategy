@@ -58,54 +58,29 @@ Signature changes from `{ identity, nvim-config, nur }` to `{ identity }`:
 
 #### New module: `secrets/modules/preferences.nix`
 
-Takes `nvim-config` and `nur` as closure parameters. Contains everything personal:
+Takes `nvim-config` and `nur` as closure parameters. Contains personal desktop preferences moved intact from the current `profiles/modules/home-shared.nix`, without publishing their exact values in this public plan.
+
+The implementation contract is structural:
+- Apply the NUR overlay needed by private browser/addon preferences.
+- Move the existing private shell preference block to secrets.
+- Move the existing private editor enablement, package list, and config-file wiring to secrets.
+- Move the existing private browser profile, addon, and settings block to secrets.
+- Move editor-specific Git preferences to secrets; keep identity-bearing Git settings in profiles.
+- Do not put identity values, SSH host maps, usernames, email addresses, or Home Manager state version in the preferences module.
+- Do not set `nixpkgs.config.allowUnfree` in the preferences module; existing explicit allowUnfree sites outside `home-shared.nix` remain responsible for unfree package evaluation.
+
+Do not use the preferences module as a new framework API. It is intentionally private user configuration exported through `homeModules.preferences` only so profiles can compose it without owning the values.
 
 ```nix
 { nvim-config, nur }: { pkgs, ... }:
 {
   nixpkgs.overlays = [ nur.overlays.default ];
 
-  programs.bash = {
-    enable = true;
-    shellAliases = {
-      claude = "mkdir -p ~/work && cd ~/work && command claude";
-      codex = "mkdir -p ~/work && cd ~/work && command codex";
-    };
-    sessionVariables = { GIT_TERMINAL_PROMPT = "1"; };
-    initExtra = ''
-      unset SSH_ASKPASS
-    '';
-  };
-
-  programs.git.settings.core.editor = "nvim";
-
-  programs.neovim = {
-    enable = true;
-    defaultEditor = true;
-    viAlias = true;
-    vimAlias = true;
-    plugins = with pkgs.vimPlugins; [
-      tokyonight-nvim fzf-lua nvim-web-devicons gitsigns-nvim
-      nvim-lspconfig oil-nvim nvim-treesitter.withAllGrammars blink-cmp
-    ];
-    extraPackages = with pkgs; [ gcc fzf ripgrep fd nixd rust-analyzer ];
-  };
-
-  xdg.configFile."nvim/init.lua".source = "${nvim-config}/init.lua";
-  xdg.configFile."nvim/lua".source = "${nvim-config}/lua";
-  xdg.configFile."nvim/CHEATSHEET.md".source = "${nvim-config}/CHEATSHEET.md";
-
-  programs.firefox = {
-    enable = true;
-    profiles.default = {
-      isDefault = true;
-      search = { default = "ddg"; force = true; };
-      extensions.packages = with pkgs.nur.repos.rycee.firefox-addons; [
-        multi-account-containers ublock-origin
-      ];
-      settings = { /* all existing privacy/telemetry settings */ };
-    };
-  };
+  # Private preference blocks moved from profiles/modules/home-shared.nix:
+  # - shell behavior
+  # - editor packages and config-file wiring through nvim-config
+  # - browser profile/addons/settings through NUR where needed
+  # - editor-specific Git defaults
 }
 ```
 
@@ -194,48 +169,26 @@ nix flake show            # all VM configurations still present
 nix build .#nixosConfigurations.<dev-vm-name>.config.system.build.toplevel --dry-run
 ```
 
-**Diff verification (manual):**
-```bash
-home_snapshot='u: {
-  home = { inherit (u.home) username homeDirectory stateVersion; };
-  git = {
-    userName = u.programs.git.settings.user.name;
-    userEmail = u.programs.git.settings.user.email;
-    coreEditor = u.programs.git.settings.core.editor;
-    credentialHelper = u.programs.git.settings.credential.helper;
-    signingKey = u.programs.git.signing.key or null;
-  };
-  sshHosts = builtins.attrNames u.programs.ssh.matchBlocks;
-  bash = { inherit (u.programs.bash) shellAliases sessionVariables initExtra; };
-  neovim = {
-    inherit (u.programs.neovim) enable defaultEditor viAlias vimAlias;
-    plugins = map (p: p.pname or (builtins.parseDrvName p.name).name) u.programs.neovim.plugins;
-    extraPackages = map (p: p.pname or (builtins.parseDrvName p.name).name) u.programs.neovim.extraPackages;
-  };
-  nvimConfig = {
-    initLua = toString u.xdg.configFile."nvim/init.lua".source;
-    lua = toString u.xdg.configFile."nvim/lua".source;
-    cheatsheet = toString u.xdg.configFile."nvim/CHEATSHEET.md".source;
-  };
-  firefox = {
-    inherit (u.programs.firefox) enable;
-    search = { inherit (u.programs.firefox.profiles.default.search) default force; };
-    extensions = map (p: p.pname or (builtins.parseDrvName p.name).name) u.programs.firefox.profiles.default.extensions.packages;
-    settings = u.programs.firefox.profiles.default.settings;
-  };
-}'
+**Private preservation verification (manual):**
 
-# Before the split, capture only concrete options that should be preserved:
+Use a local scratch Nix expression outside this repo to compare the moved Home Manager option surface before and after the split. Do not commit the expression or its JSON output; it will necessarily mention private option paths and values.
+
+The scratch expression should select only concrete leaf values from the blocks moved out of `profiles/modules/home-shared.nix`, redact identity/host-sensitive values before diffing, and avoid serializing whole Home Manager option subtrees.
+
+```bash
+# Create /tmp/home-shared-preservation.nix locally. It must not be committed.
+
+# Before the split, capture a redacted snapshot of the moved option surface:
 nix eval --no-write-lock-file --json \
   .#nixosConfigurations.<dev-vm-name>.config.home-manager.users.<username> \
-  --apply "$home_snapshot" > /tmp/before.json
+  --apply "$(cat /tmp/home-shared-preservation.nix)" > /tmp/before.json
 
 # After the split, capture again and diff:
 nix eval --no-write-lock-file --json \
   .#nixosConfigurations.<dev-vm-name>.config.home-manager.users.<username> \
-  --apply "$home_snapshot" > /tmp/after.json
+  --apply "$(cat /tmp/home-shared-preservation.nix)" > /tmp/after.json
 diff /tmp/before.json /tmp/after.json
-# Must produce no differences
+# Any difference must be intentional and recorded in the implementation PR.
 ```
 
 **Input verification:**
@@ -260,7 +213,7 @@ rg 'modules/preferences.nix|homeModules.preferences' README.md
 ```
 
 **Negative tests:**
-- `profiles/modules/home-shared.nix` contains no references to `nvim-config`, `nur`, `programs.bash`, `programs.neovim`, `programs.firefox`, `xdg.configFile`, or `core.editor = "nvim"`
+- `profiles/modules/home-shared.nix` contains no references to `nvim-config`, `nur`, `programs.bash`, `programs.neovim`, `programs.firefox`, `xdg.configFile`, or editor-specific Git defaults
 - `secrets/modules/preferences.nix` contains no references to `identity`, `programs.ssh`, `home.username`, `home.stateVersion`, `programs.git.settings.user`, or `programs.git.settings.credential`
 - `secrets/modules/preferences.nix` does not set `nixpkgs.config.allowUnfree`
 
