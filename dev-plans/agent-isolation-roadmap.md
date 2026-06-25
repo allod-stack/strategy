@@ -8,7 +8,7 @@ radius of the final allod-dev VM work.
 
 ## Sequence
 
-### 1. [Rename llm-memory to agent-memory](rename-llm-memory-plan.md)
+### 1. [Rename llm-memory to agent-memory](../archive/dev-plans/rename-llm-memory-plan.md) (complete)
 
 Pure rename across Forgejo, local checkouts, and all references. No structural
 changes. Clears the decks so later plans don't have to deal with the old name.

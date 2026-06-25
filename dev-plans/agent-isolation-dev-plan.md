@@ -6,7 +6,7 @@ These must be completed before this plan:
 - `dev-plans/parameterize-ai-agents.md` — ai-agents.nix accepts `memoryCheckout`
 - `dev-plans/per-vm-checkout-uniqueness.md` — inventory check relaxed to per-VM
 - `dev-plans/split-agent-memory.md` — `allod/memory` exists with public workflow content
-- `dev-plans/rename-llm-memory-plan.md` — repo renamed to `agent-memory`
+- ~~`dev-plans/rename-llm-memory-plan.md`~~ — complete
 
 See `dev-plans/agent-isolation-roadmap.md` for the full sequence.
 
