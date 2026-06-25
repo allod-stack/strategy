@@ -6,12 +6,12 @@ TBD — create before implementation.
 
 ## Goal
 
-Make `ai-agents.nix` accept a configurable memory repo checkout path instead of hardcoding `agent-memory`, so different VMs can point at different memory repos.
+Make `ai-agents.nix` accept a list of memory repo checkout paths instead of hardcoding `agent-memory`, so VMs can compose knowledge from multiple memory repos.
 
 ## Scope
 
 **In scope:**
-- `profiles/modules/ai-agents.nix` — add `memoryCheckout` parameter with default `"agent-memory"`
+- `profiles/modules/ai-agents.nix` — add `memoryCheckouts` list parameter with default `[ "agent-memory" ]`
 - `profiles/flake.nix` — thread the parameter through `mkDevVm` (no callers change the default yet)
 
 **Out of scope:**
@@ -21,29 +21,32 @@ Make `ai-agents.nix` accept a configurable memory repo checkout path instead of 
 ## Interface Contracts
 
 ```nix
-# ai-agents.nix — outer function gains memoryCheckout with default:
-{ identity, memoryCheckout ? "agent-memory" }: { lib, pkgs, ... }:
+# ai-agents.nix — outer function takes a list of memory repos:
+{ identity, memoryCheckouts ? [ "agent-memory" ] }: { lib, pkgs, ... }:
 {
   home.activation.llmMemoryLinks = lib.hm.dag.entryAfter ["writeBoundary"] ''
     mkdir -p "$HOME/.claude/projects/-home-${identity.username}-work"
-    ln -sfn "$HOME/work/${memoryCheckout}" "$HOME/.claude/projects/-home-${identity.username}-work/memory"
-    ln -sfn "$HOME/work/${memoryCheckout}/adapters/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+    ln -sfn "$HOME/work/${lib.last memoryCheckouts}" "$HOME/.claude/projects/-home-${identity.username}-work/memory"
+
+    cat ${lib.concatMapStringsSep " " (repo: "\"$HOME/work/${repo}/adapters/claude/CLAUDE.md\"") memoryCheckouts} > "$HOME/.claude/CLAUDE.md"
 
     mkdir -p "$HOME/.codex"
-    ln -sfn "$HOME/work/${memoryCheckout}/adapters/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
+    cat ${lib.concatMapStringsSep " " (repo: "\"$HOME/work/${repo}/adapters/codex/AGENTS.md\"") memoryCheckouts} > "$HOME/.codex/AGENTS.md"
   '';
 }
 
-# flake.nix — mkDevVm gains optional memoryCheckout, threaded to import:
-mkDevVm = { name, identity, memoryCheckout ? "agent-memory" }:
+# flake.nix — mkDevVm gains optional memoryCheckouts, threaded to import:
+mkDevVm = { name, identity, memoryCheckouts ? [ "agent-memory" ] }:
   # ...
   (import ./modules/ai-agents.nix {
     identity = secrets.lib.identity;
-    inherit memoryCheckout;
+    inherit memoryCheckouts;
   })
 ```
 
-All existing `mkDevVm` callers omit `memoryCheckout`, getting the default.
+All existing `mkDevVm` callers omit `memoryCheckouts`, getting the default.
+
+Auto-memory symlink points to the last repo in the list (most specific/private).
 
 ## Agent Gates
 
@@ -57,8 +60,8 @@ cd ~/work/allod/profiles
 nix build .#nixosConfigurations.nix-dev.config.system.build.toplevel --dry-run
 nix build .#nixosConfigurations.nexus.config.system.build.toplevel --dry-run
 
-# After rebuild, symlinks still point to agent-memory
-readlink ~/.claude/CLAUDE.md | grep agent-memory
+# After rebuild, CLAUDE.md contains agent-memory adapter content
+grep agent-memory ~/.claude/CLAUDE.md
 readlink ~/.claude/projects/-home-*-work/memory | grep agent-memory
 ```
 

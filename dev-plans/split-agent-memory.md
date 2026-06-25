@@ -6,7 +6,7 @@ TBD — create before implementation.
 
 ## Goal
 
-Create a public `Allod/memory` repo with workflow knowledge that allod-dev agents need, while keeping private data in `vnprc/agent-memory`. Non-allod VMs clone both and read them seamlessly.
+Create a public `Allod/memory` repo with workflow knowledge that allod-dev agents need, while keeping private data in `vnprc/agent-memory`. VMs compose both via the `memoryCheckouts` list — no manual cross-references needed.
 
 ## Scope
 
@@ -26,20 +26,20 @@ Create a public `Allod/memory` repo with workflow knowledge that allod-dev agent
 - `nix.md` — NixOS gotchas (nix.conf, netrc, disko, SSH key newlines)
 - `age.md` — age/agenix workflows (safe secret input, recipient keys)
 - `templates/plan-review-prompt.md` — iterative review template
-- `adapters/claude/CLAUDE.md` — allod-dev Claude adapter (points to allod memory path)
-- `adapters/codex/AGENTS.md` — allod-dev Codex adapter (points to allod memory path)
+- `adapters/claude/CLAUDE.md` — allod Claude adapter
+- `adapters/codex/AGENTS.md` — allod Codex adapter
 
 **Private repo (`vnprc/agent-memory`) — changes:**
-- `memory.md` — slim down to private root; add pointer to `allod/memory`
+- `memory.md` — slim down to private root (user preferences, private projects)
 - Remove migrated files (allod.md, git-workflow.md, dev-plans.md, security-practices.md, vm-tooling.md, vm-provisioning.md, nix.md, age.md, templates/)
-- Keep: hashpool.md, adapters/ (private versions pointing to agent-memory path)
+- Keep: hashpool.md, adapters/ (private versions)
 
 **Inventory:**
 - Add `allod/memory` to repos lists for existing dev VMs (nix-dev, rust-dev, svelte-dev)
 - Add `allod/memory` entry to `repositories.json`
 
 **Profiles:**
-- Pass `memoryCheckout = "allod/memory"` for allod-dev in `mkDevVm` (prereq: parameterize-ai-agents is landed)
+- vnprc's VMs: `memoryCheckouts = [ "allod/memory" "agent-memory" ]` (prereq: parameterize-ai-agents is landed)
 
 **Out of scope:**
 - Creating allod/secrets or allod/inventory template repos (allod-dev VM plan)
@@ -52,7 +52,7 @@ Create a public `Allod/memory` repo with workflow knowledge that allod-dev agent
 
 | File | Public (`allod/memory`) | Private (`vnprc/agent-memory`) |
 |------|---------------------------|----------------------------|
-| `memory.md` | Allod workflow root | Private root + pointer to allod/memory |
+| `memory.md` | Allod workflow root | Private root (user preferences, private projects) |
 | `allod.md` | Yes | Remove after migration |
 | `git-workflow.md` | Yes | Remove after migration |
 | `dev-plans.md` | Yes | Remove after migration |
@@ -63,17 +63,25 @@ Create a public `Allod/memory` repo with workflow knowledge that allod-dev agent
 | `age.md` | Yes | Remove after migration |
 | `templates/` | Yes | Remove after migration |
 | `hashpool.md` | No | Yes (separate project) |
-| `adapters/` | Allod-dev versions (point to allod memory) | Private versions (point to agent-memory) |
+| `adapters/` | Allod adapter | Private adapter |
 
-### Private memory.md pointer
+### Memory composition
 
-```markdown
-## Allod Workflow
-Read allod-specific workflow notes from `~/work/allod/memory/memory.md`.
-Topic files: allod.md, git-workflow.md, dev-plans.md, security-practices.md, vm-tooling.md, vm-provisioning.md, nix.md, age.md
+Each repo is self-contained — its adapter references only its own memory.md, its memory.md lists only its own topic files. No repo references any other repo.
+
+The `ai-agents.nix` module concatenates all adapters at activation time. The agent sees a single CLAUDE.md containing instructions from all repos.
+
+### User memory repos
+
+Users can optionally supply their own memory repo for private knowledge (personal preferences, non-allod projects, etc). They add it to the `memoryCheckouts` list:
+
+```nix
+memoryCheckouts = [ "allod/memory" "my-agent-memory" ]
 ```
 
-### Allod-dev adapter (`allod/memory/adapters/claude/CLAUDE.md`)
+No configuration inside the memory repo is needed — the Nix module handles composition. Users without a private repo use the default (`[ "allod/memory" ]`) and get allod's adapter alone.
+
+### Allod adapter (`allod/memory/adapters/claude/CLAUDE.md`)
 
 ```markdown
 # Claude Adapter
@@ -82,10 +90,6 @@ Read shared memory from `/home/allod/work/allod/memory/memory.md`.
 ## Claude-Specific Policy
 - Never add AI attribution anywhere
 ```
-
-### Non-allod VMs
-
-Both repos are cloned. The private `agent-memory/memory.md` references `allod/memory` by path. Agents read both seamlessly. The `ai-agents.nix` symlink still points to `agent-memory` (the default).
 
 ## Agent Gates
 
@@ -96,12 +100,12 @@ Both repos are cloned. The private `agent-memory/memory.md` references `allod/me
 
 1. **allod/memory** — initial content (public workflow files + adapters)
    - `Refs` tracking issue
-2. **vnprc/agent-memory** — slim down memory.md, remove migrated files, add pointer
+2. **vnprc/agent-memory** — slim down memory.md, remove migrated files
    - `Refs` tracking issue
 3. **vnprc/inventory** — add `allod/memory` to dev VM repos lists and repositories.json
    - `Closes` tracking issue
 
-PR 2 depends on PR 1 being merged (so the pointer target exists). PR 3 depends on PR 2.
+PRs are independent — no ordering dependency since repos don't reference each other. PR 3 should land last so the repo exists before VMs try to clone it.
 
 ## Acceptance Tests
 
@@ -134,12 +138,18 @@ grep -r 'protonmail' --include='*.md' && echo "FAIL: real email" || echo "OK"
 cd ~/work/agent-memory
 test -f hashpool.md && echo "OK" || echo "FAIL: hashpool.md missing"
 test -f adapters/claude/CLAUDE.md && echo "OK" || echo "FAIL: private adapter missing"
-grep 'allod/memory/memory.md' memory.md && echo "OK" || echo "FAIL: pointer to allod memory missing"
 ! test -f allod.md && echo "OK" || echo "FAIL: allod.md should have been removed"
 ! test -f nix.md && echo "OK" || echo "FAIL: nix.md should have been removed"
 ```
 
-### Non-allod VMs still work
+### Composed CLAUDE.md contains both adapters
+
+```bash
+grep allod/memory ~/.claude/CLAUDE.md && echo "OK" || echo "FAIL: missing allod adapter"
+grep agent-memory ~/.claude/CLAUDE.md && echo "OK" || echo "FAIL: missing private adapter"
+```
+
+### VMs still build
 
 ```bash
 cd ~/work/allod/profiles
@@ -149,7 +159,7 @@ nix build .#nixosConfigurations.nix-dev.config.system.build.toplevel --dry-run
 ## Rollback Plan
 
 1. Delete `Allod/memory` repo from Forgejo.
-2. Revert the agent-memory commits (restore migrated files, remove pointer).
+2. Revert the agent-memory commits (restore migrated files).
 3. Revert the inventory commit (remove allod/memory from repos lists).
 4. Rebuild VMs.
 
