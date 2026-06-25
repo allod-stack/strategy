@@ -21,7 +21,7 @@ Make `ai-agents.nix` accept a configurable memory repo checkout path instead of 
 ## Interface Contracts
 
 ```nix
-# ai-agents.nix becomes:
+# ai-agents.nix — outer function gains memoryCheckout with default:
 { identity, memoryCheckout ? "agent-memory" }: { lib, pkgs, ... }:
 {
   home.activation.llmMemoryLinks = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -33,9 +33,17 @@ Make `ai-agents.nix` accept a configurable memory repo checkout path instead of 
     ln -sfn "$HOME/work/${memoryCheckout}/adapters/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
   '';
 }
+
+# flake.nix — mkDevVm gains optional memoryCheckout, threaded to import:
+mkDevVm = { name, identity, memoryCheckout ? "agent-memory" }:
+  # ...
+  (import ./modules/ai-agents.nix {
+    identity = secrets.lib.identity;
+    inherit memoryCheckout;
+  })
 ```
 
-`mkDevVm` in `flake.nix` accepts an optional `memoryCheckout` and passes it through. All existing callers omit it, getting the default.
+All existing `mkDevVm` callers omit `memoryCheckout`, getting the default.
 
 ## Agent Gates
 
