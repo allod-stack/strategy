@@ -1,4 +1,14 @@
-## Implementation Plan - Agent Isolation and Secrets Visibility
+## Implementation Plan - Allod-dev VM and Agent Isolation
+
+### Prerequisites
+
+These must be completed before this plan:
+- `dev-plans/parameterize-ai-agents.md` — ai-agents.nix accepts `memoryCheckout`
+- `dev-plans/per-vm-checkout-uniqueness.md` — inventory check relaxed to per-VM
+- `dev-plans/split-agent-memory.md` — `allod/memory` exists with public workflow content
+- `notes/allod/rename-llm-memory-plan.md` — repo renamed to `agent-memory`
+
+See `dev-plans/agent-isolation-roadmap.md` for the full sequence.
 
 ### Tracking Issue
 
@@ -31,21 +41,7 @@ Phase 2b — Public inventory template (`allod/inventory`):
 - `allod/inventory/scripts/vm-specs.json` — derived from Nix attrset
 - `allod/inventory/scripts/repositories.json` — allod-org-only repo registry
 
-Phase 2c — Public agent memory (`allod/memory`):
-- `allod/memory/memory.md` — root memory file with allod workflow sections
-- `allod/memory/allod.md` — allod overview, repo inventory, forge CLI
-- `allod/memory/git-workflow.md` — branching strategy, forge CLI usage
-- `allod/memory/dev-plans.md` — dev plan guidelines and review process
-- `allod/memory/security-practices.md` — token handling policy
-- `allod/memory/vm-tooling.md` — VM package policy
-- `allod/memory/vm-provisioning.md` — provisioning stack, source of truth, gotchas
-- `allod/memory/nix.md` — NixOS gotchas (nix.conf, netrc, disko, SSH key newlines)
-- `allod/memory/age.md` — age/agenix workflows (safe secret input, recipient keys)
-- `allod/memory/templates/plan-review-prompt.md` — iterative review template
-- `allod/memory/adapters/claude/CLAUDE.md` — allod-dev Claude adapter
-- `allod/memory/adapters/codex/AGENTS.md` — allod-dev Codex adapter
-
-Phase 4 — allod-dev VM profile:
+Phase 3 — allod-dev VM profile:
 - `vnprc/inventory/flake.nix` — add `allod-dev` machine entry
 - `vnprc/inventory/scripts/vm-specs.json` — regenerate
 - `vnprc/inventory/scripts/repositories.json` — add `allod/secrets` and `allod/inventory` aliases
@@ -56,18 +52,18 @@ Phase 4 — allod-dev VM profile:
 - `profiles/hosts/dev/allod-dev/configuration.nix` — VM system config
 - `profiles/hosts/dev/allod-dev/home.nix` — Home Manager config
 
-Phase 5 — Verification:
+Phase 4 — Verification:
 - Manual verification of access control boundaries
-
-Phase 4 — allod-dev VM profile (continued):
-- `profiles/modules/ai-agents.nix` — update to support allod-dev memory path
-- `vnprc/llm-memory/memory.md` — add pointer to allod memory for non-allod VMs
 
 **Out of scope:**
 - Open-sourcing nexus or profiles (separate effort, depends on this work)
 - Pre-commit content scanning hooks (VM isolation is sufficient)
-- Changes to existing VMs (nix-dev, rust-dev, svelte-dev) beyond adding allod/memory to their repos lists
+- Changes to existing VMs (nix-dev, rust-dev, svelte-dev) beyond what prereqs already cover
 - Splitting the profiles flake to support both secrets sources (allod-dev is built from vnprc/secrets like all other VMs)
+- ai-agents.nix parameterization (prereq, already landed)
+- Checkout path collision fix (prereq, already landed)
+- Memory repo split (prereq, already landed)
+- Repo rename (prereq, already landed)
 
 ### Architecture
 
@@ -75,7 +71,7 @@ The isolation model has three layers:
 
 1. **Forge identity**: The `allod-agent` Forgejo user belongs to the `allod` org but has zero access to `vnprc/*` repos. The allod-dev VM authenticates as this user.
 
-2. **Filesystem isolation**: The allod-dev VM only clones allod org repos. Private repos (`vnprc/secrets`, `vnprc/inventory`, `vnprc/llm-memory`, `vnprc/nvim-config`) are never present on disk.
+2. **Filesystem isolation**: The allod-dev VM only clones allod org repos. Private repos (`vnprc/secrets`, `vnprc/inventory`, `vnprc/agent-memory`, `vnprc/nvim-config`) are never present on disk.
 
 3. **Public repos**: `allod/secrets`, `allod/inventory`, and `allod/memory` provide the module structure, workflow memory, and machine specs agents need for cross-repo development without exposing real identity data.
 
@@ -86,7 +82,7 @@ The allod-dev VM is built by the human through the existing profiles infrastruct
 - Run `nix flake check` against the public template repos
 
 #### What the agent CANNOT do on allod-dev:
-- Read vnprc/secrets, vnprc/inventory, or vnprc/llm-memory (not cloned)
+- Read vnprc/secrets, vnprc/inventory, or vnprc/agent-memory (not cloned)
 - Push to vnprc/* repos (allod-agent has no access)
 - See real IPs, hostnames, tokens, or personal identity data
 - Read private memory files (hashpool.md)
@@ -188,71 +184,6 @@ machines = {
 };
 ```
 
-#### `allod/memory` structure
-
-The public memory repo contains allod-generic workflow knowledge. No private identity data, no references to vnprc/* repo contents, no real IPs or hostnames.
-
-File classification:
-
-| File | Public (`allod/memory`) | Private (`vnprc/llm-memory`) |
-|------|---------------------------|----------------------------|
-| `memory.md` | Allod workflow root (PR workflow, git workflow, execution architecture, subagent usage, dev plans) | Private root (VM provisioning pointers, private repo references, personal preferences) |
-| `allod.md` | Yes | Remove after migration (replaced by public copy) |
-| `git-workflow.md` | Yes | Remove after migration |
-| `dev-plans.md` | Yes | Remove after migration |
-| `security-practices.md` | Yes | Remove after migration |
-| `vm-tooling.md` | Yes | Remove after migration |
-| `templates/` | Yes | Remove after migration |
-| `vm-provisioning.md` | Yes | Remove after migration |
-| `nix.md` | Yes | Remove after migration |
-| `age.md` | Yes | Remove after migration |
-| `hashpool.md` | No | Yes (separate project) |
-| `adapters/` | Allod-dev versions (point to allod memory path) | Private versions (point to private memory path) |
-
-The private `vnprc/llm-memory/memory.md` gets a pointer to the allod memory:
-
-```markdown
-## Allod Workflow
-Read allod-specific workflow notes from `~/work/allod/memory/memory.md`.
-Topic files: allod.md, git-workflow.md, dev-plans.md, security-practices.md, vm-tooling.md, vm-provisioning.md, nix.md, age.md
-```
-
-On non-allod VMs (nix-dev, rust-dev, svelte-dev), both repos are cloned. The private memory.md references the allod memory by path. The agent reads both seamlessly.
-
-On allod-dev, only `allod/memory` is cloned. The adapter CLAUDE.md points to it directly:
-
-```markdown
-# Claude Adapter
-Read shared memory from `/home/vnprc/work/allod/memory/memory.md`.
-
-## Claude-Specific Policy
-- Never add AI attribution anywhere
-```
-
-#### `ai-agents.nix` update
-
-The module currently hardcodes the `llm-memory` path. Update to accept the memory repo path as a parameter:
-
-```nix
-{ identity, memoryCheckout ? "llm-memory" }: { lib, pkgs, ... }:
-{
-  home.activation.llmMemoryLinks = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    mkdir -p "$HOME/.claude/projects/-home-${identity.username}-work"
-    ln -sfn "$HOME/work/${memoryCheckout}" "$HOME/.claude/projects/-home-${identity.username}-work/memory"
-    ln -sfn "$HOME/work/${memoryCheckout}/adapters/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
-
-    mkdir -p "$HOME/.codex"
-    ln -sfn "$HOME/work/${memoryCheckout}/adapters/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
-  '';
-  # ... rest unchanged
-}
-```
-
-In `profiles/flake.nix`, the `mkDevVm` builder passes the checkout path:
-
-- For allod-dev: `memoryCheckout = "allod/memory"`
-- For all other dev VMs: `memoryCheckout = "llm-memory"` (default, no change)
-
 #### `allod-dev` identity in `vnprc/secrets`
 
 New entry in `identity.devVMs`:
@@ -295,17 +226,10 @@ New entries in `repositories.json`:
   "source": "forge",
   "remote": "Allod/inventory",
   "checkout": "allod/inventory"
-},
-"allod/memory": {
-  "source": "forge",
-  "remote": "Allod/memory",
-  "checkout": "allod/memory"
 }
 ```
 
-Rename existing alias `workspace-tools` → `tools` for consistency (all other allod repos use their short name). This affects the repos lists of all existing dev VMs (nix-dev, rust-dev, svelte-dev) — update those lists in the same commit.
-
-**Checkout path collision:** The private `secrets` and `inventory` aliases already use checkout paths `allod/secrets` and `allod/inventory`. The new public aliases use the same paths. This is functionally correct — they never coexist on the same VM — but the `repository-registry` check rejects duplicate checkout paths. Resolution: relax the uniqueness check to validate per-VM (each VM's repos list must map to unique checkouts) rather than globally. This is a small change to `vnprc/inventory/flake.nix`.
+Rename existing alias `workspace-tools` -> `tools` for consistency (all other allod repos use their short name). This affects the repos lists of all existing dev VMs (nix-dev, rust-dev, svelte-dev) — update those lists in the same commit.
 
 #### `allod-dev` VM profile
 
@@ -319,7 +243,7 @@ Rename existing alias `workspace-tools` → `tools` for consistency (all other a
 - SSH matchBlock for forge.anarch.diy using `identity.sshKeyName` (resolves to `allod_vm`)
 - No GPG signing (allod-agent has no GPG key; `gpgSigningKey = null`)
 
-The `ai-agents.nix` module is updated to accept `memoryCheckout` (see interface contract above). For allod-dev, `mkDevVm` passes `memoryCheckout = "allod/memory"`, so symlinks point to `~/work/allod/memory` instead of `~/work/llm-memory`.
+For allod-dev, `mkDevVm` passes `memoryCheckout = "allod/memory"`, so symlinks point to `~/work/allod/memory` instead of `~/work/agent-memory`.
 
 #### allod-agent credential in `vnprc/secrets`
 
@@ -384,45 +308,40 @@ work/allod/memory master
 **Phase 2 — Public repos** (human creates repos, agent writes content):
 9. Create `Allod/secrets` repo on forge.anarch.diy (Forgejo web UI or API)
 10. Create `Allod/inventory` repo on forge.anarch.diy
-11. Create `Allod/memory` repo on forge.anarch.diy
-12. Generate throwaway SSH ed25519 keypair for the public repo's dummy identity: `ssh-keygen -t ed25519 -C host -f throwaway-host`
-13. Generate throwaway age keypair for the dummy identity's age encryption
-14. Create dummy age-encrypted secret files using the throwaway key
+11. Generate throwaway SSH ed25519 keypair for the public repo's dummy identity: `ssh-keygen -t ed25519 -C host -f throwaway-host`
+12. Generate throwaway age keypair for the dummy identity's age encryption
+13. Create dummy age-encrypted secret files using the throwaway key
 
-**Phase 4 — allod-dev provisioning** (human-only):
-15. Encrypt allod-agent forge SSH private key with age: creates `secrets/allod-dev-forge-key.age`
-16. Encrypt allod-agent HTTPS token with age: creates `secrets/forgejo-https-token-allod-dev.age`
-17. Run `agenix -e` or re-encryption for new secret paths
-18. Add allod-dev host key to `machine-host-keys.json` (after provisioning generates the host key)
-19. Provision allod-dev VM: `provision-vm-from-host allod-dev`
-20. Rebuild allod-dev: `rebuild-vm-from-host allod-dev`
+**Phase 3 — allod-dev provisioning** (human-only):
+14. Encrypt allod-agent forge SSH private key with age: creates `secrets/allod-dev-forge-key.age`
+15. Encrypt allod-agent HTTPS token with age: creates `secrets/forgejo-https-token-allod-dev.age`
+16. Run `agenix -e` or re-encryption for new secret paths
+17. Add allod-dev host key to `machine-host-keys.json` (after provisioning generates the host key)
+18. Provision allod-dev VM: `provision-vm-from-host allod-dev`
+19. Rebuild allod-dev: `rebuild-vm-from-host allod-dev`
 
 **Blocks:**
-- Phase 2 agent work (writing repo content) is blocked on gates 9-11 (repos must exist)
-- Phase 4 agent work (profile config) is blocked on gates 6-8 (need the real public key values)
-- Phase 4 provisioning (gates 18-20) is blocked on all agent work being merged
-- Phase 5 verification is blocked on provisioning
+- Phase 2 agent work (writing repo content) is blocked on gates 9-10 (repos must exist)
+- Phase 3 agent work (profile config) is blocked on gates 6-8 (need the real public key values)
+- Phase 3 provisioning (gates 17-19) is blocked on all agent work being merged
+- Phase 4 verification is blocked on provisioning
 
 ### PR Sequence
 
-Work spans five repos. Use `Refs` on earlier PRs and `Closes` only on the final PR.
+Work spans four repos. Use `Refs` on earlier PRs and `Closes` only on the final PR.
 
 1. **allod/secrets** — public template repo (initial content)
    - `Refs Allod/strategy#<issue>`
 2. **allod/inventory** — public template repo (initial content)
    - `Refs Allod/strategy#<issue>`
-3. **allod/memory** — public agent memory (allod workflow content)
+3. **vnprc/secrets** — add allod-dev identity and credentials
    - `Refs Allod/strategy#<issue>`
-4. **vnprc/secrets** — add allod-dev identity and credentials
+4. **vnprc/inventory** — add allod-dev machine entry, update vm-specs.json and repositories.json
    - `Refs Allod/strategy#<issue>`
-5. **vnprc/inventory** — add allod-dev machine entry, update vm-specs.json and repositories.json
-   - `Refs Allod/strategy#<issue>`
-6. **vnprc/llm-memory** — update memory.md to reference allod memory, remove migrated topic files
-   - `Refs Allod/strategy#<issue>`
-7. **vnprc/profiles** — add allod-dev VM profile, update ai-agents.nix, update flake.lock
+5. **vnprc/profiles** — add allod-dev VM profile, update flake.lock
    - `Closes Allod/strategy#<issue>`
 
-PRs 1-3 can proceed in parallel. PRs 4-5 can proceed in parallel after gates 6-8. PR 6 depends on PR 3 being merged (so the allod memory path exists). PR 7 depends on PRs 1-6 being merged and flake inputs updated.
+PRs 1-2 can proceed in parallel. PRs 3-4 can proceed in parallel after gates 6-8. PR 5 depends on PRs 1-4 being merged and flake inputs updated.
 
 ### Acceptance Tests
 
@@ -441,7 +360,6 @@ Manual grep to verify no real personal data leaked:
 
 ```bash
 cd /path/to/allod/secrets
-# Must NOT match any of these real values
 grep -r 'vnprc' --include='*.nix' --include='*.json' && echo "FAIL: real username found" || echo "OK"
 grep -r 'protonmail' --include='*.nix' && echo "FAIL: real email found" || echo "OK"
 grep -r 'AD88A262' --include='*.nix' && echo "FAIL: real GPG key found" || echo "OK"
@@ -465,35 +383,7 @@ Manual grep:
 ```bash
 cd /path/to/allod/inventory
 grep -r 'vnprc' --include='*.nix' --include='*.json' && echo "FAIL: real username found" || echo "OK"
-grep -rE 'llm-memory|nvim-config|forgejo-config' --include='*.json' && echo "FAIL: private repo reference found" || echo "OK"
-```
-
-#### Public memory validation
-
-```bash
-cd /path/to/allod/memory
-# Must contain the allod workflow root
-test -f memory.md && echo "OK" || echo "FAIL: missing memory.md"
-test -f allod.md && echo "OK" || echo "FAIL: missing allod.md"
-test -f git-workflow.md && echo "OK" || echo "FAIL: missing git-workflow.md"
-test -f dev-plans.md && echo "OK" || echo "FAIL: missing dev-plans.md"
-test -f adapters/claude/CLAUDE.md && echo "OK" || echo "FAIL: missing CLAUDE.md adapter"
-```
-
-Verify no private data:
-
-```bash
-cd /path/to/allod/memory
-grep -r 'hashpool' --include='*.md' && echo "FAIL: private project reference" || echo "OK"
-grep -rE '62\.76\.229\.|80\.71\.235\.' --include='*.md' && echo "FAIL: real VPS IP" || echo "OK"
-grep -r 'protonmail' --include='*.md' && echo "FAIL: real email" || echo "OK"
-```
-
-Verify the adapter points to the allod memory path, not the private one:
-
-```bash
-grep 'allod/memory/memory.md' /path/to/allod/memory/adapters/claude/CLAUDE.md && echo "OK" || echo "FAIL: adapter points to wrong path"
-grep -v 'llm-memory/memory.md' /path/to/allod/memory/adapters/claude/CLAUDE.md > /dev/null && echo "OK" || echo "FAIL: adapter references private memory path"
+grep -rE 'agent-memory|nvim-config|forgejo-config' --include='*.json' && echo "FAIL: private repo reference found" || echo "OK"
 ```
 
 #### allod-dev VM profile build
@@ -508,10 +398,9 @@ nix build .#nixosConfigurations.allod-dev.config.system.build.toplevel --dry-run
 After provisioning, verify the allod-dev VM's repo list contains no private repos:
 
 ```bash
-# From vnprc/inventory
 nix eval .#machines.allod-dev.repos --json | jq -r '.[]' | while read repo; do
   case "$repo" in
-    secrets|inventory|nvim-config|agent-memory|notes|forgejo-config|llm-memory)
+    secrets|inventory|nvim-config|agent-memory|notes|forgejo-config)
       echo "FAIL: private repo alias '$repo' in allod-dev repos list"
       exit 1
       ;;
@@ -530,7 +419,7 @@ git ls-remote ssh://git@forge.anarch.diy:2222/Allod/tools.git HEAD && echo "OK: 
 # Should fail with permission denied (private repo)
 git ls-remote ssh://git@forge.anarch.diy:2222/vnprc/secrets.git HEAD && echo "FAIL: private repo accessible" || echo "OK: private repo blocked"
 git ls-remote ssh://git@forge.anarch.diy:2222/vnprc/inventory.git HEAD && echo "FAIL: private repo accessible" || echo "OK: private repo blocked"
-git ls-remote ssh://git@forge.anarch.diy:2222/vnprc/llm-memory.git HEAD && echo "FAIL: private repo accessible" || echo "OK: private repo blocked"
+git ls-remote ssh://git@forge.anarch.diy:2222/vnprc/agent-memory.git HEAD && echo "FAIL: private repo accessible" || echo "OK: private repo blocked"
 ```
 
 #### Existing VM builds still pass
@@ -545,12 +434,10 @@ nix build .#nixosConfigurations.nexus.config.system.build.toplevel --dry-run
 
 **Phase 1 (Forge bot user):** Delete the `allod-agent` user from Forgejo admin panel. Remove its SSH key from the Forgejo database. No other systems are affected.
 
-**Phase 2 (Public repos):** Delete the `Allod/secrets`, `Allod/inventory`, and `Allod/memory` repos from Forgejo. No downstream consumers exist yet.
+**Phase 2 (Public repos):** Delete the `Allod/secrets` and `Allod/inventory` repos from Forgejo. No downstream consumers exist yet.
 
-**Phase 4-5 (vnprc/secrets and vnprc/inventory changes):** Revert the commits that added allod-dev entries to `identity.devVMs`, `credentials.nix`, `secrets.nix`, `machine-host-keys.json`, `machines`, `vm-specs.json`, and `repositories.json`. Re-run `agenix --rekey` to remove the orphaned secret paths. Regenerate vm-specs.json: `nix eval .#lib.vmSpecsJson --raw | jq -S . > scripts/vm-specs.json`.
+**Phase 3 (vnprc/secrets and vnprc/inventory changes):** Revert the commits that added allod-dev entries to `identity.devVMs`, `credentials.nix`, `secrets.nix`, `machine-host-keys.json`, `machines`, `vm-specs.json`, and `repositories.json`. Re-run `agenix --rekey` to remove the orphaned secret paths. Regenerate vm-specs.json: `nix eval .#lib.vmSpecsJson --raw | jq -S . > scripts/vm-specs.json`.
 
-**Phase 6 (vnprc/llm-memory changes):** Revert the memory.md pointer update. Restore any topic files that were removed during migration. These files are still in git history if needed.
-
-**Phase 7 (profiles):** Delete the `profiles/hosts/dev/allod-dev/` directory. Revert the `ai-agents.nix` changes (remove `memoryCheckout` parameter). Revert the flake.lock to before the allod-dev-related input updates. Verify existing VMs still build with `nix build --dry-run`.
+**Phase 5 (profiles):** Delete the `profiles/hosts/dev/allod-dev/` directory. Revert the flake.lock to before the allod-dev-related input updates. Verify existing VMs still build with `nix build --dry-run`.
 
 **allod-dev VM:** If provisioned, destroy with `virsh destroy allod-dev && virsh undefine allod-dev --remove-all-storage`. Remove the allod-dev host key from `machine-host-keys.json`.
