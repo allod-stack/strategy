@@ -38,6 +38,9 @@ Phase 2c — Public agent memory (`allod/memory`):
 - `allod/memory/dev-plans.md` — dev plan guidelines and review process
 - `allod/memory/security-practices.md` — token handling policy
 - `allod/memory/vm-tooling.md` — VM package policy
+- `allod/memory/vm-provisioning.md` — provisioning stack, source of truth, gotchas
+- `allod/memory/nix.md` — NixOS gotchas (nix.conf, netrc, disko, SSH key newlines)
+- `allod/memory/age.md` — age/agenix workflows (safe secret input, recipient keys)
 - `allod/memory/templates/plan-review-prompt.md` — iterative review template
 - `allod/memory/adapters/claude/CLAUDE.md` — allod-dev Claude adapter
 - `allod/memory/adapters/codex/AGENTS.md` — allod-dev Codex adapter
@@ -79,17 +82,14 @@ The isolation model has three layers:
 The allod-dev VM is built by the human through the existing profiles infrastructure (using `vnprc/secrets` for build-time identity). What the agent sees at runtime is controlled by the repos list and the forge credentials provisioned onto the VM.
 
 #### What the agent CAN do on allod-dev:
-- Read and edit allod/* repos (tools, strategy, vm, profiles, nexus)
-- Read and edit allod/secrets, allod/inventory, allod/memory (public repos)
-- Push to allod/* repos via the allod-agent forge identity
+- Read, edit, and push to allod/* repos via the allod-agent forge identity
 - Run `nix flake check` against the public template repos
-- Read and write allod-specific agent memory
 
 #### What the agent CANNOT do on allod-dev:
 - Read vnprc/secrets, vnprc/inventory, or vnprc/llm-memory (not cloned)
 - Push to vnprc/* repos (allod-agent has no access)
 - See real IPs, hostnames, tokens, or personal identity data
-- Read private memory files (vm-provisioning.md, nix.md, age.md, hashpool.md)
+- Read private memory files (hashpool.md)
 
 #### Cross-repo development workflow:
 1. Agent implements structural changes in allod/secrets or allod/inventory
@@ -203,9 +203,9 @@ File classification:
 | `security-practices.md` | Yes | Remove after migration |
 | `vm-tooling.md` | Yes | Remove after migration |
 | `templates/` | Yes | Remove after migration |
-| `vm-provisioning.md` | No | Yes (references private repo paths, source of truth for secrets) |
-| `nix.md` | No | Yes (references private config paths) |
-| `age.md` | No | Yes (references private key paths) |
+| `vm-provisioning.md` | Yes | Remove after migration |
+| `nix.md` | Yes | Remove after migration |
+| `age.md` | Yes | Remove after migration |
 | `hashpool.md` | No | Yes (separate project) |
 | `adapters/` | Allod-dev versions (point to allod memory path) | Private versions (point to private memory path) |
 
@@ -214,7 +214,7 @@ The private `vnprc/llm-memory/memory.md` gets a pointer to the allod memory:
 ```markdown
 ## Allod Workflow
 Read allod-specific workflow notes from `~/work/allod/memory/memory.md`.
-Topic files: allod.md, git-workflow.md, dev-plans.md, security-practices.md, vm-tooling.md
+Topic files: allod.md, git-workflow.md, dev-plans.md, security-practices.md, vm-tooling.md, vm-provisioning.md, nix.md, age.md
 ```
 
 On non-allod VMs (nix-dev, rust-dev, svelte-dev), both repos are cloned. The private memory.md references the allod memory by path. The agent reads both seamlessly.
@@ -484,8 +484,6 @@ Verify no private data:
 
 ```bash
 cd /path/to/allod/memory
-grep -r 'vm-provisioning' --include='*.md' && echo "FAIL: private topic reference" || echo "OK"
-grep -r 'age\.md' --include='*.md' && echo "FAIL: private topic reference" || echo "OK"
 grep -r 'hashpool' --include='*.md' && echo "FAIL: private project reference" || echo "OK"
 grep -rE '62\.76\.229\.|80\.71\.235\.' --include='*.md' && echo "FAIL: real VPS IP" || echo "OK"
 grep -r 'protonmail' --include='*.md' && echo "FAIL: real email" || echo "OK"
