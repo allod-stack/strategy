@@ -2,7 +2,7 @@
 
 ## Tracking Issue
 
-TBD — create before implementation.
+https://forge.anarch.diy/vnprc/profiles/issues/68
 
 ## Goal
 
