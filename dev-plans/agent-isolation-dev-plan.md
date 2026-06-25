@@ -45,7 +45,7 @@ Phase 2c — Public agent memory (`allod/llm-memory`):
 Phase 4 — allod-dev VM profile:
 - `vnprc/inventory/flake.nix` — add `allod-dev` machine entry
 - `vnprc/inventory/scripts/vm-specs.json` — regenerate
-- `vnprc/inventory/scripts/repositories.json` — add `allod-secrets` and `allod-inventory` aliases
+- `vnprc/inventory/scripts/repositories.json` — add `allod/secrets` and `allod/inventory` aliases
 - `vnprc/secrets/identity.nix` — add `allod-dev` to `devVMs`
 - `vnprc/secrets/credentials.nix` — add `allod_vm` forge-git credential
 - `vnprc/secrets/secrets.nix` — add allod-dev token paths
@@ -63,7 +63,7 @@ Phase 4 — allod-dev VM profile (continued):
 **Out of scope:**
 - Open-sourcing nexus or profiles (separate effort, depends on this work)
 - Pre-commit content scanning hooks (VM isolation is sufficient)
-- Changes to existing VMs (nix-dev, rust-dev, svelte-dev) beyond adding allod-memory to their repos lists
+- Changes to existing VMs (nix-dev, rust-dev, svelte-dev) beyond adding allod/memory to their repos lists
 - Splitting the profiles flake to support both secrets sources (allod-dev is built from vnprc/secrets like all other VMs)
 
 ### Architecture
@@ -183,7 +183,7 @@ machines = {
     ip = "192.168.122.10";
     mac = "52:54:00:00:00:10";
     forge_key = "dev_1";
-    repos = [ "profiles" "workspace-tools" "strategy" ];
+    repos = [ "profiles" "tools" "strategy" ];
   };
 };
 ```
@@ -213,7 +213,7 @@ The private `vnprc/llm-memory/memory.md` gets a pointer to the allod memory:
 
 ```markdown
 ## Allod Workflow
-Read allod-specific workflow notes from `~/work/allod-memory/memory.md`.
+Read allod-specific workflow notes from `~/work/allod/memory/memory.md`.
 Topic files: allod.md, git-workflow.md, dev-plans.md, security-practices.md, vm-tooling.md
 ```
 
@@ -223,7 +223,7 @@ On allod-dev, only `allod/llm-memory` is cloned. The adapter CLAUDE.md points to
 
 ```markdown
 # Claude Adapter
-Read shared memory from `/home/vnprc/work/allod-memory/memory.md`.
+Read shared memory from `/home/vnprc/work/allod/memory/memory.md`.
 
 ## Claude-Specific Policy
 - Never add AI attribution anywhere
@@ -250,7 +250,7 @@ The module currently hardcodes the `llm-memory` path. Update to accept the memor
 
 In `profiles/flake.nix`, the `mkDevVm` builder passes the checkout path:
 
-- For allod-dev: `memoryCheckout = "allod-memory"`
+- For allod-dev: `memoryCheckout = "allod/memory"`
 - For all other dev VMs: `memoryCheckout = "llm-memory"` (default, no change)
 
 #### `allod-dev` identity in `vnprc/secrets`
@@ -277,7 +277,7 @@ allod-dev = {
   ip = "192.168.122.15";
   mac = "52:54:00:ab:cd:15";
   forge_key = "allod_vm";
-  repos = [ "profiles" "vm" "nexus" "workspace-tools" "strategy" "allod-secrets" "allod-inventory" "allod-memory" ];
+  repos = [ "profiles" "vm" "nexus" "tools" "strategy" "allod/secrets" "allod/inventory" "allod/memory" ];
 };
 ```
 
@@ -286,22 +286,26 @@ The `repos` list excludes all vnprc-private aliases: `secrets`, `inventory`, `nv
 New entries in `repositories.json`:
 
 ```json
-"allod-secrets": {
+"allod/secrets": {
   "source": "forge",
   "remote": "Allod/secrets",
-  "checkout": "allod/allod-secrets"
+  "checkout": "allod/secrets"
 },
-"allod-inventory": {
+"allod/inventory": {
   "source": "forge",
   "remote": "Allod/inventory",
-  "checkout": "allod/allod-inventory"
+  "checkout": "allod/inventory"
 },
-"allod-memory": {
+"allod/memory": {
   "source": "forge",
   "remote": "Allod/llm-memory",
-  "checkout": "allod-memory"
+  "checkout": "allod/memory"
 }
 ```
+
+Rename existing alias `workspace-tools` → `tools` for consistency (all other allod repos use their short name). This affects the repos lists of all existing dev VMs (nix-dev, rust-dev, svelte-dev) — update those lists in the same commit.
+
+**Checkout path collision:** The private `secrets` and `inventory` aliases already use checkout paths `allod/secrets` and `allod/inventory`. The new public aliases use the same paths. This is functionally correct — they never coexist on the same VM — but the `repository-registry` check rejects duplicate checkout paths. Resolution: relax the uniqueness check to validate per-VM (each VM's repos list must map to unique checkouts) rather than globally. This is a small change to `vnprc/inventory/flake.nix`.
 
 #### `allod-dev` VM profile
 
@@ -315,7 +319,7 @@ New entries in `repositories.json`:
 - SSH matchBlock for forge.anarch.diy using `identity.sshKeyName` (resolves to `allod_vm`)
 - No GPG signing (allod-agent has no GPG key; `gpgSigningKey = null`)
 
-The `ai-agents.nix` module is updated to accept `memoryCheckout` (see interface contract above). For allod-dev, `mkDevVm` passes `memoryCheckout = "allod-memory"`, so symlinks point to `~/work/allod-memory` instead of `~/work/llm-memory`.
+The `ai-agents.nix` module is updated to accept `memoryCheckout` (see interface contract above). For allod-dev, `mkDevVm` passes `memoryCheckout = "allod/memory"`, so symlinks point to `~/work/allod/memory` instead of `~/work/llm-memory`.
 
 #### allod-agent credential in `vnprc/secrets`
 
@@ -356,9 +360,9 @@ work/allod/strategy master
 work/allod/vm master
 work/allod/nexus master
 work/allod/profiles master
-work/allod/allod-secrets master
-work/allod/allod-inventory master
-work/allod-memory master
+work/allod/secrets master
+work/allod/inventory master
+work/allod/memory master
 ```
 
 `git/allowed-external-remotes`: empty (allod-dev should only push to forge.anarch.diy)
@@ -490,7 +494,7 @@ grep -r 'protonmail' --include='*.md' && echo "FAIL: real email" || echo "OK"
 Verify the adapter points to the allod memory path, not the private one:
 
 ```bash
-grep 'allod-memory/memory.md' /path/to/allod/llm-memory/adapters/claude/CLAUDE.md && echo "OK" || echo "FAIL: adapter points to wrong path"
+grep 'allod/memory/memory.md' /path/to/allod/llm-memory/adapters/claude/CLAUDE.md && echo "OK" || echo "FAIL: adapter points to wrong path"
 grep -v 'llm-memory/memory.md' /path/to/allod/llm-memory/adapters/claude/CLAUDE.md > /dev/null && echo "OK" || echo "FAIL: adapter references private memory path"
 ```
 
