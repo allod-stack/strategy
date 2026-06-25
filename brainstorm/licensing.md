@@ -2,7 +2,7 @@
 
 ## Context
 
-Allod is a self-sovereign NixOS VM stack for agentic coding and privacy tasks. The public repos live on a self-hosted Forgejo instance (forge.anarch.diy/allod). The project includes CLI tools (forge, allod change), NixOS modules, VM configs, and workspace orchestration scripts. Some repos stay private (secrets, inventory, nvim-config, llm-memory); the licensing decision applies to the public repos.
+Allod is a self-sovereign NixOS VM stack for agentic coding and privacy tasks. The public repos live on a self-hosted Forgejo instance (forge.anarch.diy/allod). The project includes CLI tools (forge, allod change), NixOS modules, VM configs, and workspace orchestration scripts. Some repos stay private (secrets, inventory, nvim-config, agent-memory); the licensing decision applies to the public repos.
 
 Core values that inform the license choice: sovereignty, privacy, no central authority, self-hosting over platform dependence.
 
