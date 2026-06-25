@@ -38,7 +38,7 @@ Phase 2c — Public agent memory (`allod/memory`):
 - `allod/memory/dev-plans.md` — dev plan guidelines and review process
 - `allod/memory/security-practices.md` — token handling policy
 - `allod/memory/vm-tooling.md` — VM package policy
-- `allod/memory/examples/plan-review-prompt.md` — iterative review template
+- `allod/memory/templates/plan-review-prompt.md` — iterative review template
 - `allod/memory/adapters/claude/CLAUDE.md` — allod-dev Claude adapter
 - `allod/memory/adapters/codex/AGENTS.md` — allod-dev Codex adapter
 
@@ -202,7 +202,7 @@ File classification:
 | `dev-plans.md` | Yes | Remove after migration |
 | `security-practices.md` | Yes | Remove after migration |
 | `vm-tooling.md` | Yes | Remove after migration |
-| `examples/` | Yes | Remove after migration |
+| `templates/` | Yes | Remove after migration |
 | `vm-provisioning.md` | No | Yes (references private repo paths, source of truth for secrets) |
 | `nix.md` | No | Yes (references private config paths) |
 | `age.md` | No | Yes (references private key paths) |
