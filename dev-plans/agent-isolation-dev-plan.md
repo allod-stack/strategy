@@ -283,7 +283,17 @@ New entries in `repositories.json`:
   - `gitPolicySource ? secrets`
   - `preferencesModule ? secrets.homeModules.preferences`
   - `memoryCheckouts ? [ "allod/memory" "agent-memory" ]`
-  - `tokenFile ? "${secrets}/secrets/agent-pr-token.age"`
+  - `tokenFile ? identity.agentTokenFile`
+  - `devSpecialArgs ? { inherit secrets; }` — legacy dev host configs still receive `secrets`; allod-dev must set this to `{}`
+  - `enablePrBranchSync ? true` — allod-dev must set this to `false` because the helper script currently lives in the private profiles source tree
+- Build `specialArgs` for dev VMs as `({ inherit hostPublicKey identity tokenFile; username = identity.username; } // devSpecialArgs)`. Do not pass `secrets` through `specialArgs` for allod-dev. Passing `secrets` as an unused module argument is still a boundary violation because any allod-dev host module could then pull private source paths back into the closure.
+- Wire the optional parameters through the existing imports:
+  - `home-shared.nix` receives `identity = runtimeIdentity`
+  - `ai-agents.nix` receives `identity = runtimeIdentity` and `memoryCheckouts`
+  - `agent-hooks.nix` receives `gitPolicySource`, not `secrets`
+  - `preferencesModule` replaces `secrets.homeModules.preferences`
+  - `agent-forgejo-token.nix` receives `tokenFile`, not `secrets`
+- Update `agent-hooks.nix` to take `{ allod-tools, gitPolicySource, enablePrBranchSync ? true }`. All git policy files must source from `gitPolicySource`. The `sync-pr-branch-protection.sh` `home.file` and activation must be wrapped in `lib.mkIf enablePrBranchSync`; allod-dev disables it so the private `profiles/modules/sync-pr-branch-protection.sh` file is not copied into the runtime closure.
 - Update `machineConfigurations` dispatch to pass allod-dev-specific overrides. The current dispatch calls `builder { inherit name identity; }` for all VMs and ignores optional `mkDevVm` parameters. Add a per-VM override attrset keyed by name:
   ```nix
   devVmOverrides = {
@@ -293,6 +303,8 @@ New entries in `repositories.json`:
       preferencesModule = allod-secrets.homeModules.preferences;
       memoryCheckouts = [ "allod/memory" ];
       tokenFile = identity.agentTokenFile;
+      devSpecialArgs = {};
+      enablePrBranchSync = false;
     };
   };
   ```
@@ -300,13 +312,13 @@ New entries in `repositories.json`:
 - For existing dev VMs, no overrides exist so defaults apply — behavior is unchanged.
 
 `profiles/hosts/dev/allod-dev/configuration.nix`:
-- Imports `agent-forgejo-token.nix` with `tokenFile = identity.agentTokenFile`; do not use the shared `agent-pr-token.age`
+- Imports `agent-forgejo-token.nix` with the `tokenFile` specialArg; do not import `secrets` and do not use the shared `agent-pr-token.age`
 - Packages: `git`, `jq`, `age` — no nix linting tools unless needed
 - No special system config beyond the dev VM baseline
 
 `profiles/hosts/dev/allod-dev/home.nix`:
 - Packages: `claude-code`, `codex` (same as other dev VMs)
-- SSH matchBlock for forge.anarch.diy using the allod-dev forge key `identity.sshKeyName` (resolves to `allod_vm`) and the public runtime forge host/port
+- SSH matchBlock for forge.anarch.diy using the allod-dev forge key `identity.sshKeyName` (resolves to `allod_vm`) and `runtimeIdentity.forgeHost`/`runtimeIdentity.forgePort`
 - No GPG signing (allod-agent has no GPG key; `gpgSigningKey = null`)
 
 For allod-dev, `mkDevVm` passes `memoryCheckouts = [ "allod/memory" ]`, so symlinks point to `~/work/allod/memory` instead of `~/work/agent-memory`.
