@@ -517,6 +517,11 @@ for attr in forgeTokenFile agentTokenFile; do
     echo "FAIL: ${attr} is not a regular file store path: ${token_path}"
     exit 1
   }
+  parent=$(dirname "$token_path")
+  if [[ "$parent" != "/nix/store" ]]; then
+    echo "FAIL: ${attr} is inside a directory store path (parent: ${parent}), not a standalone file"
+    exit 1
+  fi
 done
 
 identity_json=$(nix eval --json ".#lib.devIdentities.allod-dev")
