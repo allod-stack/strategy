@@ -32,13 +32,7 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
-
-1. **Gate sequencing and PR scope alignment.** Verify the renumbered gates (18-24) are sequenced so every file referenced by `provision-vm-from-host` exists before gate 23 runs. Verify PRs 3 and 6 scope entries match the credentials and host key files the gates produce.
-
-2. **Existing dev VM configuration.nix caller updates.** The scope now says signature updates to existing configuration.nix files are in scope. Verify the plan's `agent-forgejo-token.nix` refactoring (from `{ identity, secrets }` to `{ identity, tokenFile }`) is consistent with how existing nix-dev, rust-dev, and svelte-dev configuration.nix files import it, and that `tokenFile` reaches them through specialArgs.
-
-Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
+No targeted focus areas remain after the latest pass. Do not run another review unless the Agent Isolation Dev Plan changes; if it changes, start from the standing focus areas in `dev-plans.md` and ground the review in the codebase.
 
 ## Review Guidelines
 
