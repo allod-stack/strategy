@@ -4,7 +4,7 @@ You are walking into the Vegas cage as the undefeated heavyweight of Bash failur
 
 ## Your Task
 
-Review the [rotate-ssh-key init dev plan](../dev-plans/rotate-ssh-key-init.md) for gaps, misunderstandings, bugs, and flaws. Be direct and specific. Flag anything that will block implementation, create unnecessary work, or leave a landmine for future changes.
+Review the [vm-ssh-host-key init dev plan](../dev-plans/vm-ssh-host-key-init.md) for gaps, misunderstandings, bugs, and flaws. Be direct and specific. Flag anything that will block implementation, create unnecessary work, or leave a landmine for future changes.
 
 Read the actual codebase to ground the review in reality. Do not review the plan in isolation.
 
@@ -13,14 +13,14 @@ Read the actual codebase to ground the review in reality. Do not review the plan
 **Allod** is a NixOS-based infrastructure project managing dev VMs, secrets, SSH host trust, and agent workflows through interconnected flake repos.
 
 Key repos in play:
-- `allod/nexus` - host-side provisioning scripts, including `scripts/rotate-ssh-key`
+- `allod/nexus` - host-side provisioning scripts, including `scripts/vm-ssh-host-key`
 - `allod/inventory` - machine inventory, `scripts/vm-specs.json`, and repository checkout registry
 - `allod/secrets` - `machine-host-keys.json`, `credentials.nix`, `secrets.nix`, and agenix-encrypted secrets
 - `allod/profiles` - per-VM NixOS profiles and encrypted VM SSH host-key backups in `secrets/<vm>-ssh.{age,pub}`
 - `allod/vm` - shared VM flake and the agenix app exposed for host-side rekeying
 
 Current state:
-- `rotate-ssh-key` supports `stage`, `activate`, and `retire`; the dispatcher and usage text currently reject anything else.
+- `vm-ssh-host-key` supports `stage`, `activate`, and `retire`; the dispatcher and usage text currently reject anything else.
 - `stage` generates an ed25519 key in `/dev/shm`, encrypts the private key into `profiles/secrets/${TARGET}-ssh.age`, copies the public key into `profiles/secrets/${TARGET}-ssh.pub`, writes `.staged` in `secrets/machine-host-keys.json`, runs `$AGENIX -r -i "$AGE_IDENTITY"` from the secrets repo, and writes active plus staged entries to `KNOWN_HOSTS_VMS`.
 - `activate` and `retire` assume an existing active key plus a staged key. `init` is supposed to create the first active key before provisioning, with no activate or retire cycle afterward.
 - `secrets/credentials.nix` derives VM machine-host credential entries from `machine-host-keys.json`; VM host entries are not hand-edited in Nix.

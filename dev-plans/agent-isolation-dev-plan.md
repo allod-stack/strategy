@@ -7,7 +7,7 @@ These must be completed before this plan:
 - `archive/dev-plans/per-vm-checkout-uniqueness.md` — inventory check relaxed to per-VM
 - `archive/dev-plans/split-agent-memory.md` — `allod/memory` exists with public workflow content
 - `archive/dev-plans/rename-llm-memory-plan.md` — repo rename complete
-- `dev-plans/rotate-ssh-key-init.md` — `rotate-ssh-key init` command exists for initial VM host key generation
+- `dev-plans/vm-ssh-host-key-init.md` — `vm-ssh-host-key init` command exists for initial VM host key generation
 
 See `dev-plans/agent-isolation-roadmap.md` for the full sequence.
 
@@ -448,7 +448,7 @@ work/allod/memory master
 15. Encrypt allod-agent forge SSH private key with age: creates `secrets/allod-dev-forge-key.age`
 16. Encrypt allod-agent HTTPS token with age: creates `secrets/forgejo-https-token-allod-dev.age`
 17. Encrypt allod-agent raw API token with age: creates `secrets/agent-pr-token-allod-dev.age`
-18. After PR 4's `allod-dev` inventory entry is present locally, generate the allod-dev VM host key: `rotate-ssh-key init allod-dev` — generates keypair, writes `profiles/secrets/allod-dev-ssh.{age,pub}`, creates the `machine-host-keys.json` entry that derives `allod-dev-host`, re-encrypts secrets, and updates `known_hosts_vms` (prereq: `rotate-ssh-key-init.md`)
+18. After PR 4's `allod-dev` inventory entry is present locally, generate the allod-dev VM host key: `vm-ssh-host-key init allod-dev` — generates keypair, writes `profiles/secrets/allod-dev-ssh.{age,pub}`, creates the `machine-host-keys.json` entry that derives `allod-dev-host`, re-encrypts secrets, and updates `known_hosts_vms` (prereq: `vm-ssh-host-key-init.md`)
 19. Commit and push the gate 15-18 outputs into the relevant implementation PRs: PR 3 carries the private secrets files, `keys/allod_vm.pub`, `credentials.nix`, `secrets.nix`, and `machine-host-keys.json`; PR 6 carries `profiles/secrets/allod-dev-ssh.{age,pub}`
 20. Merge all implementation PRs, with PR 6 last because it closes the issue
 21. Provision allod-dev VM: `provision-vm-from-host allod-dev`
@@ -479,7 +479,7 @@ Work spans six repos. Use `Refs` on earlier PRs and `Closes` only on the final P
 6. **vnprc/profiles** — add allod-dev VM profile, gate-generated `profiles/secrets/allod-dev-ssh.{age,pub}`, and update flake.lock
    - `Closes Allod/strategy#<issue>`
 
-PRs 1-2 can proceed in parallel. PRs 3-5 can begin after gates 6-9, but PR 3 cannot pass final checks until gates 15-18 are applied. Gate 18 requires PR 4's allod-dev inventory entry to be present locally because `rotate-ssh-key init` validates the target against `vm-specs.json`. PR 6 depends on PRs 1, 3, 4, and 5 being merged, gate 18's profiles key files being committed, and the `allod-secrets` flake input being locked. There is no profiles flake input for `allod/inventory`; that repo is only a runtime checkout.
+PRs 1-2 can proceed in parallel. PRs 3-5 can begin after gates 6-9, but PR 3 cannot pass final checks until gates 15-18 are applied. Gate 18 requires PR 4's allod-dev inventory entry to be present locally because `vm-ssh-host-key init` validates the target against `vm-specs.json`. PR 6 depends on PRs 1, 3, 4, and 5 being merged, gate 18's profiles key files being committed, and the `allod-secrets` flake input being locked. There is no profiles flake input for `allod/inventory`; that repo is only a runtime checkout.
 
 ### Acceptance Tests
 

@@ -1,4 +1,4 @@
-## Implementation Plan — rotate-ssh-key init command
+## Implementation Plan — vm-ssh-host-key init command
 
 ### Tracking Issue
 
@@ -6,21 +6,21 @@ https://forge.anarch.diy/vnprc/nexus/issues/56
 
 ### Goal
 
-Add an `init` command to `rotate-ssh-key` that generates the first SSH host key for a new VM, so initial provisioning uses the same tooling as key rotation instead of ad-hoc manual steps.
+Add an `init` command to `vm-ssh-host-key` that generates the first SSH host key for a new VM, so initial provisioning uses the same tooling as key rotation instead of ad-hoc manual steps.
 
 ### Scope
 
 **In scope:**
-- `nexus/scripts/rotate-ssh-key` — add `init` command alongside existing `stage`/`activate`/`retire`
+- `nexus/scripts/vm-ssh-host-key` — add `init` command alongside existing `stage`/`activate`/`retire`
 
 **Out of scope:**
 - Changes to `stage`, `activate`, or `retire` behavior
-- Test infrastructure for rotate-ssh-key (no existing test file; adding one is a separate effort)
+- Test infrastructure for vm-ssh-host-key (no existing test file; adding one is a separate effort)
 
 ### Interface Contracts
 
 ```
-rotate-ssh-key init <target>
+vm-ssh-host-key init <target>
 ```
 
 Preconditions:
@@ -50,7 +50,7 @@ Differences from `stage`:
 
 ### Agent Gates
 
-- Do not run `rotate-ssh-key init <real-target>` as part of implementation review. A successful real run generates SSH host key material, rewrites `allod/secrets`, writes `allod/profiles` secrets, and mutates `KNOWN_HOSTS_VMS`; that is a host-side human operation after the command is merged.
+- Do not run `vm-ssh-host-key init <real-target>` as part of implementation review. A successful real run generates SSH host key material, rewrites `allod/secrets`, writes `allod/profiles` secrets, and mutates `KNOWN_HOSTS_VMS`; that is a host-side human operation after the command is merged.
 - Agents may run package, lint, dispatcher, and isolated temporary-fixture tests that do not touch real Allod secrets or host trust files.
 
 ### Acceptance Tests
@@ -60,14 +60,14 @@ cd ~/work/allod/nexus
 nix flake check
 ```
 
-`nix flake check` already runs `bash -n`, `shellcheck -x`, and `test -x` on `rotate-ssh-key` via the `provisioning-contract` check.
+`nix flake check` already runs `bash -n`, `shellcheck -x`, and `test -x` on `vm-ssh-host-key` via the `provisioning-contract` check.
 
 Verify the dispatcher accepts `init` (reaches the inventory validation path, not "unknown command"):
 
 ```bash
 nix build .#packages.x86_64-linux.provisioning-scripts
 err=$(mktemp)
-if result/bin/rotate-ssh-key init __definitely_missing_vm__ 2> "$err"; then
+if result/bin/vm-ssh-host-key init __definitely_missing_vm__ 2> "$err"; then
   echo "expected missing inventory failure"
   exit 1
 fi
@@ -120,7 +120,7 @@ PATH="$tmp/bin:$PATH" \
   AGE_IDENTITY="$tmp/host" \
   KNOWN_HOSTS_VMS="$tmp/known_hosts_vms" \
   AGENIX=: \
-  result/bin/rotate-ssh-key init init-vm
+  result/bin/vm-ssh-host-key init init-vm
 
 jq -e '."init-vm".active | startswith("ssh-ed25519 ")' "$tmp/secrets/machine-host-keys.json"
 jq -e '."init-vm".staged == null' "$tmp/secrets/machine-host-keys.json"

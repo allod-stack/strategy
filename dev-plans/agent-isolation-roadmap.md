@@ -32,9 +32,9 @@ Create `Allod/memory` with public workflow knowledge. Update `agent-memory` to
 keep only private files and point to the public repo. Add `allod/memory` to
 existing dev VM repos lists. Uses the parameterized `ai-agents.nix` from step 2.
 
-### 5. [rotate-ssh-key init command](rotate-ssh-key-init.md)
+### 5. [vm-ssh-host-key init command](vm-ssh-host-key-init.md)
 
-Add an `init` command to `rotate-ssh-key` for generating the first SSH host key
+Add an `init` command to `vm-ssh-host-key` for generating the first SSH host key
 for a new VM. Reuses the same key generation, age encryption, and
 machine-host-keys.json plumbing as the existing `stage` command. Required so
 allod-dev provisioning uses standard tooling instead of ad-hoc manual steps.
@@ -52,7 +52,7 @@ fix, and host key init tooling are already done.
 1 (rename) ──> 2 (ai-agents.nix) ──> 4 (memory split) ──> 6 (allod-dev VM)
                                                        /  /
                           3 (checkout uniqueness) ─────/ /
-                          5 (rotate-ssh-key init) ──────/
+                          5 (vm-ssh-host-key init) ──────/
 ```
 
 Steps 1-3 and 5 have no dependencies on each other and can proceed in parallel.
