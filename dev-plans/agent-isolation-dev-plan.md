@@ -43,23 +43,31 @@ Phase 2b — Public inventory template (`allod/inventory`):
 
 Phase 3 — allod-dev VM profile:
 - `vnprc/inventory/flake.nix` — add `allod-dev` machine entry
+- `vnprc/inventory/flake.nix` — allow isolated dev VMs that do not self-rebuild from a local profiles checkout
 - `vnprc/inventory/scripts/vm-specs.json` — regenerate
 - `vnprc/inventory/scripts/repositories.json` — add `allod/secrets` and `allod/inventory` aliases
-- `vnprc/secrets/identity.nix` — add `allod-dev` to `devVMs`
-- `vnprc/secrets/credentials.nix` — add `allod_vm` forge-git credential
-- `vnprc/secrets/secrets.nix` — add allod-dev token paths
+- `vnprc/secrets/identity.nix` — add `allod-dev` to `devVMs` with the public runtime username and allod-agent forge user
+- `vnprc/secrets/flake.nix` — allow per-VM username/forge-user overrides in `devIdentities`
+- `vnprc/secrets/credentials.nix` — add `allod_vm` forge-git credential and allod-agent token records
+- `vnprc/secrets/secrets.nix` — add allod-dev token paths without adding allod-dev to the shared `agent-pr-token.age` recipients
 - `vnprc/secrets/machine-host-keys.json` — add allod-dev entry (after provisioning)
+- `profiles/flake.nix` — add the public `allod/secrets` flake input and split dev VM secret identity from runtime identity
+- `profiles/modules/home-shared.nix` — consume the runtime identity, not raw private identity
+- `profiles/modules/ai-agents.nix` — consume the runtime identity and allod/memory checkout list
+- `profiles/modules/agent-hooks.nix` — accept a git-policy source and disable private-profile helper sources for allod-dev
+- `profiles/modules/agent-forgejo-token.nix` — accept a per-VM token file instead of hardcoding `agent-pr-token.age`
 - `profiles/hosts/dev/allod-dev/configuration.nix` — VM system config
 - `profiles/hosts/dev/allod-dev/home.nix` — Home Manager config
+- `nexus/scripts/bootstrap-vm-from-host.sh` and `nexus/scripts/bootstrap-vm.sh` — support clone-only isolated dev VMs that skip on-VM `nixos-rebuild switch`
 
 Phase 4 — Verification:
 - Manual verification of access control boundaries
 
 **Out of scope:**
-- Open-sourcing nexus or profiles (separate effort, depends on this work)
+- Open-sourcing nexus, vm, or profiles (separate effort, depends on this work)
 - Pre-commit content scanning hooks (VM isolation is sufficient)
 - Changes to existing VMs (nix-dev, rust-dev, svelte-dev) beyond what prereqs already cover
-- Splitting the profiles flake to support both secrets sources (allod-dev is built from vnprc/secrets like all other VMs)
+- A general profiles split for public consumers; this plan adds only the allod-dev-specific public runtime input needed to keep private data out of the isolated VM
 - ai-agents.nix parameterization (prereq, already landed)
 - Checkout path collision fix (prereq, already landed)
 - Memory repo split (prereq, already landed)
@@ -73,9 +81,11 @@ The isolation model has three layers:
 
 2. **Filesystem isolation**: The allod-dev VM only clones allod org repos. Private repos (`vnprc/secrets`, `vnprc/inventory`, `vnprc/agent-memory`, `vnprc/nvim-config`) are never present on disk.
 
-3. **Public repos**: `allod/secrets`, `allod/inventory`, and `allod/memory` provide the module structure, workflow memory, and machine specs agents need for cross-repo development without exposing real identity data.
+3. **Runtime closure isolation**: The allod-dev Home Manager configuration, git policy files, agent adapter files, and symlinked sources must come from public inputs or generated text. The VM closure must not contain the private `vnprc/secrets`, `vnprc/inventory`, `vnprc/profiles`, or `vnprc/nvim-config` source trees. The only private material allowed in the closure is individual encrypted `.age` payloads for allod-dev, copied as single-file store paths so the parent private repo source is not traversable.
 
-The allod-dev VM is built by the human through the existing profiles infrastructure (using `vnprc/secrets` for build-time identity). What the agent sees at runtime is controlled by the repos list and the forge credentials provisioned onto the VM.
+4. **Public repos**: `allod/secrets`, `allod/inventory`, and `allod/memory` provide the module structure, workflow memory, and machine specs agents need for cross-repo development without exposing real identity data.
+
+The allod-dev VM is built by the human through the existing profiles infrastructure. Host-side evaluation may read `vnprc/secrets` and `vnprc/inventory` to provision host keys, encrypted allod-dev credentials, and the actual VM IP. The allod-dev user environment is composed from the public `allod/secrets` runtime identity and public git policy files, so private build inputs are not readable from the booted VM.
 
 #### What the agent CAN do on allod-dev:
 - Read, edit, and push to allod/* repos via the allod-agent forge identity
@@ -83,8 +93,9 @@ The allod-dev VM is built by the human through the existing profiles infrastruct
 
 #### What the agent CANNOT do on allod-dev:
 - Read vnprc/secrets, vnprc/inventory, or vnprc/agent-memory (not cloned)
+- Read private source trees through `/nix/store` or generated Home Manager files
 - Push to vnprc/* repos (allod-agent has no access)
-- See real IPs, hostnames, tokens, or personal identity data
+- See private inventory IPs, hostnames, tokens, or personal identity data beyond the VM's own observable network address
 - Read private memory files (hashpool.md)
 
 #### Cross-repo development workflow:
@@ -100,7 +111,7 @@ The allod-dev VM is built by the human through the existing profiles infrastruct
 Must export the same `lib` and `homeModules` interface as `vnprc/secrets`:
 
 ```nix
-lib.devIdentities     : { <vm-name> = { username, forgeHost, forgePort, gpgSigningKey, sshKeyName, forgeTokenFile, gpgPublicKeyFile }; }
+lib.devIdentities     : { <vm-name> = { username, forgeHost, forgePort, forgeUser, gpgSigningKey, sshKeyName, forgeTokenFile, agentTokenFile, gpgPublicKeyFile }; }
 lib.privacyIdentities : { <vm-name> = { username }; }
 lib.nexusIdentity     : { username, hostname, forgeHost, forgePort, sshPublicKey, forgeTokenFile }
 lib.vmUsernames       : { <vm-name> = <username>; }
@@ -160,7 +171,7 @@ Must export the same interface as `vnprc/inventory`:
 machines             : { <vm-name> = { platform, type, ... }; }
 lib.machines         : same as machines
 lib.supportedPlatforms : [ <nix-system-string> ]
-lib.vmSpecsJson      : JSON string
+lib.vmSpecsJson      : JSON string, including `self_rebuild` for dev VMs (`true` unless explicitly false)
 
 checks.<system>.vm-specs-json         : validates scripts/vm-specs.json matches Nix
 checks.<system>.repository-registry   : validates scripts/repositories.json
@@ -179,7 +190,8 @@ machines = {
     ip = "192.168.122.10";
     mac = "52:54:00:00:00:10";
     forge_key = "dev_1";
-    repos = [ "profiles" "tools" "strategy" ];
+    self_rebuild = false;
+    repos = [ "workspace-tools" "strategy" "allod/secrets" "allod/inventory" "allod/memory" ];
   };
 };
 ```
@@ -189,10 +201,16 @@ machines = {
 New entry in `identity.devVMs`:
 
 ```nix
-allod-dev = { sshKeyName = "allod_vm"; };
+allod-dev = {
+  username = "allod";
+  forgeUser = "allod-agent";
+  sshKeyName = "allod_vm";
+};
 ```
 
-This triggers the existing `devIdentities` derivation logic to produce a full identity attrset for allod-dev with the `allod_vm` SSH key name.
+Update the `devIdentities` derivation logic so per-VM `username` and `forgeUser` override the global defaults. Export a per-VM `agentTokenFile` path as `./secrets + "/agent-pr-token-${name}.age"` alongside the existing `forgeTokenFile`.
+
+The public username is intentional: `qemuGuest`, Home Manager, netrc activation, bootstrap SSH, and agent adapter paths all consume `identity.username`. Leaving allod-dev on the global private username would leak personal identity into `/home`, git config, adapter files, and provisioning output.
 
 #### `allod-dev` machine in `vnprc/inventory`
 
@@ -208,11 +226,14 @@ allod-dev = {
   ip = "192.168.122.15";
   mac = "52:54:00:ab:cd:15";
   forge_key = "allod_vm";
-  repos = [ "profiles" "vm" "nexus" "tools" "strategy" "allod/secrets" "allod/inventory" "allod/memory" ];
+  self_rebuild = false;
+  repos = [ "workspace-tools" "strategy" "allod/secrets" "allod/inventory" "allod/memory" ];
 };
 ```
 
-The `repos` list excludes all vnprc-private aliases: `secrets`, `inventory`, `nvim-config`, `agent-memory`, `notes`.
+The `repos` list excludes all vnprc-private aliases: `profiles`, `vm`, `nexus`, `secrets`, `inventory`, `nvim-config`, `agent-memory`, `notes`, and `forgejo-config`.
+
+`self_rebuild = false` marks allod-dev as host-managed after installation. Update `vmSpecsJson`, the repository registry check, and bootstrap scripts so development VMs with `self_rebuild = false` are allowed to omit `profiles`; bootstrap should copy the forge key and clone/pull repositories, then skip the on-VM `sudo nixos-rebuild switch`. Existing development VMs default to `self_rebuild = true` and must still include `profiles`.
 
 New entries in `repositories.json`:
 
@@ -229,21 +250,29 @@ New entries in `repositories.json`:
 }
 ```
 
-Rename existing alias `workspace-tools` -> `tools` for consistency (all other allod repos use their short name). This affects the repos lists of all existing dev VMs (nix-dev, rust-dev, svelte-dev) — update those lists in the same commit.
+Do not rename the existing `workspace-tools` alias in this plan. It is already the public `allod/tools` checkout, and renaming it would touch existing dev VMs for no isolation gain.
 
 #### `allod-dev` VM profile
 
+`profiles/flake.nix`:
+- Add `allod-secrets.url = "git+https://forge.anarch.diy/Allod/secrets.git"` as a direct public input.
+- Do not add `allod/inventory` as a profiles flake input; public inventory is a runtime workspace checkout only.
+- Keep `secrets` and `inventory` pointed at `vnprc/*` for host-side build/provisioning data.
+- Extend `mkDevVm` so secret-bearing values (`forgeTokenFile`, `agentTokenFile`, `sshKeyName`) stay separate from runtime values (`username`, `email`, `sshHosts`, git policy source, preferences module, memory checkouts).
+- For existing dev VMs, defaults preserve current behavior.
+- For allod-dev, pass `runtimeIdentity = allod-secrets.lib.identity`, `gitPolicySource = allod-secrets`, `preferencesModule = allod-secrets.homeModules.preferences`, and `memoryCheckouts = [ "allod/memory" ]`.
+
 `profiles/hosts/dev/allod-dev/configuration.nix`:
-- Imports `agent-forgejo-token.nix` (same as nix-dev)
+- Imports `agent-forgejo-token.nix` with `tokenFile = identity.agentTokenFile`; do not use the shared `agent-pr-token.age`
 - Packages: `git`, `jq`, `age` — no nix linting tools unless needed
 - No special system config beyond the dev VM baseline
 
 `profiles/hosts/dev/allod-dev/home.nix`:
 - Packages: `claude-code`, `codex` (same as other dev VMs)
-- SSH matchBlock for forge.anarch.diy using `identity.sshKeyName` (resolves to `allod_vm`)
+- SSH matchBlock for forge.anarch.diy using the allod-dev forge key `identity.sshKeyName` (resolves to `allod_vm`) and the public runtime forge host/port
 - No GPG signing (allod-agent has no GPG key; `gpgSigningKey = null`)
 
-For allod-dev, `mkDevVm` passes `memoryCheckout = "allod/memory"`, so symlinks point to `~/work/allod/memory` instead of `~/work/agent-memory`.
+For allod-dev, `mkDevVm` passes `memoryCheckouts = [ "allod/memory" ]`, so symlinks point to `~/work/allod/memory` instead of `~/work/agent-memory`.
 
 #### allod-agent credential in `vnprc/secrets`
 
@@ -265,11 +294,29 @@ allod_vm = {
 
 Note: the `forgejo-ssh` consumer references account `allod-agent` (the bot user), not `vnprc`.
 
+Add an allod-agent API token record for the Forge CLI. It must be a distinct secret path from the shared private agent token:
+
+```nix
+agent-pr-token-allod-dev = {
+  name           = "agent-pr-token-allod-dev";
+  kind           = "agent";
+  owner          = "allod-agent";
+  public_key     = null;
+  consumers      = [
+    { type = "agenix"; repo = "secrets"; secret = "secrets/agent-pr-token-allod-dev.age"; }
+  ];
+  rotation_state = "active";
+};
+```
+
+The HTTPS credential-store token and Forge CLI token may contain the same allod-agent token material if the scopes are sufficient, but they are stored separately because `/root/.git-credentials` needs URL format while `forge` reads a raw token.
+
 New entries in `secrets.nix`:
 
 ```nix
 "secrets/allod-dev-forge-key.age".publicKeys     = [ hostKey ] ++ vmKeys "allod-dev";
 "secrets/forgejo-https-token-allod-dev.age".publicKeys = [ hostKey ] ++ vmKeys "allod-dev";
+"secrets/agent-pr-token-allod-dev.age".publicKeys = [ hostKey ] ++ vmKeys "allod-dev";
 ```
 
 #### Git workflow config for allod-dev (`allod/secrets/git/`)
@@ -281,9 +328,6 @@ The public secrets repo needs git workflow config that restricts the allod-dev a
 # allod-dev only works on allod org repos
 work/allod/tools master
 work/allod/strategy master
-work/allod/vm master
-work/allod/nexus master
-work/allod/profiles master
 work/allod/secrets master
 work/allod/inventory master
 work/allod/memory master
@@ -303,32 +347,34 @@ work/allod/memory master
 5. Verify all `vnprc/*` repos are set to private visibility
 6. Generate SSH ed25519 keypair for allod-agent on nexus host: `ssh-keygen -t ed25519 -C allod_vm -f allod_vm`
 7. Register the public key on `allod-agent`'s Forgejo SSH keys
-8. Generate a Forgejo HTTPS access token for `allod-agent` (for git clone over HTTPS with netrc)
+8. Generate a Forgejo HTTPS access token for `allod-agent` (URL-formatted for git clone over HTTPS with netrc)
+9. Generate or reuse an allod-agent Forgejo API token for the `forge` CLI (raw token format, allod org scope only)
 
 **Phase 2 — Public repos** (human creates repos, agent writes content):
-9. Create `Allod/secrets` repo on forge.anarch.diy (Forgejo web UI or API)
-10. Create `Allod/inventory` repo on forge.anarch.diy
-11. Generate throwaway SSH ed25519 keypair for the public repo's dummy identity: `ssh-keygen -t ed25519 -C host -f throwaway-host`
-12. Generate throwaway age keypair for the dummy identity's age encryption
-13. Create dummy age-encrypted secret files using the throwaway key
+10. Create `Allod/secrets` repo on forge.anarch.diy (Forgejo web UI or API)
+11. Create `Allod/inventory` repo on forge.anarch.diy
+12. Generate throwaway SSH ed25519 keypair for the public repo's dummy identity: `ssh-keygen -t ed25519 -C host -f throwaway-host`
+13. Generate throwaway age keypair for the dummy identity's age encryption
+14. Create dummy age-encrypted secret files using the throwaway key
 
 **Phase 3 — allod-dev provisioning** (human-only):
-14. Encrypt allod-agent forge SSH private key with age: creates `secrets/allod-dev-forge-key.age`
-15. Encrypt allod-agent HTTPS token with age: creates `secrets/forgejo-https-token-allod-dev.age`
-16. Run `agenix -e` or re-encryption for new secret paths
-17. Add allod-dev host key to `machine-host-keys.json` (after provisioning generates the host key)
-18. Provision allod-dev VM: `provision-vm-from-host allod-dev`
-19. Rebuild allod-dev: `rebuild-vm-from-host allod-dev`
+15. Encrypt allod-agent forge SSH private key with age: creates `secrets/allod-dev-forge-key.age`
+16. Encrypt allod-agent HTTPS token with age: creates `secrets/forgejo-https-token-allod-dev.age`
+17. Encrypt allod-agent raw API token with age: creates `secrets/agent-pr-token-allod-dev.age`
+18. Run `agenix -e` or re-encryption for new secret paths
+19. Add allod-dev host key to `machine-host-keys.json` (after provisioning generates the host key)
+20. Provision allod-dev VM: `provision-vm-from-host allod-dev`
+21. Rebuild allod-dev from the host when config changes: `rebuild-vm-from-host allod-dev`
 
 **Blocks:**
-- Phase 2 agent work (writing repo content) is blocked on gates 9-10 (repos must exist)
-- Phase 3 agent work (profile config) is blocked on gates 6-8 (need the real public key values)
-- Phase 3 provisioning (gates 17-19) is blocked on all agent work being merged
+- Phase 2 agent work (writing repo content) is blocked on gates 10-11 (repos must exist)
+- Phase 3 agent work (profile config) is blocked on gates 6-9 (need the real public key values and token secret paths)
+- Phase 3 provisioning (gates 19-21) is blocked on all agent work being merged
 - Phase 4 verification is blocked on provisioning
 
 ### PR Sequence
 
-Work spans four repos. Use `Refs` on earlier PRs and `Closes` only on the final PR.
+Work spans six repos. Use `Refs` on earlier PRs and `Closes` only on the final PR.
 
 1. **allod/secrets** — public template repo (initial content)
    - `Refs Allod/strategy#<issue>`
@@ -338,10 +384,12 @@ Work spans four repos. Use `Refs` on earlier PRs and `Closes` only on the final 
    - `Refs Allod/strategy#<issue>`
 4. **vnprc/inventory** — add allod-dev machine entry, update vm-specs.json and repositories.json
    - `Refs Allod/strategy#<issue>`
-5. **vnprc/profiles** — add allod-dev VM profile, update flake.lock
+5. **vnprc/nexus** — teach bootstrap scripts to support clone-only isolated dev VMs
+   - `Refs Allod/strategy#<issue>`
+6. **vnprc/profiles** — add allod-dev VM profile, update flake.lock
    - `Closes Allod/strategy#<issue>`
 
-PRs 1-2 can proceed in parallel. PRs 3-4 can proceed in parallel after gates 6-8. PR 5 depends on PRs 1-4 being merged and flake inputs updated.
+PRs 1-2 can proceed in parallel. PRs 3-5 can proceed in parallel after gates 6-9. PR 6 depends on PRs 1, 3, 4, and 5 being merged and the `allod-secrets` flake input being locked. There is no profiles flake input for `allod/inventory`; that repo is only a runtime checkout.
 
 ### Acceptance Tests
 
