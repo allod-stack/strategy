@@ -2,7 +2,9 @@
 
 ## Tracking Issue
 
-TBD — create before implementation and update this section with the Forge issue URL/number. Every implementation PR references this issue; the final `vnprc/profiles` PR carries `Closes`, earlier PRs use `Refs`.
+https://forge.anarch.diy/allod/strategy/issues/2
+
+Every implementation PR references this issue; the final `vnprc/profiles` PR carries `Closes`, earlier PRs use `Refs`.
 
 ## Goal
 
