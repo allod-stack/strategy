@@ -252,8 +252,6 @@ New entries in `repositories.json`:
 }
 ```
 
-Do not rename the existing `workspace-tools` alias in this plan. It is already the public `allod/tools` checkout, and renaming it would touch existing dev VMs for no isolation gain.
-
 #### `allod-dev` VM profile
 
 `profiles/flake.nix`:
