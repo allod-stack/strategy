@@ -57,17 +57,13 @@ cd ~/work/allod/nexus
 nix flake check
 ```
 
-Verify the script parses and is packaged:
+`nix flake check` already runs `bash -n`, `shellcheck -x`, and `test -x` on `rotate-ssh-key` via the `provisioning-contract` check.
+
+Verify the dispatcher accepts `init` (reaches the missing-target usage error, not "unknown command"):
 
 ```bash
 nix build .#packages.x86_64-linux.provisioning-scripts
-test -x result/bin/rotate-ssh-key
-```
-
-Verify `init` is accepted by the dispatcher and usage text:
-
-```bash
-result/bin/rotate-ssh-key --help | grep -q init
+result/bin/rotate-ssh-key init 2>&1 | grep -q 'Usage:'
 ```
 
 ### Rollback Plan
