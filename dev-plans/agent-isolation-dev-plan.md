@@ -41,6 +41,8 @@ Phase 2b — Public inventory template (`allod/inventory`):
 - `allod/inventory/scripts/vm-specs.json` — derived from Nix attrset
 - `allod/inventory/scripts/repositories.json` — allod-org-only repo registry
 
+Phase 2 implementation note: on existing private dev VMs, `~/work/allod/secrets` and `~/work/allod/inventory` are the private `vnprc/secrets` and `vnprc/inventory` checkouts. Work on the new public `Allod/secrets` and `Allod/inventory` repos from fresh temporary clones outside the normal workspace paths until allod-dev exists. Do not edit the existing private checkouts for PRs 1-2.
+
 Phase 3 — allod-dev VM profile:
 - `vnprc/inventory/flake.nix` — add `allod-dev` machine entry
 - `vnprc/inventory/flake.nix` — allow isolated dev VMs that do not self-rebuild from a local profiles checkout
