@@ -29,6 +29,8 @@ Create a public `Allod/memory` repo with workflow knowledge that allod-dev agent
 - `adapters/claude/CLAUDE.md` — allod Claude adapter
 - `adapters/codex/AGENTS.md` — allod Codex adapter
 
+Migrated files need reference cleanup before the privacy scan passes. Known instances: `dev-plans.md` references `agent-memory/templates/`, `git-workflow.md` names `agent-memory` as a push-direct repo, `allod.md` lists `vnprc/agent-memory` in the repo inventory, and `templates/plan-review-prompt.md` references `agent-memory/dev-plans.md`. Replace repo-specific paths with repo-relative paths and strip private identifiers.
+
 **Private repo (`vnprc/agent-memory`) — changes:**
 - `memory.md` — slim down to private root (user preferences, private projects)
 - Remove migrated files (allod.md, git-workflow.md, dev-plans.md, security-practices.md, vm-tooling.md, vm-provisioning.md, nix.md, age.md, templates/)
