@@ -34,11 +34,9 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **Clone-only provisioning contract completeness.** Verify `self_rebuild = false` is generated into `vm-specs.json`, consumed by `bootstrap-vm-from-host.sh`, passed through the fixed `bootstrap-vm.sh` argument protocol, honored by `verify-vm-from-host --repair`, and covered by tests with a dev VM fixture that has no `profiles` repo.
+1. **Gate sequencing and PR scope alignment.** Verify the renumbered gates (18-24) are sequenced so every file referenced by `provision-vm-from-host` exists before gate 23 runs. Verify PRs 3 and 6 scope entries match the credentials and host key files the gates produce.
 
-2. **Profiles runtime/private input split.** Verify the `mkDevVm` parameterization, NixOS `specialArgs`, Home Manager `extraSpecialArgs`, `agent-forgejo-token.nix`, `agent-hooks.nix`, and preferences module wiring keep private source trees out of the allod-dev runtime closure while preserving existing dev VM behavior.
-
-3. **Public template repo implementation paths.** Existing private dev VMs already use `~/work/allod/secrets` and `~/work/allod/inventory` for private `vnprc/*` remotes. Verify the temporary public clone guidance is operationally sufficient for PRs 1-2 and that acceptance commands distinguish private and public paths unambiguously.
+2. **Existing dev VM configuration.nix caller updates.** The scope now says signature updates to existing configuration.nix files are in scope. Verify the plan's `agent-forgejo-token.nix` refactoring (from `{ identity, secrets }` to `{ identity, tokenFile }`) is consistent with how existing nix-dev, rust-dev, and svelte-dev configuration.nix files import it, and that `tokenFile` reaches them through specialArgs.
 
 Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
 
