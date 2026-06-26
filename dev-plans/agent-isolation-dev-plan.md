@@ -28,10 +28,10 @@ Phase 1 — Forge bot user (human-only):
 
 Phase 2a — Public secrets template (`allod/secrets`):
 - `allod/secrets/flake.nix` — public flake mirroring `vnprc/secrets` interface
-- `allod/secrets/identity.nix` — synthetic identity with allod-agent values
-- `allod/secrets/credentials.nix` — credential inventory for allod-dev only
-- `allod/secrets/secrets.nix` — agenix secret declarations for allod-dev
-- `allod/secrets/machine-host-keys.json` — allod-dev host key only
+- `allod/secrets/identity.nix` — synthetic identity with allod-agent-like values for `dev-1`
+- `allod/secrets/credentials.nix` — credential inventory for the synthetic `dev-1` VM only
+- `allod/secrets/secrets.nix` — agenix secret declarations for `dev-1`
+- `allod/secrets/machine-host-keys.json` — synthetic `dev-1` host key only
 - `allod/secrets/modules/preferences.nix` — standalone preferences module without `nvim-config` (private repo) or NUR (Firefox extensions) dependencies; use a minimal neovim config and strip Firefox customization
 - `allod/secrets/keys/` — synthetic SSH public keys matching the public template credentials; do not include the real allod-agent `allod_vm` public key
 - `allod/secrets/secrets/` — age-encrypted dummy tokens
