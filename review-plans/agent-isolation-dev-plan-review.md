@@ -95,3 +95,5 @@ The focus areas should always reflect the most productive targets for the next r
 Include a plain-text findings summary in this commit's message. Include the count for each tag and a numbered entry for each finding with its tag, short title, one-sentence explanation, and fixing commit hash.
 
 Stop reviewing when a pass produces zero BLOCKERs, zero GAPs, and zero QUESTIONs. Remaining SIMPLIFYs can be resolved during implementation.
+
+After the final commit, push to the remote.
