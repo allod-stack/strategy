@@ -313,7 +313,6 @@ New entries in `repositories.json`:
       gitPolicySource = allod-secrets;
       preferencesModule = allod-secrets.homeModules.preferences;
       memoryCheckouts = [ "allod/memory" ];
-      tokenFile = identity.agentTokenFile;
       devSpecialArgs = {};
       enablePrBranchSync = false;
     };
