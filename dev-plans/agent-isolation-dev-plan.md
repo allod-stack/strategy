@@ -31,7 +31,7 @@ Phase 2a — Public secrets template (`allod/secrets`):
 - `allod/secrets/credentials.nix` — credential inventory for allod-dev only
 - `allod/secrets/secrets.nix` — agenix secret declarations for allod-dev
 - `allod/secrets/machine-host-keys.json` — allod-dev host key only
-- `allod/secrets/modules/preferences.nix` — copy of user preferences module (no secrets)
+- `allod/secrets/modules/preferences.nix` — standalone preferences module without `nvim-config` (private repo) or NUR (Firefox extensions) dependencies; use a minimal neovim config and strip Firefox customization
 - `allod/secrets/keys/` — allod-agent SSH public keys
 - `allod/secrets/secrets/` — age-encrypted dummy tokens
 - `allod/secrets/git/` — git workflow config files (protected-branches, allowed-external-remotes, etc.)
