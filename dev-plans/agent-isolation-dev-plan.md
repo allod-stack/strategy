@@ -145,12 +145,9 @@ rec {
 
   sshHosts = {
     dev-1 = {
-      hostname = "192.168.122.10";
+      hostname = "192.0.2.10";
       user = "allod";
-      identityFile = "~/.ssh/host";
-      extraOptions = {
-        UserKnownHostsFile = "~/.ssh/known_hosts_vms";
-      };
+      identityFile = "~/.ssh/dev_1";
     };
     "forge.anarch.diy" = {
       hostname = "forge.anarch.diy";
@@ -163,7 +160,7 @@ rec {
 }
 ```
 
-The `dev-1` SSH host and IP values are synthetic template data. They intentionally do not match the actual `allod-dev` IP in private inventory, and no host-side provisioning path should read public `allod/secrets` to discover the real allod-dev address. The booted VM can observe its own assigned network address, but the public template must not expose private inventory addresses for other machines.
+The `dev-1` SSH host and IP values are synthetic template data. Use RFC 5737 documentation IPs (`192.0.2.0/24`) — not the `192.168.122.0/24` range used by private inventory — so the leak scan does not false-positive on exact IP matches. No host-side provisioning path should read public `allod/secrets` to discover the real allod-dev address. The booted VM can observe its own assigned network address, but the public template must not expose private inventory addresses for other machines.
 
 #### `allod/inventory` flake outputs
 
@@ -189,7 +186,7 @@ machines = {
     memory_mb = 8192;
     vcpus = 4;
     disk_gb = 50;
-    ip = "192.168.122.10";
+    ip = "192.0.2.10";
     mac = "52:54:00:00:00:10";
     forge_key = "dev_1";
     self_rebuild = false;
