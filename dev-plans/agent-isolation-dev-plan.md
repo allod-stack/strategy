@@ -404,17 +404,6 @@ Validates:
 - `credential-inventory` check passes (internal consistency of credentials.nix, secrets.nix, keys/, machine-host-keys.json)
 - Flake evaluates without errors
 
-Manual grep to verify no real personal data leaked:
-
-```bash
-cd /path/to/allod/secrets
-grep -r 'vnprc' --include='*.nix' --include='*.json' && echo "FAIL: real username found" || echo "OK"
-grep -r 'protonmail' --include='*.nix' && echo "FAIL: real email found" || echo "OK"
-grep -r 'AD88A262' --include='*.nix' && echo "FAIL: real GPG key found" || echo "OK"
-grep -r 'fm2932' --include='*.nix' && echo "FAIL: real rsync.net account found" || echo "OK"
-grep -rE '62\.76\.229\.|80\.71\.235\.' --include='*.nix' --include='*.json' && echo "FAIL: real VPS IP found" || echo "OK"
-```
-
 #### Public inventory template validation
 
 ```bash
@@ -426,30 +415,150 @@ Validates:
 - `vm-specs-json` check passes (scripts/vm-specs.json matches Nix attrset)
 - `repository-registry` check passes (repositories.json is valid and consistent)
 
-Manual grep:
+#### Public template leak scan
+
+Run this after both public template repos exist. It derives private identity values from the private source flakes instead of hardcoding today's username, email, keys, or IPs:
+
+```bash
+private_secrets=/home/vnprc/work/allod/secrets
+private_inventory=/home/vnprc/work/allod/inventory
+public_secrets=/path/to/allod/secrets
+public_inventory=/path/to/allod/inventory
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+{
+  nix eval --json "path:${private_secrets}#lib.identity" \
+    | jq -r '.. | scalars | tostring | select(length >= 5)'
+  nix eval --json "path:${private_inventory}#machines" \
+    | jq -r '.. | objects | (.ip?, .mac?, .forge_key?) | select(type == "string" and length >= 5)'
+} | sort -u > "$tmp/private-values.raw"
+
+cat > "$tmp/allowed-public-overlap" <<'EOF'
+forge.anarch.diy
+x86_64-linux
+allod/memory
+allod/tools
+Allod/strategy
+workspace-tools
+strategy
+EOF
+
+grep -vxF -f "$tmp/allowed-public-overlap" "$tmp/private-values.raw" > "$tmp/private-values"
+
+for repo in "$public_secrets" "$public_inventory"; do
+  while IFS= read -r value; do
+    [ -n "$value" ] || continue
+    if grep -R -I -F --exclude-dir=.git -- "$value" "$repo" > "$tmp/hit"; then
+      echo "FAIL: private value leaked into $repo: $value"
+      cat "$tmp/hit"
+      exit 1
+    fi
+  done < "$tmp/private-values"
+done
+
+echo "OK: public template repos contain no private identity values"
+```
+
+Also verify that the public inventory does not refer to private-only repository aliases:
 
 ```bash
 cd /path/to/allod/inventory
-grep -r 'vnprc' --include='*.nix' --include='*.json' && echo "FAIL: real username found" || echo "OK"
-grep -rE 'agent-memory|nvim-config|forgejo-config' --include='*.json' && echo "FAIL: private repo reference found" || echo "OK"
+nix eval .#machines --json \
+  | jq -e '
+      [ .. | objects | .repos? // empty | .[] | select(
+        . == "profiles" or . == "vm" or . == "nexus" or
+        . == "secrets" or . == "inventory" or . == "nvim-config" or
+        . == "agent-memory" or . == "notes" or . == "forgejo-config"
+      ) ] | length == 0
+    '
 ```
 
 #### allod-dev VM profile build
 
 ```bash
 cd /home/vnprc/work/allod/profiles
-nix build .#nixosConfigurations.allod-dev.config.system.build.toplevel --dry-run
+out=$(nix build --no-link --print-out-paths .#nixosConfigurations.allod-dev.config.system.build.toplevel)
+```
+
+#### allod-dev runtime closure leak scan
+
+Scan the built allod-dev closure for private identity values and private source-tree paths:
+
+```bash
+cd /home/vnprc/work/allod/profiles
+out=$(nix build --no-link --print-out-paths .#nixosConfigurations.allod-dev.config.system.build.toplevel)
+
+private_secrets=/home/vnprc/work/allod/secrets
+private_inventory=/home/vnprc/work/allod/inventory
+private_profiles=/home/vnprc/work/allod/profiles
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+{
+  nix eval --json "path:${private_secrets}#lib.identity" \
+    | jq -r '.. | scalars | tostring | select(length >= 5)'
+  nix eval --json "path:${private_inventory}#machines" \
+    | jq -r '.. | objects | (.ip?, .mac?, .forge_key?) | select(type == "string" and length >= 5)'
+} | sort -u > "$tmp/private-values.raw"
+
+cat > "$tmp/allowed-public-overlap" <<'EOF'
+forge.anarch.diy
+x86_64-linux
+allod/memory
+allod/tools
+Allod/strategy
+workspace-tools
+strategy
+EOF
+
+grep -vxF -f "$tmp/allowed-public-overlap" "$tmp/private-values.raw" > "$tmp/private-values"
+
+nix-store -qR "$out" > "$tmp/closure"
+
+for input in "$private_secrets" "$private_inventory" "$private_profiles"; do
+  store_path=$(nix flake metadata --json "path:${input}" | jq -r '.path')
+  if grep -Fx "$store_path" "$tmp/closure"; then
+    echo "FAIL: private source tree is reachable from the allod-dev closure: $input"
+    exit 1
+  fi
+done
+
+while IFS= read -r value; do
+  [ -n "$value" ] || continue
+  if xargs -r grep -R -I -F -- "$value" < "$tmp/closure" > "$tmp/hit" 2>/dev/null; then
+    echo "FAIL: private value leaked into allod-dev closure: $value"
+    cat "$tmp/hit"
+    exit 1
+  fi
+done < "$tmp/private-values"
+
+echo "OK: allod-dev closure contains no private identity values"
 ```
 
 #### allod-dev repos list verification
 
-After provisioning, verify the allod-dev VM's repo list contains no private repos:
+From the private inventory checkout, verify allod-dev is clone-only and every resolved runtime remote is in the allod org:
 
 ```bash
+cd /home/vnprc/work/allod/inventory
+nix eval .#machines.allod-dev --json \
+  | jq -e '.self_rebuild == false'
+
 nix eval .#machines.allod-dev.repos --json | jq -r '.[]' | while read repo; do
   case "$repo" in
-    secrets|inventory|nvim-config|agent-memory|notes|forgejo-config)
+    profiles|vm|nexus|secrets|inventory|nvim-config|agent-memory|notes|forgejo-config)
       echo "FAIL: private repo alias '$repo' in allod-dev repos list"
+      exit 1
+      ;;
+  esac
+
+  remote=$(jq -r --arg repo "$repo" '.repositories[$repo].remote // empty' scripts/repositories.json)
+  case "$remote" in
+    allod/*|Allod/*) ;;
+    *)
+      echo "FAIL: allod-dev repo '$repo' resolves to non-allod remote '$remote'"
       exit 1
       ;;
   esac
@@ -470,22 +579,56 @@ git ls-remote ssh://git@forge.anarch.diy:2222/vnprc/inventory.git HEAD && echo "
 git ls-remote ssh://git@forge.anarch.diy:2222/vnprc/agent-memory.git HEAD && echo "FAIL: private repo accessible" || echo "OK: private repo blocked"
 ```
 
+Verify the Forge API token is also the restricted allod-agent token, not the shared private agent token:
+
+```bash
+token=$(cat ~/.config/git/forgejo-token)
+
+curl -fsS -H "Authorization: token ${token}" \
+  https://forge.anarch.diy/api/v1/repos/Allod/tools >/dev/null \
+  && echo "OK: allod API repo accessible"
+
+curl -fsS -H "Authorization: token ${token}" \
+  https://forge.anarch.diy/api/v1/repos/vnprc/secrets >/dev/null \
+  && echo "FAIL: private API repo accessible" \
+  || echo "OK: private API repo blocked"
+```
+
+#### allod/memory runtime verification (manual, post-provisioning)
+
+From the allod-dev VM, verify agents load only the public memory checkout:
+
+```bash
+test -d ~/work/allod/memory
+grep -F "/home/allod/work/allod/memory/adapters/codex/AGENTS.md" ~/.codex/AGENTS.md
+grep -F "/home/allod/work/allod/memory/adapters/claude/CLAUDE.md" ~/.claude/CLAUDE.md
+test "$(readlink ~/.claude/projects/-home-allod-work/memory)" = "/home/allod/work/allod/memory"
+! grep -R 'agent-memory' ~/.codex ~/.claude
+```
+
 #### Existing VM builds still pass
 
 ```bash
 cd /home/vnprc/work/allod/profiles
-nix build .#nixosConfigurations.nix-dev.config.system.build.toplevel --dry-run
-nix build .#nixosConfigurations.nexus.config.system.build.toplevel --dry-run
+for host in nix-dev rust-dev svelte-dev nexus; do
+  nix build ".#nixosConfigurations.${host}.config.system.build.toplevel" --dry-run
+done
 ```
 
 ### Rollback Plan
 
-**Phase 1 (Forge bot user):** Delete the `allod-agent` user from Forgejo admin panel. Remove its SSH key from the Forgejo database. No other systems are affected.
+Rollback must unwind consumers before deleting public repos or Forge identities.
 
-**Phase 2 (Public repos):** Delete the `Allod/secrets` and `Allod/inventory` repos from Forgejo. No downstream consumers exist yet.
+1. **Provisioned VM:** If allod-dev was provisioned, stop it first with `virsh destroy allod-dev` and remove the domain/storage with `virsh undefine allod-dev --remove-all-storage`.
 
-**Phase 3 (vnprc/secrets and vnprc/inventory changes):** Revert the commits that added allod-dev entries to `identity.devVMs`, `credentials.nix`, `secrets.nix`, `machine-host-keys.json`, `machines`, `vm-specs.json`, and `repositories.json`. Re-run `agenix --rekey` to remove the orphaned secret paths. Regenerate vm-specs.json: `nix eval .#lib.vmSpecsJson --raw | jq -S . > scripts/vm-specs.json`.
+2. **Profiles:** Revert the `vnprc/profiles` commit that added the `allod-secrets` flake input, `mkDevVm` runtime identity split, agent token parameterization, and `profiles/hosts/dev/allod-dev/`. Verify existing VMs still build with the existing-VM build loop above.
 
-**Phase 5 (profiles):** Delete the `profiles/hosts/dev/allod-dev/` directory. Revert the flake.lock to before the allod-dev-related input updates. Verify existing VMs still build with `nix build --dry-run`.
+3. **Nexus bootstrap:** Revert the `vnprc/nexus` clone-only bootstrap support if no other VM uses it.
 
-**allod-dev VM:** If provisioned, destroy with `virsh destroy allod-dev && virsh undefine allod-dev --remove-all-storage`. Remove the allod-dev host key from `machine-host-keys.json`.
+4. **Private inventory:** Revert the `vnprc/inventory` commit that added `allod-dev`, `self_rebuild`, `allod/secrets`, and `allod/inventory`. Regenerate vm-specs.json: `nix eval .#lib.vmSpecsJson --raw | jq -S . > scripts/vm-specs.json`.
+
+5. **Private secrets:** Revert the `vnprc/secrets` commit that added allod-dev entries to `identity.devVMs`, `credentials.nix`, `secrets.nix`, and `machine-host-keys.json`. Re-run `agenix --rekey` to remove orphaned allod-dev recipient paths.
+
+6. **Public repos:** After profiles no longer has an `allod-secrets` flake lock entry and no VM repo list references the public templates, delete the `Allod/secrets` and `Allod/inventory` repos from Forgejo.
+
+7. **Forge bot user:** Delete the `allod-agent` user from the Forgejo admin panel and remove its SSH key/API tokens. Do this last so any cleanup PRs against allod repos can still be pushed before rollback completes.
