@@ -644,7 +644,8 @@ done
 
 while IFS= read -r value; do
   [ -n "$value" ] || continue
-  if xargs -r grep -R -I -F -- "$value" < "$tmp/closure" > "$tmp/hit" 2>/dev/null; then
+  xargs -r grep -R -I -F -- "$value" < "$tmp/closure" > "$tmp/hit" 2>/dev/null || true
+  if [ -s "$tmp/hit" ]; then
     echo "FAIL: private value leaked into allod-dev closure: $value"
     cat "$tmp/hit"
     exit 1
