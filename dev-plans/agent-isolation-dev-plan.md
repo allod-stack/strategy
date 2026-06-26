@@ -87,7 +87,7 @@ The isolation model has three layers:
 
 2. **Filesystem isolation**: The allod-dev VM only clones allod org repos. Private repos (`vnprc/secrets`, `vnprc/inventory`, `vnprc/agent-memory`, `vnprc/nvim-config`) are never present on disk.
 
-3. **Runtime closure isolation**: The allod-dev Home Manager configuration, git policy files, agent adapter files, and symlinked sources must come from public inputs or generated text. The VM closure must not contain the private `vnprc/secrets`, `vnprc/inventory`, `vnprc/profiles`, or `vnprc/nvim-config` source trees. The only private material allowed in the closure is individual encrypted `.age` payloads for allod-dev, copied as single-file store paths so the parent private repo source is not traversable.
+3. **Runtime closure isolation**: The allod-dev Home Manager configuration, git policy files, agent adapter files, and symlinked sources must come from public inputs or generated text. The VM closure must not contain the private `vnprc/secrets`, `vnprc/inventory`, `vnprc/profiles`, `vnprc/vm`, or `vnprc/nvim-config` source trees. The only private material allowed in the closure is individual encrypted `.age` payloads for allod-dev, copied as single-file store paths so the parent private repo source is not traversable.
 
 4. **Public repos**: `allod/secrets`, `allod/inventory`, and `allod/memory` provide the module structure, workflow memory, and machine specs agents need for cross-repo development without exposing real identity data.
 
@@ -631,6 +631,7 @@ out=$(nix build --no-link --print-out-paths .#nixosConfigurations.allod-dev.conf
 private_secrets=/home/vnprc/work/allod/secrets
 private_inventory=/home/vnprc/work/allod/inventory
 private_profiles=/home/vnprc/work/allod/profiles
+private_vm=/home/vnprc/work/allod/vm
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -680,7 +681,7 @@ grep -vxF -f "$tmp/allowed-runtime-overlap" "$tmp/private-values.raw" > "$tmp/pr
 
 nix-store -qR "$out" > "$tmp/closure"
 
-for input in "$private_secrets" "$private_inventory" "$private_profiles"; do
+for input in "$private_secrets" "$private_inventory" "$private_profiles" "$private_vm"; do
   store_path=$(nix flake metadata --json "path:${input}" | jq -r '.path')
   if grep -Fx "$store_path" "$tmp/closure"; then
     echo "FAIL: private source tree is reachable from the allod-dev closure: $input"
