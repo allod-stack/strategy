@@ -36,13 +36,7 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to still have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **Profiles composition implementation.** The plan now requires `ai-agents.nix` to default to public-only memory while existing vnprc dev VMs explicitly compose `[ "allod/memory" "agent-memory" ]`. Verify this is actually implementable from the current `profiles/flake.nix` builder structure without adding a half-specified per-machine override mechanism. What exact code shape should make current VMs preserve private memory while future allod-dev can use public-only memory?
-
-2. **Adapter path robustness.** The public adapters avoid hardcoded `/home/allod` and `/home/vnprc` by saying to read `../../memory.md` relative to the adapter file. Verify that instruction is robust for both Claude and Codex when they are reached through pointer files in `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`. Is the relative-path contract precise enough, or should the plan require a different identity-neutral adapter pattern?
-
-3. **Inventory/profile deployment gates.** The plan sequences `allod/memory`, `agent-memory`, `inventory`, then `profiles`, and adds a host-side workspace repair gate. Verify that this ordering prevents rebuilt VMs from pointing at missing checkouts, and confirm whether `verify-vm-from-host --repair <vm>` is the correct concrete gate from `allod/nexus`. Are there any lock-file, generated JSON, or host pull/rebuild steps missing from the human gates?
-
-4. **Acceptance test executability.** The updated acceptance tests are broader, but broad tests can produce false positives or fail in the wrong phase. Verify every command runs in the repo it claims, has required tools available, and only checks files that exist at that phase. Pay special attention to grep patterns for private data, adapter checks, runtime pointer checks, and whether inventory/profile checks should be run before or after VM repair/rebuild.
+1. **Adapter path robustness.** The public adapters avoid hardcoded `/home/allod` and `/home/vnprc` by saying to read `../../memory.md` relative to the adapter file. Verify that instruction is robust for both Claude and Codex when they are reached through pointer files in `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`. Is the relative-path contract precise enough, or should the plan require a different identity-neutral adapter pattern?
 
 Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
 
