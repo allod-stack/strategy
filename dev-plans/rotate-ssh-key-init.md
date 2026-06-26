@@ -26,6 +26,7 @@ rotate-ssh-key init <target>
 Preconditions:
 - Target must exist in `vm-specs.json` (same as other commands)
 - Target must NOT exist in `machine-host-keys.json` (no active or staged key)
+- `profiles/secrets/${TARGET}-ssh.age` and `.pub` must NOT already exist (inconsistent state if present without JSON entry)
 - `/dev/shm` must be available
 - `profiles` and `secrets` working trees must be clean
 
