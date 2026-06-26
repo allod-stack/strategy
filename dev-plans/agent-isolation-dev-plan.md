@@ -7,7 +7,7 @@ These must be completed before this plan:
 - `archive/dev-plans/per-vm-checkout-uniqueness.md` — inventory check relaxed to per-VM
 - `archive/dev-plans/split-agent-memory.md` — `allod/memory` exists with public workflow content
 - `archive/dev-plans/rename-llm-memory-plan.md` — repo rename complete
-- `dev-plans/vm-ssh-host-key-init.md` — landed; `vm-ssh-host-key init` exists for initial VM host key generation
+- `archive/dev-plans/vm-ssh-host-key-init.md` — landed; `vm-ssh-host-key init` exists for initial VM host key generation
 
 See `dev-plans/agent-isolation-roadmap.md` for the full sequence.
 
@@ -449,7 +449,7 @@ work/allod/memory master
 15. Encrypt allod-agent forge SSH private key with age: creates `secrets/allod-dev-forge-key.age`
 16. Encrypt allod-agent HTTPS token with age: creates `secrets/forgejo-https-token-allod-dev.age`
 17. Encrypt allod-agent raw API token with age: creates `secrets/agent-pr-token-allod-dev.age`
-18. After PR 4's `allod-dev` inventory entry is present locally, generate the allod-dev VM host key: `vm-ssh-host-key init allod-dev` — generates keypair, writes `profiles/secrets/allod-dev-ssh.{age,pub}`, creates the `machine-host-keys.json` entry that derives `allod-dev-host`, re-encrypts secrets, and updates `known_hosts_vms` (prereq: `vm-ssh-host-key-init.md`)
+18. After PR 4's `allod-dev` inventory entry is present locally, generate the allod-dev VM host key: `vm-ssh-host-key init allod-dev` — generates keypair, writes `profiles/secrets/allod-dev-ssh.{age,pub}`, creates the `machine-host-keys.json` entry that derives `allod-dev-host`, re-encrypts secrets, and updates `known_hosts_vms` (prereq: `archive/dev-plans/vm-ssh-host-key-init.md`)
 19. Commit and push the gate 15-18 outputs into the relevant implementation PRs: PR 3 carries the private secrets files, `keys/allod_vm.pub`, `credentials.nix`, `secrets.nix`, and `machine-host-keys.json`; PR 6 carries `profiles/secrets/allod-dev-ssh.{age,pub}`
 20. Merge all implementation PRs, with PR 6 last because it closes the issue
 21. Provision allod-dev VM: `provision-vm-from-host allod-dev`
