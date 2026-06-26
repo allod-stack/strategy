@@ -33,9 +33,9 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-All focus areas from the initial pass were resolved. No new areas were discovered. The plan is ready for implementation.
+Review complete after the latest pass. No BLOCKER, GAP, or QUESTION findings remain after commit `de0cff1`.
 
-Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
+No further review pass is needed unless the dev plan changes.
 
 ## Review Guidelines
 
