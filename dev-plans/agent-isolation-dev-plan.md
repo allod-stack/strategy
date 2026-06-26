@@ -50,14 +50,15 @@ Phase 3 — allod-dev VM profile:
 - `vnprc/inventory/scripts/repositories.json` — add `allod/secrets` and `allod/inventory` aliases
 - `vnprc/secrets/identity.nix` — add `allod-dev` to `devVMs` with the public runtime username and allod-agent forge user
 - `vnprc/secrets/flake.nix` — allow per-VM username/forge-user overrides in `devIdentities`
-- `vnprc/secrets/credentials.nix` — add `allod_vm` forge-git credential and allod-agent token records
+- `vnprc/secrets/credentials.nix` — add `allod_vm` forge-git credential, `allod-dev-host` machine-host credential, and allod-agent token records
 - `vnprc/secrets/secrets.nix` — add allod-dev token paths without adding allod-dev to the shared `agent-pr-token.age` recipients
-- `vnprc/secrets/machine-host-keys.json` — add allod-dev entry (after provisioning)
+- `vnprc/secrets/machine-host-keys.json` — add allod-dev entry (after host key generation, before provisioning)
 - `profiles/flake.nix` — add the public `allod/secrets` flake input and split dev VM secret identity from runtime identity
 - `profiles/modules/home-shared.nix` — consume the runtime identity, not raw private identity
 - `profiles/modules/ai-agents.nix` — consume the runtime identity and allod/memory checkout list
 - `profiles/modules/agent-hooks.nix` — accept a git-policy source and disable private-profile helper sources for allod-dev
 - `profiles/modules/agent-forgejo-token.nix` — accept a per-VM token file instead of hardcoding `agent-pr-token.age`
+- `profiles/secrets/allod-dev-ssh.age` and `profiles/secrets/allod-dev-ssh.pub` — VM host SSH key (human-generated, added after gate 19)
 - `profiles/hosts/dev/allod-dev/configuration.nix` — VM system config
 - `profiles/hosts/dev/allod-dev/home.nix` — Home Manager config
 - `nexus/scripts/bootstrap-vm-from-host.sh` and `nexus/scripts/bootstrap-vm.sh` — support clone-only isolated dev VMs that skip on-VM `nixos-rebuild switch`
@@ -68,7 +69,7 @@ Phase 4 — Verification:
 **Out of scope:**
 - Open-sourcing nexus, vm, or profiles (separate effort, depends on this work)
 - Pre-commit content scanning hooks (VM isolation is sufficient)
-- Changes to existing VMs (nix-dev, rust-dev, svelte-dev) beyond what prereqs already cover
+- Behavioral changes to existing VMs (nix-dev, rust-dev, svelte-dev) beyond what prereqs already cover; signature updates to existing `configuration.nix` files caused by module refactoring (e.g., `agent-forgejo-token.nix` accepting `tokenFile` instead of `secrets`) are in scope
 - A general profiles split for public consumers; this plan adds only the allod-dev-specific public runtime input needed to keep private data out of the isolated VM
 - ai-agents.nix parameterization (prereq, already landed)
 - Checkout path collision fix (prereq, already landed)
@@ -375,6 +376,21 @@ agent-pr-token-allod-dev = {
 
 The HTTPS credential-store token and Forge CLI token may contain the same allod-agent token material if the scopes are sufficient, but they are stored separately because `/root/.git-credentials` needs URL format while `forge` reads a raw token.
 
+New entry for the allod-dev VM host SSH key. This is the machine identity key (used for SSH host authentication and agenix decryption), distinct from the `allod_vm` Forge key above:
+
+```nix
+allod-dev-host = {
+  name           = "allod-dev-host";
+  kind           = "machine-host";
+  owner          = "allod-dev";
+  public_key     = "<allod-dev-host-ssh-ed25519-pubkey>";
+  consumers      = [
+    { type = "agenix"; repo = "profiles"; secret = "secrets/allod-dev-ssh.age"; }
+  ];
+  rotation_state = "active";
+};
+```
+
 New entries in `secrets.nix`:
 
 ```nix
@@ -425,15 +441,18 @@ work/allod/memory master
 15. Encrypt allod-agent forge SSH private key with age: creates `secrets/allod-dev-forge-key.age`
 16. Encrypt allod-agent HTTPS token with age: creates `secrets/forgejo-https-token-allod-dev.age`
 17. Encrypt allod-agent raw API token with age: creates `secrets/agent-pr-token-allod-dev.age`
-18. Run `agenix -e` or re-encryption for new secret paths
-19. Add allod-dev host key to `machine-host-keys.json` (after provisioning generates the host key)
-20. Provision allod-dev VM: `provision-vm-from-host allod-dev`
-21. Rebuild allod-dev from the host when config changes: `rebuild-vm-from-host allod-dev`
+18. Generate SSH ed25519 keypair for the allod-dev VM host identity: `ssh-keygen -t ed25519 -C allod-dev -f allod-dev-ssh`
+19. Encrypt allod-dev host private key with age: creates `profiles/secrets/allod-dev-ssh.age`; copy public key to `profiles/secrets/allod-dev-ssh.pub`
+20. Add `allod-dev-host` credential to `vnprc/secrets/credentials.nix` with the host public key (gate 18 generates it)
+21. Add allod-dev entry to `vnprc/secrets/machine-host-keys.json` with the host public key
+22. Run `agenix -e` or re-encryption for new secret paths in both `vnprc/secrets` and `profiles`
+23. Provision allod-dev VM: `provision-vm-from-host allod-dev`
+24. Rebuild allod-dev from the host when config changes: `rebuild-vm-from-host allod-dev`
 
 **Blocks:**
 - Phase 2 agent work (writing repo content) is blocked on gates 10-11 (repos must exist)
 - Phase 3 agent work (profile config) is blocked on gates 6-9 (need the real public key values and token secret paths)
-- Phase 3 provisioning (gates 19-21) is blocked on all agent work being merged
+- Phase 3 provisioning (gates 18-24) is blocked on all agent work being merged; gates 18-22 must complete before gate 23
 - Phase 4 verification is blocked on provisioning
 
 ### PR Sequence
@@ -584,6 +603,15 @@ nix eval .#machines --json \
 cd /home/vnprc/work/allod/profiles
 out=$(nix build --no-link --print-out-paths .#nixosConfigurations.allod-dev.config.system.build.toplevel)
 ```
+
+#### Profiles credential consistency
+
+```bash
+cd /home/vnprc/work/allod/profiles
+nix build .#checks.x86_64-linux.credential-profiles
+```
+
+Validates that `allod-dev-host` exists in the credential inventory, `profiles/secrets/allod-dev-ssh.age` and `.pub` files exist and match, and forge key / identity cross-references are consistent for all VMs including allod-dev.
 
 #### allod-dev runtime closure leak scan
 
