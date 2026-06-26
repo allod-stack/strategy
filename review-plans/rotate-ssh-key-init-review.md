@@ -33,17 +33,7 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists - follow the thread wherever it leads.
-
-1. **First-key state contract.** Verify `init` has a precise inverse of `stage`'s preconditions: the target exists in `vm-specs.json`, has no entry in `machine-host-keys.json`, and cannot silently overwrite existing `profiles/secrets/${TARGET}-ssh.age` or `.pub` files. Check whether the plan defines the exact `jq` shape needed to create `{ active, staged = null }` without corrupting existing entries.
-
-2. **Credential graph reality.** The plan currently says the script should print a `credentials.nix` entry for a human to paste, but `credentials.nix` derives VM host entries from `machine-host-keys.json`. Verify whether that output is stale, unnecessary, or should instead name the real follow-up checks and files affected by the derived inventory and `profiles` validation.
-
-3. **Host-only execution boundary.** The implementation should add code and structural tests, not run real `init`, generate real host keys, mutate live `KNOWN_HOSTS_VMS`, or re-encrypt secrets unless the human explicitly performs that gate. Check that Agent Gates and Acceptance Tests make this boundary impossible to miss.
-
-4. **Acceptance test coverage.** `--help | grep -q init` only proves usage text changed. Verify the plan includes enough structural validation to catch dispatcher mistakes and Bash syntax errors without invoking host-only side effects. If the repo has an existing Nix check that already packages the script, confirm whether the plan should add `bash -n` or equivalent checks.
-
-5. **Known-hosts and rollback fidelity.** `init` writes one active key for the target IP, while `stage` writes active plus staged. Verify the known-hosts behavior is compatible with provisioning scripts and that rollback explains every partial state: encrypted key backup written, public key copied, JSON active entry created, secrets re-encrypted, and `KNOWN_HOSTS_VMS` changed.
+All focus areas from the initial pass were resolved. No new areas were discovered. The plan is ready for implementation.
 
 Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
 
