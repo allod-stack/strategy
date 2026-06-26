@@ -32,7 +32,7 @@ Create `Allod/memory` with public workflow knowledge. Update `agent-memory` to
 keep only private files and point to the public repo. Add `allod/memory` to
 existing dev VM repos lists. Uses the parameterized `ai-agents.nix` from step 2.
 
-### 5. [vm-ssh-host-key init command](vm-ssh-host-key-init.md)
+### 5. [vm-ssh-host-key init command](vm-ssh-host-key-init.md) (complete)
 
 Add an `init` command to `vm-ssh-host-key` for generating the first SSH host key
 for a new VM. Reuses the same key generation, age encryption, and

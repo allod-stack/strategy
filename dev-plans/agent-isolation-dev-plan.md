@@ -7,7 +7,7 @@ These must be completed before this plan:
 - `archive/dev-plans/per-vm-checkout-uniqueness.md` — inventory check relaxed to per-VM
 - `archive/dev-plans/split-agent-memory.md` — `allod/memory` exists with public workflow content
 - `archive/dev-plans/rename-llm-memory-plan.md` — repo rename complete
-- `dev-plans/vm-ssh-host-key-init.md` — `vm-ssh-host-key init` command exists for initial VM host key generation
+- `dev-plans/vm-ssh-host-key-init.md` — landed; `vm-ssh-host-key init` exists for initial VM host key generation
 
 See `dev-plans/agent-isolation-roadmap.md` for the full sequence.
 
@@ -78,6 +78,7 @@ Phase 4 — Verification:
 - Checkout path collision fix (prereq, already landed)
 - Memory repo split (prereq, already landed)
 - Repo rename (prereq, already landed)
+- VM SSH host-key init tooling (prereq, already landed)
 
 ### Architecture
 
