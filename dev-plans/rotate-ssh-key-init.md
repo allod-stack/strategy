@@ -15,7 +15,6 @@ Add an `init` command to `rotate-ssh-key` that generates the first SSH host key 
 
 **Out of scope:**
 - Changes to `stage`, `activate`, or `retire` behavior
-- Adding `init` to the credential inventory (credentials.nix is a Nix file; the script prints the entry for the human to paste)
 - Test infrastructure for rotate-ssh-key (no existing test file; adding one is a separate effort)
 
 ### Interface Contracts
@@ -38,7 +37,7 @@ Behavior (reuses the same helpers as `stage`):
 5. Re-encrypt secrets repo with `agenix -r`
 6. Update `KNOWN_HOSTS_VMS` with the new key for the target IP
 
-Exit output: print changed files and required manual steps (same format as `stage`), including the `credentials.nix` entry to paste.
+Exit output: print changed files and required manual steps (same format as `stage`). No `credentials.nix` edit is needed — VM host entries are derived from `machine-host-keys.json` automatically.
 
 Differences from `stage`:
 - Refuses if target already has an entry (inverse of stage's check)
