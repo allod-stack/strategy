@@ -207,7 +207,19 @@ allod-dev = {
 };
 ```
 
-Update the `devIdentities` derivation logic so per-VM `username` and `forgeUser` override the global defaults. Export a per-VM `agentTokenFile` path as `./secrets + "/agent-pr-token-${name}.age"` alongside the existing `forgeTokenFile`.
+Update the `devIdentities` derivation logic so per-VM `username` and `forgeUser` override the global defaults. Export a per-VM `agentTokenFile` path alongside the existing `forgeTokenFile`.
+
+For allod-dev, both `forgeTokenFile` and `agentTokenFile` must be single-file store paths — the current `./secrets + "/forgejo-https-token-${name}.age"` pattern copies the entire `secrets/` directory to one store path, exposing the file listing of all encrypted secrets. Use `builtins.path` with a filter or name to copy only the individual `.age` file:
+
+```nix
+agentTokenFile = builtins.path {
+  path = ./secrets;
+  name = "agent-pr-token-${name}.age";
+  filter = p: _: baseNameOf p == "agent-pr-token-${name}.age";
+};
+```
+
+For existing dev VMs (trusted with private data), the current directory-based pattern is acceptable.
 
 The public username is intentional: `qemuGuest`, Home Manager, netrc activation, bootstrap SSH, and agent adapter paths all consume `identity.username`. Leaving allod-dev on the global private username would leak personal identity into `/home`, git config, adapter files, and provisioning output.
 
