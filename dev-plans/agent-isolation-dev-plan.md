@@ -13,7 +13,7 @@ See `dev-plans/agent-isolation-roadmap.md` for the full sequence.
 
 ### Tracking Issue
 
-TBD — create before implementation starts.
+https://forge.anarch.diy/allod/strategy/issues/4
 
 ### Goal
 
