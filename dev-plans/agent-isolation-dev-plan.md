@@ -426,7 +426,7 @@ Validates:
 
 #### Public template leak scan
 
-Run this after both public template repos exist. It derives private identity values from the private source flakes instead of hardcoding today's username, email, keys, or IPs:
+Run this after both public template repos exist. It derives private identity values from the private source flakes instead of hardcoding today's username, email, keys, or IPs. The extraction targets specific identity fields and sshHosts hostnames — not all scalars — to avoid false positives from generic SSH config values (`~/.ssh/host`, `~/.ssh/known_hosts_vms`, etc.) that legitimately appear in both private and public repos:
 
 ```bash
 private_secrets=/home/vnprc/work/allod/secrets
@@ -437,9 +437,12 @@ public_inventory=/path/to/allod/inventory
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
+# Extract only identity-specific private values, not generic SSH config options
 {
   nix eval --json "path:${private_secrets}#lib.identity" \
-    | jq -r '.. | scalars | tostring | select(length >= 5)'
+    | jq -r '[.username, .email, .hostname, .hostPublicKey, .forgeUser, .gpgSigningKey] | map(select(. != null and (tostring | length >= 5))) | .[]'
+  nix eval --json "path:${private_secrets}#lib.identity.sshHosts" \
+    | jq -r '[.. | objects | .hostname? // empty] | map(select(length >= 5)) | unique | .[]'
   nix eval --json "path:${private_inventory}#machines" \
     | jq -r '.. | objects | (.ip?, .mac?, .forge_key?) | select(type == "string" and length >= 5)'
 } | sort -u > "$tmp/private-values.raw"
@@ -505,9 +508,12 @@ private_profiles=/home/vnprc/work/allod/profiles
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
+# Extract only identity-specific private values (same extraction as template scan)
 {
   nix eval --json "path:${private_secrets}#lib.identity" \
-    | jq -r '.. | scalars | tostring | select(length >= 5)'
+    | jq -r '[.username, .email, .hostname, .hostPublicKey, .forgeUser, .gpgSigningKey] | map(select(. != null and (tostring | length >= 5))) | .[]'
+  nix eval --json "path:${private_secrets}#lib.identity.sshHosts" \
+    | jq -r '[.. | objects | .hostname? // empty] | map(select(length >= 5)) | unique | .[]'
   nix eval --json "path:${private_inventory}#machines" \
     | jq -r '.. | objects | (.ip?, .mac?, .forge_key?) | select(type == "string" and length >= 5)'
 } | sort -u > "$tmp/private-values.raw"
