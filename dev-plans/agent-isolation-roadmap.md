@@ -32,20 +32,28 @@ Create `Allod/memory` with public workflow knowledge. Update `agent-memory` to
 keep only private files and point to the public repo. Add `allod/memory` to
 existing dev VM repos lists. Uses the parameterized `ai-agents.nix` from step 2.
 
-### 5. [Allod-dev VM](agent-isolation-dev-plan.md)
+### 5. [rotate-ssh-key init command](rotate-ssh-key-init.md)
+
+Add an `init` command to `rotate-ssh-key` for generating the first SSH host key
+for a new VM. Reuses the same key generation, age encryption, and
+machine-host-keys.json plumbing as the existing `stage` command. Required so
+allod-dev provisioning uses standard tooling instead of ad-hoc manual steps.
+
+### 6. [Allod-dev VM](agent-isolation-dev-plan.md)
 
 With prereqs landed, this plan covers only: Forge bot user, public
 secrets/inventory template repos, allod-dev VM profile, and access control
-verification. The memory split, ai-agents.nix refactor, and checkout collision
-fix are already done.
+verification. The memory split, ai-agents.nix refactor, checkout collision
+fix, and host key init tooling are already done.
 
 ## Dependencies
 
 ```
-1 (rename) ──> 2 (ai-agents.nix) ──> 4 (memory split) ──> 5 (allod-dev VM)
-                                                       /
-                          3 (checkout uniqueness) ─────/
+1 (rename) ──> 2 (ai-agents.nix) ──> 4 (memory split) ──> 6 (allod-dev VM)
+                                                       /  /
+                          3 (checkout uniqueness) ─────/ /
+                          5 (rotate-ssh-key init) ──────/
 ```
 
-Steps 1-3 have no dependencies on each other and can proceed in parallel.
-Step 4 depends on steps 1 and 2. Step 5 depends on steps 3 and 4.
+Steps 1-3 and 5 have no dependencies on each other and can proceed in parallel.
+Step 4 depends on steps 1 and 2. Step 6 depends on steps 3, 4, and 5.

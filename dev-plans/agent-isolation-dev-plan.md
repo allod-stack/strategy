@@ -7,6 +7,7 @@ These must be completed before this plan:
 - `archive/dev-plans/per-vm-checkout-uniqueness.md` — inventory check relaxed to per-VM
 - `archive/dev-plans/split-agent-memory.md` — `allod/memory` exists with public workflow content
 - `archive/dev-plans/rename-llm-memory-plan.md` — repo rename complete
+- `dev-plans/rotate-ssh-key-init.md` — `rotate-ssh-key init` command exists for initial VM host key generation
 
 See `dev-plans/agent-isolation-roadmap.md` for the full sequence.
 
@@ -441,18 +442,16 @@ work/allod/memory master
 15. Encrypt allod-agent forge SSH private key with age: creates `secrets/allod-dev-forge-key.age`
 16. Encrypt allod-agent HTTPS token with age: creates `secrets/forgejo-https-token-allod-dev.age`
 17. Encrypt allod-agent raw API token with age: creates `secrets/agent-pr-token-allod-dev.age`
-18. Generate SSH ed25519 keypair for the allod-dev VM host identity: `ssh-keygen -t ed25519 -C allod-dev -f allod-dev-ssh`
-19. Encrypt allod-dev host private key with age: creates `profiles/secrets/allod-dev-ssh.age`; copy public key to `profiles/secrets/allod-dev-ssh.pub`
-20. Add `allod-dev-host` credential to `vnprc/secrets/credentials.nix` with the host public key (gate 18 generates it)
-21. Add allod-dev entry to `vnprc/secrets/machine-host-keys.json` with the host public key
-22. Run `agenix -e` or re-encryption for new secret paths in both `vnprc/secrets` and `profiles`
-23. Provision allod-dev VM: `provision-vm-from-host allod-dev`
-24. Rebuild allod-dev from the host when config changes: `rebuild-vm-from-host allod-dev`
+18. Generate allod-dev VM host key: `rotate-ssh-key init allod-dev` — generates keypair, writes `profiles/secrets/allod-dev-ssh.{age,pub}`, creates `machine-host-keys.json` entry, re-encrypts secrets, updates `known_hosts_vms` (prereq: `rotate-ssh-key-init.md`)
+19. Add `allod-dev-host` credential to `vnprc/secrets/credentials.nix` with the public key from gate 18 (the `init` output prints the entry to paste)
+20. Commit and push secrets and profiles changes from gates 15-19
+21. Provision allod-dev VM: `provision-vm-from-host allod-dev`
+22. Rebuild allod-dev from the host when config changes: `rebuild-vm-from-host allod-dev`
 
 **Blocks:**
 - Phase 2 agent work (writing repo content) is blocked on gates 10-11 (repos must exist)
 - Phase 3 agent work (profile config) is blocked on gates 6-9 (need the real public key values and token secret paths)
-- Phase 3 provisioning (gates 18-24) is blocked on all agent work being merged; gates 18-22 must complete before gate 23
+- Phase 3 provisioning (gates 18-22) is blocked on all agent work being merged; gates 18-20 must complete before gate 21
 - Phase 4 verification is blocked on provisioning
 
 ### PR Sequence
