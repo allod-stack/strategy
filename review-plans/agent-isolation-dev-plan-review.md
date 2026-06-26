@@ -34,11 +34,9 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **Runtime allowlist narrowness.** The closure leak scan now allows the host-management SSH public key plus allod-dev's own IP, MAC, and forge key name. Verify those are the only runtime exceptions, and verify the public template scan still rejects the same values so `allod_vm` and real network data cannot land in `allod/secrets` or `allod/inventory`.
+1. **Public template sshHosts and runtime SSH config coherence.** The public template forge entry uses `identityFile = "~/.ssh/allod_forge_host"` while the actual deployed key is `allod_vm`. `home-shared.nix` wraps the forge `identityFile` in `mkDefault`, so the allod-dev `home.nix` can override it. Verify the override mechanism is documented clearly enough for the implementer, and verify the synthetic `dev-1` matchBlock in the public template is harmless.
 
-2. **Executable acceptance snippets after allod-dev exists.** Re-check the token path test, public template leak scan, runtime closure leak scan, and clone-only nexus tests once the plan includes the private allod-dev attrs. Watch for missing attrs, bad jq, newline-sensitive allowlists, `xargs` behavior, or scans that pass before the real private values exist.
-
-3. **Profiles/nexus implementation handoff.** Verify the implementation instructions are specific enough that the profiles PR cannot accidentally pass `secrets` to allod-dev, source `profiles/modules/sync-pr-branch-protection.sh`, or let `bootstrap-vm.sh` run an on-VM rebuild for `self_rebuild = false`.
+2. **Closure scan coverage of non-string private data.** The runtime leak scan extracts string values from identity, sshHosts, machines, and credentials. Verify it also covers private data that enters the closure via file references (e.g., `gpgPublicKeyFile` store paths whose file content contains private identity strings like the real email). With gpgPublicKeyFile now conditional on gpgSigningKey, verify the derivation correctly omits it for allod-dev.
 
 Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
 
