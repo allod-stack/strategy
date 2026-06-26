@@ -163,6 +163,8 @@ rec {
 }
 ```
 
+The `dev-1` SSH host and IP values are synthetic template data. They intentionally do not match the actual `allod-dev` IP in private inventory, and no host-side provisioning path should read public `allod/secrets` to discover the real allod-dev address. The booted VM can observe its own assigned network address, but the public template must not expose private inventory addresses for other machines.
+
 #### `allod/inventory` flake outputs
 
 Must export the same interface as `vnprc/inventory`:
