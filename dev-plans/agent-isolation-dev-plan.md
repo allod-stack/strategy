@@ -267,9 +267,26 @@ New entries in `repositories.json`:
 - Add `allod-secrets.url = "git+https://forge.anarch.diy/Allod/secrets.git"` as a direct public input.
 - Do not add `allod/inventory` as a profiles flake input; public inventory is a runtime workspace checkout only.
 - Keep `secrets` and `inventory` pointed at `vnprc/*` for host-side build/provisioning data.
-- Extend `mkDevVm` so secret-bearing values (`forgeTokenFile`, `agentTokenFile`, `sshKeyName`) stay separate from runtime values (`username`, `email`, `sshHosts`, git policy source, preferences module, memory checkouts).
-- For existing dev VMs, defaults preserve current behavior.
-- For allod-dev, pass `runtimeIdentity = allod-secrets.lib.identity`, `gitPolicySource = allod-secrets`, `preferencesModule = allod-secrets.homeModules.preferences`, and `memoryCheckouts = [ "allod/memory" ]`.
+- Extend `mkDevVm` so secret-bearing values (`forgeTokenFile`, `agentTokenFile`, `sshKeyName`) stay separate from runtime values (`username`, `email`, `sshHosts`, git policy source, preferences module, memory checkouts). New optional parameters with defaults that preserve existing behavior:
+  - `runtimeIdentity ? secrets.lib.identity`
+  - `gitPolicySource ? secrets`
+  - `preferencesModule ? secrets.homeModules.preferences`
+  - `memoryCheckouts ? [ "allod/memory" "agent-memory" ]`
+  - `tokenFile ? "${secrets}/secrets/agent-pr-token.age"`
+- Update `machineConfigurations` dispatch to pass allod-dev-specific overrides. The current dispatch calls `builder { inherit name identity; }` for all VMs and ignores optional `mkDevVm` parameters. Add a per-VM override attrset keyed by name:
+  ```nix
+  devVmOverrides = {
+    allod-dev = {
+      runtimeIdentity = allod-secrets.lib.identity;
+      gitPolicySource = allod-secrets;
+      preferencesModule = allod-secrets.homeModules.preferences;
+      memoryCheckouts = [ "allod/memory" ];
+      tokenFile = identity.agentTokenFile;
+    };
+  };
+  ```
+  Then merge into the builder call: `builder ({ inherit name identity; } // (devVmOverrides.${name} or {}))`.
+- For existing dev VMs, no overrides exist so defaults apply — behavior is unchanged.
 
 `profiles/hosts/dev/allod-dev/configuration.nix`:
 - Imports `agent-forgejo-token.nix` with `tokenFile = identity.agentTokenFile`; do not use the shared `agent-pr-token.age`
