@@ -32,7 +32,7 @@ Phase 2a — Public secrets template (`allod/secrets`):
 - `allod/secrets/secrets.nix` — agenix secret declarations for allod-dev
 - `allod/secrets/machine-host-keys.json` — allod-dev host key only
 - `allod/secrets/modules/preferences.nix` — standalone preferences module without `nvim-config` (private repo) or NUR (Firefox extensions) dependencies; use a minimal neovim config and strip Firefox customization
-- `allod/secrets/keys/` — allod-agent SSH public keys
+- `allod/secrets/keys/` — synthetic SSH public keys matching the public template credentials; do not include the real allod-agent `allod_vm` public key
 - `allod/secrets/secrets/` — age-encrypted dummy tokens
 - `allod/secrets/git/` — git workflow config files (protected-branches, allowed-external-remotes, etc.)
 
@@ -153,7 +153,7 @@ rec {
       hostname = "forge.anarch.diy";
       user = "git";
       port = 2222;
-      identityFile = "~/.ssh/host";
+      identityFile = "~/.ssh/allod_forge_host";
       identitiesOnly = true;
     };
   };
@@ -491,7 +491,7 @@ done
 
 #### Public template leak scan
 
-Run this after both public template repos exist. It derives private identity values from the private source flakes instead of hardcoding today's username, email, keys, or IPs. The extraction targets specific identity fields and sshHosts hostnames — not all scalars — to avoid false positives from generic SSH config values (`~/.ssh/host`, `~/.ssh/known_hosts_vms`, etc.) that legitimately appear in both private and public repos:
+Run this after both public template repos exist. It derives private identity values from the private source flakes instead of hardcoding today's username, email, keys, or IPs. The extraction scans top-level identity strings so future `identity.nix` additions are covered, scans `sshHosts` hostnames and `identityFile` values, and scans inventory IP/MAC/forge key values plus forge-git credential names. It intentionally does not scan every nested SSH option value, which avoids false positives from generic control socket and forwarding settings:
 
 ```bash
 private_secrets=/home/vnprc/work/allod/secrets
@@ -502,14 +502,28 @@ public_inventory=/path/to/allod/inventory
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# Extract only identity-specific private values, not generic SSH config options
+# Extract identity-specific private values without hardcoding today's fields.
 {
   nix eval --json "path:${private_secrets}#lib.identity" \
-    | jq -r '[.username, .email, .hostname, .hostPublicKey, .forgeUser, .gpgSigningKey] | map(select(. != null and (tostring | length >= 5))) | .[]'
-  nix eval --json "path:${private_secrets}#lib.identity.sshHosts" \
-    | jq -r '[.. | objects | .hostname? // empty] | map(select(length >= 5)) | unique | .[]'
+    | jq -r '
+        def private_strings: .. | strings | select(length >= 5);
+        [
+          (to_entries[]
+            | select((.key == "devVMs" or .key == "privacyVMs" or .key == "sshHosts") | not)
+            | .value
+            | private_strings),
+          (.sshHosts // {}
+            | .. | objects | (.hostname?, .identityFile?)
+            | select(type == "string" and length >= 5))
+        ] | .[]'
   nix eval --json "path:${private_inventory}#machines" \
     | jq -r '.. | objects | (.ip?, .mac?, .forge_key?) | select(type == "string" and length >= 5)'
+  nix eval --json "path:${private_secrets}#lib.credentials" \
+    | jq -r '
+        to_entries[]
+        | select(.value.kind == "forge-git")
+        | (.key, .value.name, (.value.consumers[]? | select(.type == "forgejo-ssh") | .key? // empty))
+        | select(type == "string" and length >= 5)'
 } | sort -u > "$tmp/private-values.raw"
 
 cat > "$tmp/allowed-public-overlap" <<'EOF'
@@ -561,7 +575,7 @@ out=$(nix build --no-link --print-out-paths .#nixosConfigurations.allod-dev.conf
 
 #### allod-dev runtime closure leak scan
 
-Scan the built allod-dev closure for private identity values and private source-tree paths:
+Scan the built allod-dev closure for private identity values and private source-tree paths. The runtime scan allows only the host-management SSH public key and allod-dev's own IP, MAC, and forge key name; those values are operationally present in or observable from the VM, but they must still be rejected from the public template repos.
 
 ```bash
 cd /home/vnprc/work/allod/profiles
@@ -573,14 +587,28 @@ private_profiles=/home/vnprc/work/allod/profiles
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# Extract only identity-specific private values (same extraction as template scan)
+# Extract identity-specific private values without hardcoding today's fields.
 {
   nix eval --json "path:${private_secrets}#lib.identity" \
-    | jq -r '[.username, .email, .hostname, .hostPublicKey, .forgeUser, .gpgSigningKey] | map(select(. != null and (tostring | length >= 5))) | .[]'
-  nix eval --json "path:${private_secrets}#lib.identity.sshHosts" \
-    | jq -r '[.. | objects | .hostname? // empty] | map(select(length >= 5)) | unique | .[]'
+    | jq -r '
+        def private_strings: .. | strings | select(length >= 5);
+        [
+          (to_entries[]
+            | select((.key == "devVMs" or .key == "privacyVMs" or .key == "sshHosts") | not)
+            | .value
+            | private_strings),
+          (.sshHosts // {}
+            | .. | objects | (.hostname?, .identityFile?)
+            | select(type == "string" and length >= 5))
+        ] | .[]'
   nix eval --json "path:${private_inventory}#machines" \
     | jq -r '.. | objects | (.ip?, .mac?, .forge_key?) | select(type == "string" and length >= 5)'
+  nix eval --json "path:${private_secrets}#lib.credentials" \
+    | jq -r '
+        to_entries[]
+        | select(.value.kind == "forge-git")
+        | (.key, .value.name, (.value.consumers[]? | select(.type == "forgejo-ssh") | .key? // empty))
+        | select(type == "string" and length >= 5)'
 } | sort -u > "$tmp/private-values.raw"
 
 cat > "$tmp/allowed-public-overlap" <<'EOF'
@@ -593,7 +621,15 @@ workspace-tools
 strategy
 EOF
 
-grep -vxF -f "$tmp/allowed-public-overlap" "$tmp/private-values.raw" > "$tmp/private-values"
+cp "$tmp/allowed-public-overlap" "$tmp/allowed-runtime-overlap"
+printf '%s\n' "$(nix eval --raw "path:${private_secrets}#lib.identity.hostPublicKey")" \
+  >> "$tmp/allowed-runtime-overlap"
+for attr in ip mac forge_key; do
+  printf '%s\n' "$(nix eval --raw "path:${private_inventory}#machines.allod-dev.${attr}")" \
+    >> "$tmp/allowed-runtime-overlap"
+done
+
+grep -vxF -f "$tmp/allowed-runtime-overlap" "$tmp/private-values.raw" > "$tmp/private-values"
 
 nix-store -qR "$out" > "$tmp/closure"
 
