@@ -209,14 +209,25 @@ allod-dev = {
 
 Update the `devIdentities` derivation logic so per-VM `username` and `forgeUser` override the global defaults. Export a per-VM `agentTokenFile` path alongside the existing `forgeTokenFile`.
 
-For allod-dev, both `forgeTokenFile` and `agentTokenFile` must be single-file store paths — the current `./secrets + "/forgejo-https-token-${name}.age"` pattern copies the entire `secrets/` directory to one store path, exposing the file listing of all encrypted secrets. Use `builtins.path` with a filter or name to copy only the individual `.age` file:
+For allod-dev, both `forgeTokenFile` and `agentTokenFile` must be store paths to individual regular files. The current `./secrets + "/forgejo-https-token-${name}.age"` pattern copies the entire `secrets/` directory to one store path, exposing the file listing of all encrypted secrets. Do not use `builtins.path { path = ./secrets; filter = ...; }` for these token files: when `path` is a directory, Nix still produces a directory store path, and `age.secrets.*.file` needs the encrypted file path.
+
+Use `builtins.path` with `path` set to the individual file:
 
 ```nix
-agentTokenFile = builtins.path {
-  path = ./secrets;
-  name = "agent-pr-token-${name}.age";
-  filter = p: _: baseNameOf p == "agent-pr-token-${name}.age";
+singleAgeFile = fileName: builtins.path {
+  path = ./secrets/${fileName};
+  name = fileName;
 };
+
+forgeTokenFile =
+  if name == "allod-dev"
+  then singleAgeFile "forgejo-https-token-allod-dev.age"
+  else ./secrets + "/forgejo-https-token-${name}.age";
+
+agentTokenFile =
+  if name == "allod-dev"
+  then singleAgeFile "agent-pr-token-allod-dev.age"
+  else ./secrets/agent-pr-token.age;
 ```
 
 For existing dev VMs (trusted with private data), the current directory-based pattern is acceptable.
@@ -440,6 +451,21 @@ nix flake check
 Validates:
 - `vm-specs-json` check passes (scripts/vm-specs.json matches Nix attrset)
 - `repository-registry` check passes (repositories.json is valid and consistent)
+
+#### Private allod-dev token path isolation
+
+Run after the private secrets change adds allod-dev:
+
+```bash
+cd /home/vnprc/work/allod/secrets
+for attr in forgeTokenFile agentTokenFile; do
+  token_path=$(nix eval --raw ".#lib.devIdentities.allod-dev.${attr}")
+  test -f "$token_path" || {
+    echo "FAIL: ${attr} is not a regular file store path: ${token_path}"
+    exit 1
+  }
+done
+```
 
 #### Public template leak scan
 
