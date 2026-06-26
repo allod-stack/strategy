@@ -491,7 +491,7 @@ done
 
 #### Public template leak scan
 
-Run this after both public template repos exist. It derives private identity values from the private source flakes instead of hardcoding today's username, email, keys, or IPs. The extraction scans top-level identity strings so future `identity.nix` additions are covered, scans `sshHosts` hostnames and `identityFile` values, and scans inventory IP/MAC/forge key values plus forge-git credential names. It intentionally does not scan every nested SSH option value, which avoids false positives from generic control socket and forwarding settings:
+Run this after both public template repos exist. Run it again after the private `vnprc/secrets` and `vnprc/inventory` PRs add allod-dev; that final run is the gating scan because it includes the real `allod_vm` forge key name and allod-dev IP/MAC. It derives private identity values from the private source flakes instead of hardcoding today's username, email, keys, or IPs. The extraction scans top-level identity strings so future `identity.nix` additions are covered, scans `sshHosts` hostnames and `identityFile` values, and scans inventory IP/MAC/forge key values plus forge-git credential names. It intentionally does not scan every nested SSH option value, which avoids false positives from generic control socket and forwarding settings:
 
 ```bash
 private_secrets=/home/vnprc/work/allod/secrets
