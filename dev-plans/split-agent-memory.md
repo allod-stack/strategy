@@ -40,8 +40,8 @@ Create a public `Allod/memory` repo with workflow knowledge that allod-dev agent
 - `inventory/scripts/repositories.json` — add an `allod/memory` entry with `remote = "Allod/memory"` and `checkout = "allod/memory"`
 
 **Profiles:**
-- `profiles/modules/ai-agents.nix` — default `memoryCheckouts` becomes public-only (`[ "allod/memory" ]`)
-- `profiles/flake.nix` — existing vnprc dev VMs explicitly compose `memoryCheckouts = [ "allod/memory" "agent-memory" ]`; private checkout stays last because `ai-agents.nix` links Claude project memory to `lib.last memoryCheckouts`
+- `profiles/modules/ai-agents.nix` — default `memoryCheckouts` becomes public-only (`[ "allod/memory" ]`); only matters for future direct importers since `mkDevVm` always passes its own value
+- `profiles/flake.nix` — `mkDevVm` default changes from `[ "agent-memory" ]` to `[ "allod/memory" "agent-memory" ]`; `machineConfigurations` stays unchanged (no per-VM override needed since all current dev VMs need both); private checkout stays last because `ai-agents.nix` links Claude project memory to `lib.last memoryCheckouts`
 
 **Out of scope:**
 - Creating allod/secrets or allod/inventory template repos (allod-dev VM plan)
