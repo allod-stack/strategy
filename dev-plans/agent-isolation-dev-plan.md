@@ -479,7 +479,7 @@ Validates:
 - `vm-specs-json` check passes (scripts/vm-specs.json matches Nix attrset)
 - `repository-registry` check passes (repositories.json is valid and consistent)
 
-#### Private allod-dev token path isolation
+#### Private allod-dev token and GPG path isolation
 
 Run after the private secrets change adds allod-dev:
 
@@ -492,6 +492,13 @@ for attr in forgeTokenFile agentTokenFile; do
     exit 1
   }
 done
+
+identity_json=$(nix eval --json ".#lib.devIdentities.allod-dev")
+printf '%s\n' "$identity_json" | jq -e '.gpgSigningKey == null and .gpgPublicKeyFile == null' >/dev/null || {
+  echo "FAIL: allod-dev must not expose a GPG signing key or private gpgPublicKeyFile path"
+  printf '%s\n' "$identity_json" | jq .
+  exit 1
+}
 ```
 
 #### Public template leak scan
@@ -645,6 +652,21 @@ for input in "$private_secrets" "$private_inventory" "$private_profiles"; do
     exit 1
   fi
 done
+
+nix eval --json "path:${private_secrets}#lib.devIdentities" \
+  | jq -r '
+      .. | objects | .gpgPublicKeyFile? // empty
+      | select(type == "string" and startswith("/nix/store/"))
+    ' \
+  | sort -u > "$tmp/private-file-refs"
+
+while IFS= read -r store_path; do
+  [ -n "$store_path" ] || continue
+  if grep -Fx "$store_path" "$tmp/closure"; then
+    echo "FAIL: private file-valued identity reference is reachable from the allod-dev closure: $store_path"
+    exit 1
+  fi
+done < "$tmp/private-file-refs"
 
 while IFS= read -r value; do
   [ -n "$value" ] || continue
