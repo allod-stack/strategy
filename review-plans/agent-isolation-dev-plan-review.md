@@ -34,13 +34,11 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **`builtins.path` isolation in practice.** The plan now requires `builtins.path` with a filter for allod-dev token files. Verify that the proposed filter pattern actually produces a single-file store path when evaluated, and that agenix's `age.secrets.*.file` accepts a `builtins.path` result. Verify the existing `forgeTokenFile` (which uses the directory pattern) is also handled for allod-dev — the plan addresses `agentTokenFile` but the HTTPS token has the same issue.
+1. **Runtime allowlist narrowness.** The closure leak scan now allows the host-management SSH public key plus allod-dev's own IP, MAC, and forge key name. Verify those are the only runtime exceptions, and verify the public template scan still rejects the same values so `allod_vm` and real network data cannot land in `allod/secrets` or `allod/inventory`.
 
-2. **`devVmOverrides` dispatch integration.** The plan now describes a `devVmOverrides` attrset and merge pattern for the `machineConfigurations` dispatch. Verify the overrides actually reach `mkDevVm`'s internal module calls — especially that `runtimeIdentity` replaces `secrets.lib.identity` in `home-shared.nix`, `ai-agents.nix`, and that `gitPolicySource` replaces `secrets` in `agent-hooks.nix`. Also verify `secrets` is NOT passed through `specialArgs` for allod-dev.
+2. **Executable acceptance snippets after allod-dev exists.** Re-check the token path test, public template leak scan, runtime closure leak scan, and clone-only nexus tests once the plan includes the private allod-dev attrs. Watch for missing attrs, bad jq, newline-sensitive allowlists, `xargs` behavior, or scans that pass before the real private values exist.
 
-3. **Clone-only bootstrap contract.** The plan marks allod-dev with `self_rebuild = false` and removes `profiles`, `vm`, and `nexus` from the runtime repo list. Verify the inventory JSON shape, repository-registry check, `bootstrap-vm-from-host.sh`, `bootstrap-vm.sh`, `verify-vm-from-host`, and `rebuild-vm-from-host` can all handle a dev VM that clones repos but does not run an on-VM `nixos-rebuild switch`.
-
-4. **Leak scan coverage after extraction change.** The extraction was scoped to identity-specific fields to avoid false positives. Verify the scoped extraction still catches: (a) new private values added to identity.nix later (e.g., a new top-level field), (b) private SSH host keys in sshHosts, (c) forge_key values that overlap with the allod-agent key name. Confirm no coverage regression.
+3. **Profiles/nexus implementation handoff.** Verify the implementation instructions are specific enough that the profiles PR cannot accidentally pass `secrets` to allod-dev, source `profiles/modules/sync-pr-branch-protection.sh`, or let `bootstrap-vm.sh` run an on-VM rebuild for `self_rebuild = false`.
 
 Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
 
