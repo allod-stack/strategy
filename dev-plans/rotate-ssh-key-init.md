@@ -25,18 +25,20 @@ rotate-ssh-key init <target>
 
 Preconditions:
 - Target must exist in `vm-specs.json` (same as other commands)
+- Target IP from `vm-specs.json` must resolve to a non-empty, non-`null` value before key generation or any repo/trust files are written
 - Target must NOT exist in `machine-host-keys.json` (no active or staged key)
 - `profiles/secrets/${TARGET}-ssh.age` and `.pub` must NOT already exist (inconsistent state if present without JSON entry)
 - `/dev/shm` must be available
 - `profiles` and `secrets` working trees must be clean
 
-Behavior (reuses the same helpers as `stage`):
-1. Generate ed25519 keypair in `/dev/shm` tmpfs
-2. Age-encrypt private key → `profiles/secrets/${TARGET}-ssh.age`
-3. Copy public key → `profiles/secrets/${TARGET}-ssh.pub`
-4. Create entry in `machine-host-keys.json`: `{ "active": "<pubkey>", "staged": null }`
-5. Re-encrypt secrets repo with `agenix -r`
-6. Update `KNOWN_HOSTS_VMS` with the new key for the target IP
+Behavior (reuse existing helpers such as `read_json_field`, `key_material`, and `update_known_hosts`; do not refactor `stage` unless the implementation genuinely needs it):
+1. Resolve and validate target IP
+2. Generate ed25519 keypair in `/dev/shm` tmpfs
+3. Age-encrypt private key → `profiles/secrets/${TARGET}-ssh.age`
+4. Copy public key → `profiles/secrets/${TARGET}-ssh.pub`
+5. Create entry in `machine-host-keys.json`: `{ "active": "<pubkey>", "staged": null }`
+6. Re-encrypt secrets repo with `agenix -r`
+7. Update `KNOWN_HOSTS_VMS` with the new key for the target IP
 
 Exit output: print changed files and required manual steps (same format as `stage`). No `credentials.nix` edit is needed — VM host entries are derived from `machine-host-keys.json` automatically.
 
@@ -48,7 +50,8 @@ Differences from `stage`:
 
 ### Agent Gates
 
-None. All changes are to a single file in the nexus repo. The script runs on the host but isn't executed as part of this plan — it's tested structurally.
+- Do not run `rotate-ssh-key init <real-target>` as part of implementation review. A successful real run generates SSH host key material, rewrites `allod/secrets`, writes `allod/profiles` secrets, and mutates `KNOWN_HOSTS_VMS`; that is a host-side human operation after the command is merged.
+- Agents may run package, lint, dispatcher, and isolated temporary-fixture tests that do not touch real Allod secrets or host trust files.
 
 ### Acceptance Tests
 
@@ -59,11 +62,71 @@ nix flake check
 
 `nix flake check` already runs `bash -n`, `shellcheck -x`, and `test -x` on `rotate-ssh-key` via the `provisioning-contract` check.
 
-Verify the dispatcher accepts `init` (reaches the missing-target usage error, not "unknown command"):
+Verify the dispatcher accepts `init` (reaches the inventory validation path, not "unknown command"):
 
 ```bash
 nix build .#packages.x86_64-linux.provisioning-scripts
-result/bin/rotate-ssh-key init 2>&1 | grep -q 'Usage:'
+err=$(mktemp)
+if result/bin/rotate-ssh-key init __definitely_missing_vm__ 2> "$err"; then
+  echo "expected missing inventory failure"
+  exit 1
+fi
+grep -q "not in inventory" "$err"
+! grep -q "unknown command" "$err"
+```
+
+Run a non-host smoke test against temporary repos so the mutating path is exercised without touching real secrets or `KNOWN_HOSTS_VMS`:
+
+```bash
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+mkdir -p "$tmp/inventory/scripts" "$tmp/profiles/secrets" "$tmp/secrets" "$tmp/bin"
+cat > "$tmp/inventory/scripts/repositories.json" <<'JSON'
+{"repositories":{}}
+JSON
+cat > "$tmp/inventory/scripts/vm-specs.json" <<'JSON'
+{"init-vm":{"ip":"192.0.2.55"}}
+JSON
+printf '{}\n' > "$tmp/secrets/machine-host-keys.json"
+
+git -C "$tmp/profiles" init
+git -C "$tmp/secrets" init
+git -C "$tmp/profiles" -c user.name=test -c user.email=test@example.invalid commit --allow-empty -m init
+git -C "$tmp/secrets" add machine-host-keys.json
+git -C "$tmp/secrets" -c user.name=test -c user.email=test@example.invalid commit -m init
+
+cat > "$tmp/bin/age" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+out=
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[[ -n "$out" ]]
+cat > "$out"
+SH
+chmod +x "$tmp/bin/age"
+
+ssh-keygen -t ed25519 -N "" -C host -f "$tmp/host" -q
+
+PATH="$tmp/bin:$PATH" \
+  INVENTORY="$tmp/inventory" \
+  MACHINE_PROFILES="$tmp/profiles" \
+  IDENTITY_CONFIG="$tmp/secrets" \
+  AGE_IDENTITY="$tmp/host" \
+  KNOWN_HOSTS_VMS="$tmp/known_hosts_vms" \
+  AGENIX=: \
+  result/bin/rotate-ssh-key init init-vm
+
+jq -e '."init-vm".active | startswith("ssh-ed25519 ")' "$tmp/secrets/machine-host-keys.json"
+jq -e '."init-vm".staged == null' "$tmp/secrets/machine-host-keys.json"
+test -s "$tmp/profiles/secrets/init-vm-ssh.age"
+test -s "$tmp/profiles/secrets/init-vm-ssh.pub"
+grep -q '^192[.]0[.]2[.]55 ssh-ed25519 ' "$tmp/known_hosts_vms"
 ```
 
 ### Rollback Plan
