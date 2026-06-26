@@ -255,7 +255,17 @@ allod-dev = {
 
 The `repos` list excludes all vnprc-private aliases: `profiles`, `vm`, `nexus`, `secrets`, `inventory`, `nvim-config`, `agent-memory`, `notes`, and `forgejo-config`.
 
-`self_rebuild = false` marks allod-dev as host-managed after installation. Update `vmSpecsJson`, the repository registry check, and bootstrap scripts so development VMs with `self_rebuild = false` are allowed to omit `profiles`; bootstrap should copy the forge key and clone/pull repositories, then skip the on-VM `sudo nixos-rebuild switch`. Existing development VMs default to `self_rebuild = true` and must still include `profiles`.
+`self_rebuild = false` marks allod-dev as host-managed after installation. Existing development VMs default to `self_rebuild = true` and must still include `profiles`.
+
+Required clone-only plumbing:
+- `vmSpecsJson` must include `self_rebuild` for every dev VM, defaulting to `true` unless the machine explicitly sets `false`.
+- The `repository-registry` check must require `profiles` only when `forge_key != null` and `self_rebuild != false`. A dev VM with `self_rebuild = false` may omit `profiles`.
+- `bootstrap-vm-from-host.sh` must read `self_rebuild` from `vm-specs.json`, default it to `true`, and pass it to `bootstrap-vm.sh`.
+- `bootstrap-vm-from-host.sh` must read the clone owner from `lib.devIdentities.${VM_NAME}.forgeUser`, not `lib.identity.forgeUser`, so allod-dev does not accidentally use the private global Forge user. Existing dev VMs keep the same value through the defaulted `devIdentities` derivation.
+- `bootstrap-vm.sh` must accept the self-rebuild flag as part of its fixed argument protocol. When false, it clones/pulls the resolved repositories and exits before `cd ~/work/${PROFILES_CHECKOUT}` or `sudo nixos-rebuild switch`.
+- `verify-vm-from-host` remains a workspace health check: it verifies `~/work`, every repository resolved from the VM repo list, `codex`, and `claude`. Its `--repair` path reruns bootstrap, which must still skip the on-VM rebuild for clone-only VMs.
+- `rebuild-vm-from-host` is the rebuild path for `self_rebuild = false` VMs. It runs from the host profiles checkout and must not depend on `profiles` being present in the VM's runtime repo list.
+- `provision-vm-from-host` still runs bootstrap and then verification for all dev VMs after install; for allod-dev that means clone/pull only, then health verification.
 
 New entries in `repositories.json`:
 
@@ -634,6 +644,19 @@ nix eval .#machines.allod-dev.repos --json | jq -r '.[]' | while read repo; do
   esac
 done && echo "OK: no private repos in allod-dev"
 ```
+
+#### Clone-only bootstrap validation
+
+After the nexus script changes, run the provisioning script checks:
+
+```bash
+cd /home/vnprc/work/allod/nexus
+nix flake check
+tests/bootstrap-orchestration.sh
+tests/registry-resolver.sh
+```
+
+These tests must include a dev VM fixture with `self_rebuild = false` and no `profiles` repo. The fixture must prove that registry validation accepts the VM, host bootstrap passes the self-rebuild flag through, `bootstrap-vm.sh` clones repositories but does not run `sudo nixos-rebuild switch`, and `verify-vm-from-host --repair` reruns the same clone-only bootstrap path.
 
 #### Forge access control verification (manual, post-provisioning)
 
