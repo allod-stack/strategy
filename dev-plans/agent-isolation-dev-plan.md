@@ -204,10 +204,11 @@ allod-dev = {
   username = "allod";
   forgeUser = "allod-agent";
   sshKeyName = "allod_vm";
+  gpgSigningKey = null;
 };
 ```
 
-Update the `devIdentities` derivation logic so per-VM `username` and `forgeUser` override the global defaults. Export a per-VM `agentTokenFile` path alongside the existing `forgeTokenFile`.
+Update the `devIdentities` derivation logic so per-VM `username`, `forgeUser`, and `gpgSigningKey` override the global defaults. When `gpgSigningKey` is null, omit `gpgPublicKeyFile` from the devIdentity (set it to null) so the private GPG public key file does not enter the closure. Export a per-VM `agentTokenFile` path alongside the existing `forgeTokenFile`.
 
 For allod-dev, both `forgeTokenFile` and `agentTokenFile` must be store paths to individual regular files. The current `./secrets + "/forgejo-https-token-${name}.age"` pattern copies the entire `secrets/` directory to one store path, exposing the file listing of all encrypted secrets. Do not use `builtins.path { path = ./secrets; filter = ...; }` for these token files: when `path` is a directory, Nix still produces a directory store path, and `age.secrets.*.file` needs the encrypted file path.
 
