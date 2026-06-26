@@ -164,6 +164,8 @@ rec {
 
 The `dev-1` SSH host and IP values are synthetic template data. Use RFC 5737 documentation IPs (`192.0.2.0/24`) — not the `192.168.122.0/24` range used by private inventory — so the leak scan does not false-positive on exact IP matches. No host-side provisioning path should read public `allod/secrets` to discover the real allod-dev address. The booted VM can observe its own assigned network address, but the public template must not expose private inventory addresses for other machines.
 
+At runtime, `home-shared.nix` imports the public `sshHosts` attrset and wraps only the forge matchBlock's `identityFile` in `lib.mkDefault`. The public `~/.ssh/allod_forge_host` value is a template fallback, not the deployed allod-dev key. `profiles/hosts/dev/allod-dev/home.nix` must override the same forge matchBlock with `identityFile = "~/.ssh/${identity.sshKeyName}"`, which resolves to `~/.ssh/allod_vm`. The generated `dev-1` matchBlock may remain in the allod-dev SSH config; it points at documentation-only template data and is not used by provisioning or git remotes.
+
 #### `allod/inventory` flake outputs
 
 Must export the same interface as `vnprc/inventory`:
@@ -300,6 +302,7 @@ New entries in `repositories.json`:
   - `devSpecialArgs ? { inherit secrets; }` — legacy dev host configs still receive `secrets`; allod-dev must set this to `{}`
   - `enablePrBranchSync ? true` — allod-dev must set this to `false` because the helper script currently lives in the private profiles source tree
 - Build `specialArgs` for dev VMs as `({ inherit hostPublicKey identity tokenFile; username = identity.username; } // devSpecialArgs)`. Do not pass `secrets` through `specialArgs` for allod-dev. Passing `secrets` as an unused module argument is still a boundary violation because any allod-dev host module could then pull private source paths back into the closure.
+- Build `home-manager.extraSpecialArgs` with both the secret-bearing dev identity and the runtime public identity: `{ inherit pkgs-unstable allod-tools identity runtimeIdentity; }`. Existing dev host modules continue to use `identity`; allod-dev-specific Home Manager code can use `runtimeIdentity` for public forge host and port values while using `identity.sshKeyName` for the deployed private key name.
 - Wire the optional parameters through the existing imports:
   - `home-shared.nix` receives `identity = runtimeIdentity`
   - `ai-agents.nix` receives `identity = runtimeIdentity` and `memoryCheckouts`
@@ -330,7 +333,7 @@ New entries in `repositories.json`:
 
 `profiles/hosts/dev/allod-dev/home.nix`:
 - Packages: `claude-code`, `codex` (same as other dev VMs)
-- SSH matchBlock for forge.anarch.diy using the allod-dev forge key `identity.sshKeyName` (resolves to `allod_vm`) and `runtimeIdentity.forgeHost`/`runtimeIdentity.forgePort`
+- SSH matchBlock for `runtimeIdentity.forgeHost` using `runtimeIdentity.forgePort` and the allod-dev forge key `identity.sshKeyName` (resolves to `allod_vm`). This overrides the public template forge `identityFile` from `home-shared.nix` because that value is an `mkDefault`.
 - No GPG signing (allod-agent has no GPG key; `gpgSigningKey = null`)
 
 For allod-dev, `mkDevVm` passes `memoryCheckouts = [ "allod/memory" ]`, so symlinks point to `~/work/allod/memory` instead of `~/work/agent-memory`.
