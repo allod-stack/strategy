@@ -39,7 +39,7 @@ Migrated files need reference cleanup before the privacy scan passes. Known inst
 **Inventory:**
 - `inventory/flake.nix` — add the `allod/memory` repo alias to existing dev VM repos lists (`nix-dev`, `rust-dev`, `svelte-dev`)
 - `inventory/scripts/vm-specs.json` — regenerate from `inventory/flake.nix`
-- `inventory/scripts/repositories.json` — add an `allod/memory` entry with `remote = "Allod/memory"` and `checkout = "allod/memory"`
+- `inventory/scripts/repositories.json` — add an `allod/memory` entry with `source = "forge"`, `remote = "Allod/memory"`, and `checkout = "allod/memory"`
 
 **Profiles:**
 - `profiles/modules/ai-agents.nix` — default `memoryCheckouts` becomes public-only (`[ "allod/memory" ]`); only matters for future direct importers since `mkDevVm` always passes its own value
@@ -177,7 +177,7 @@ cd ~/work/allod/inventory
 nix eval .#lib.vmSpecsJson --raw | jq -S . > /tmp/vm-specs.expected.json
 jq -S . scripts/vm-specs.json > /tmp/vm-specs.actual.json
 diff -u /tmp/vm-specs.expected.json /tmp/vm-specs.actual.json
-jq -e '.repositories["allod/memory"].remote == "Allod/memory" and .repositories["allod/memory"].checkout == "allod/memory"' scripts/repositories.json
+jq -e '.repositories["allod/memory"] | .source == "forge" and .remote == "Allod/memory" and .checkout == "allod/memory"' scripts/repositories.json
 jq -e '."nix-dev".repos | index("allod/memory")' scripts/vm-specs.json
 jq -e '."rust-dev".repos | index("allod/memory")' scripts/vm-specs.json
 jq -e '."svelte-dev".repos | index("allod/memory")' scripts/vm-specs.json
