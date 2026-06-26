@@ -4,7 +4,7 @@ You are the baddest infrastructure engineer on the planet. NixOS module composit
 
 ## Your Task
 
-Review the [Agent Isolation Dev Plan](agent-isolation-dev-plan.md) for gaps, misunderstandings, bugs, and flaws. Be direct and specific. Flag anything that will block implementation, create unnecessary work, or leave a landmine for future changes.
+Review the [Agent Isolation Dev Plan](../dev-plans/agent-isolation-dev-plan.md) for gaps, misunderstandings, bugs, and flaws. Be direct and specific. Flag anything that will block implementation, create unnecessary work, or leave a landmine for future changes.
 
 Read the actual codebase to ground the review in reality. Do not review the plan in isolation.
 
@@ -34,9 +34,11 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **Public template sshHosts and runtime SSH config coherence.** The public template forge entry uses `identityFile = "~/.ssh/allod_forge_host"` while the actual deployed key is `allod_vm`. `home-shared.nix` wraps the forge `identityFile` in `mkDefault`, so the allod-dev `home.nix` can override it. Verify the override mechanism is documented clearly enough for the implementer, and verify the synthetic `dev-1` matchBlock in the public template is harmless.
+1. **Clone-only provisioning contract completeness.** Verify `self_rebuild = false` is generated into `vm-specs.json`, consumed by `bootstrap-vm-from-host.sh`, passed through the fixed `bootstrap-vm.sh` argument protocol, honored by `verify-vm-from-host --repair`, and covered by tests with a dev VM fixture that has no `profiles` repo.
 
-2. **Closure scan coverage of non-string private data.** The runtime leak scan extracts string values from identity, sshHosts, machines, and credentials. Verify it also covers private data that enters the closure via file references (e.g., `gpgPublicKeyFile` store paths whose file content contains private identity strings like the real email). With gpgPublicKeyFile now conditional on gpgSigningKey, verify the derivation correctly omits it for allod-dev.
+2. **Profiles runtime/private input split.** Verify the `mkDevVm` parameterization, NixOS `specialArgs`, Home Manager `extraSpecialArgs`, `agent-forgejo-token.nix`, `agent-hooks.nix`, and preferences module wiring keep private source trees out of the allod-dev runtime closure while preserving existing dev VM behavior.
+
+3. **Public template repo implementation paths.** Existing private dev VMs already use `~/work/allod/secrets` and `~/work/allod/inventory` for private `vnprc/*` remotes. Verify the temporary public clone guidance is operationally sufficient for PRs 1-2 and that acceptance commands distinguish private and public paths unambiguously.
 
 Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
 
