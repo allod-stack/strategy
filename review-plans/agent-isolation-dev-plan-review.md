@@ -21,10 +21,10 @@ Key repos in play:
 - `allod/memory` — public agent workflow memory (already split from agent-memory)
 
 Current state:
-- Four prerequisites are complete: repo rename, ai-agents.nix parameterization, per-VM checkout uniqueness, and agent-memory split (see `agent-isolation-roadmap.md`)
+- Five prerequisites are complete: repo rename, ai-agents.nix parameterization, per-VM checkout uniqueness, agent-memory split, and vm-ssh-host-key init (see `agent-isolation-roadmap.md`)
 - Agents currently run on nix-dev, rust-dev, and svelte-dev VMs with full access to vnprc/* repos
-- The allod-dev VM does not exist yet; this plan creates it
-- `allod/secrets` and `allod/inventory` repos do not exist yet on the forge
+- The initial allod-dev implementation has landed across the public template repos, private inventory/secrets, profiles, and nexus provisioning scripts
+- This review prompt is now for follow-up corrections and regression review of the implemented plan, especially first-provisioning behavior and isolation boundaries
 
 ## Structural Conformance
 
