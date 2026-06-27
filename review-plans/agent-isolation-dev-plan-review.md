@@ -43,6 +43,7 @@ No targeted focus areas remain after the latest pass. Do not run another review 
 - **Security matters, ceremony does not.** The privacy and security boundaries must be airtight. Everything else can be pragmatic.
 - **Solve problems as they come.** If the plan front-loads work for hypothetical future needs, flag it.
 - **Think operationally.** Consider what happens when someone executes this plan with incomplete context or in the wrong order.
+- **Inspect generated lifecycle artifacts.** For NixOS, Home Manager, provisioning, systemd, or wrapper-script changes, do not stop at source evaluation. Inspect the generated activation scripts, units, wrappers, install/boot phases, and negative paths for missing optional secrets, credentials, files, or host state.
 
 The person implementing this is technically sharp. They do not need hand-holding; they need the sharp edges they missed.
 
@@ -53,6 +54,7 @@ Use `[BLOCKER]` only when following the plan literally is likely to:
 - perform a destructive or unsafe operation;
 - fail before implementation can complete;
 - leave the resulting system nonfunctional;
+- break first boot, activation, provisioning, rebuild, or rollback lifecycle behavior;
 - violate a security or privacy boundary; or
 - require missing human input that cannot be inferred from the repo or memory.
 
