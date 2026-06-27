@@ -2,8 +2,7 @@
 
 ## Tracking Issue
 
-[notes#19](https://forge.anarch.diy/vnprc/notes/issues/19) — parallel
-foundation, not part of the core sequence.
+[notes#19](https://forge.anarch.diy/vnprc/notes/issues/19), step 12.
 
 ## Goal
 
