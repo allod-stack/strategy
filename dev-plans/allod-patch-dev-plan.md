@@ -66,9 +66,9 @@ The existing `allod` script must add a `patch` namespace alongside `change`:
 
 Every SSH invocation in `patch fetch` must keep user-supplied values out of the remote command string.
 
-- Invoke SSH with the host as an argument (`ssh -- "$host" ...`) after rejecting an empty host and an empty source repo.
+- Invoke SSH with the host as an argument (`ssh -- "$host" ...`) after rejecting an empty host, empty source repo, and relative source repo path.
 - The remote command text must be static. Do not build commands such as `ssh "$host" "tar cz -C $tmpdir ."` or interpolate `<source-repo>`, `--base`, or the remote temp dir path into remote shell syntax.
-- Pass `<source-repo>`, `--base`, and later the remote temp dir path through a no-shell-expansion channel, such as base64-encoded literals decoded inside a static `bash -se` remote script. Reject decoded values containing NUL or newline; require the source repo path to be absolute.
+- Pass `<source-repo>`, `--base`, and later the remote temp dir path through a no-shell-expansion channel, such as base64-encoded literals decoded inside a static `bash -se` remote script. If base64 is used, encode each value as a single line (`base64 -w 0` or equivalent wrapping removal) before transport. Reject decoded values containing NUL or newline.
 - Quote every decoded value in remote commands (`git -C "$repo" ...`, `tar -cz -C "$tmpdir" .`, `rm -rf -- "$tmpdir"`). Do not use user input in `mktemp` templates.
 - Keep remote generation stdout as a control channel. `git format-patch` output must go to stderr or a log file; stdout from the generation command is exactly one line containing the remote temp dir path.
 
@@ -86,7 +86,7 @@ Runs on the public-authorized host. SSHes into the source VM and generates the p
    f. Outputs only the temp dir path to stdout.
 3. Resolve the final local artifact dir. If `--output` is provided, it must not already exist. Extract into a local staging dir created with `mktemp -d` in the final dir's parent; after successful tar extraction and a readable `manifest.json`, rename the staging dir to the final output path. For the default output, the `mktemp -d /tmp/allod-patch.XXXXXXXXXX` path may be the final dir, but it must be removed on transfer or validation failure.
 4. Transfer the artifact directory using a static SSH tar script that decodes the remote temp dir path and runs `tar -cz -C "$tmpdir" .`, piped to local `tar -xz -C "$staging"`.
-5. Remove the remote temp dir only after local tar extraction succeeds, `manifest.json` is readable, and the staging dir has been moved or accepted as the final output. Use a static SSH cleanup script that decodes the temp dir path and runs `rm -rf -- "$tmpdir"`. On transfer or local extraction failure, remove the local staging dir, leave the final output absent, and print the remote temp dir path so the human can clean up manually.
+5. Remove the remote temp dir only after local tar extraction succeeds, `manifest.json` is readable, and the staging dir has been moved or accepted as the final output. Use a static SSH cleanup script that decodes the temp dir path and runs `rm -rf -- "$tmpdir"`. On transfer or local extraction failure, remove the local staging dir, leave the final output absent, and print the remote temp dir path so the human can clean up manually. If cleanup SSH fails after local promotion, keep the local artifact, exit 1, and print both the local artifact path and remote temp dir path for manual cleanup; do not report fetch success.
 6. Print summary: patch count, base..head range, local artifact path.
 
 Exit codes:
@@ -192,17 +192,19 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 
 - Happy path: single commit ahead of base produces one patch + valid manifest. Verify patch count, filenames, sha256s in manifest, artifact dir exists locally.
 - Multiple commits: produces multiple patches in order.
+- Target parsing/input validation: empty host, empty source repo, relative source repo, newline-bearing source repo, and newline-bearing `--base` all fail before remote work.
 - Dirty source worktree: tracked, staged, and untracked changes each exit 10 with actionable messages.
 - No commits to export (HEAD == base): exits 11.
 - Source base not ancestor of `HEAD`: exits 11 before `git format-patch`.
 - SSH connection failure (mock returns non-zero): exits 1 with message.
 - Remote cleanup: after successful fetch, remote temp dir is removed (verify via mock).
+- Remote cleanup failure after successful local promotion: exits 1, preserves the local artifact, and prints both local and remote cleanup paths.
 - `--output <dir>`: artifacts land in specified directory.
 - `--output <dir>` existing path: exits 1 before remote work.
 - Local extraction failure: exits 1, final output dir is absent, local staging is removed, and the remote temp dir path is printed for manual cleanup.
 - `--base` custom ref: patches cover the specified range.
 - Remote stdout discipline: `git format-patch` filename output does not pollute the fetched temp dir control value.
-- Remote command injection guard: source repo paths containing spaces, semicolons, quotes, and `$()` characters are fetched correctly, and an invalid `--base` value containing shell metacharacters fails without creating a sentinel file.
+- Remote command injection guard: source repo paths containing spaces, semicolons, quotes, and `$()` characters are fetched correctly, long source repo paths that force base64 past 76 bytes still transfer as one value, and an invalid `--base` value containing shell metacharacters fails without creating a sentinel file.
 
 ### apply tests
 
