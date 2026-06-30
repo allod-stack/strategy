@@ -68,7 +68,7 @@ Every SSH invocation in `patch fetch` must keep user-supplied values out of the 
 
 - Invoke SSH with the host as an argument (`ssh -- "$host" ...`) after rejecting an empty host, empty source repo, and relative source repo path.
 - The remote command text must be static. Do not build commands such as `ssh "$host" "tar cz -C $tmpdir ."` or interpolate `<source-repo>`, `--base`, or the remote temp dir path into remote shell syntax.
-- Pass `<source-repo>`, `--base`, and later the remote temp dir path through a no-shell-expansion channel, such as base64-encoded literals decoded inside a static `bash -se` remote script. If base64 is used, encode each value as a single line (`base64 -w 0` or equivalent wrapping removal) before transport. Reject decoded values containing NUL or newline.
+- Pass `<source-repo>`, `--base`, and later the remote temp dir path through a no-shell-expansion channel, such as base64-encoded literals decoded inside a static `bash -se` remote script. If base64 is used, encode each value as a single line (`base64 -w 0` or equivalent wrapping removal) before transport. Reject decoded values containing newlines; shell arguments cannot carry NUL bytes, so do not add a separate NUL-handling path.
 - Quote every decoded value in remote commands (`git -C "$repo" ...`, `tar -cz -C "$tmpdir" .`, `rm -rf -- "$tmpdir"`). Do not use user input in `mktemp` templates.
 - Keep remote generation stdout as a control channel. `git format-patch` output must go to stderr or a log file; stdout from the generation command is exactly one line containing the remote temp dir path.
 
