@@ -93,17 +93,18 @@ Runs on the public-authorized host against the destination repo.
 2. Validate the manifest shape and verify sha256 of each patch file matches the manifest. Exit 12 on malformed manifest, unsafe filename, patch count mismatch, duplicate filename, unlisted `.patch` file, or checksum mismatch.
 3. Resolve destination repo (from `--repo` or cwd). Require clean worktree.
 4. Verify destination repo's `origin` URL matches `manifest.repo_remote`. Exit non-zero on mismatch with actionable message showing both URLs.
-5. Verify `manifest.base_commit` is reachable in the destination repo. Exit non-zero with explanation if not (e.g., "run git fetch first").
-6. Apply patches in manifest order: build an array from `manifest.patches[].filename` and run `git am --3way "${patch_files[@]}"`. Do not use a shell glob. On failure, run `git am --abort` and exit non-zero.
-7. Post-apply checks: `git diff --check <base>..HEAD`, `git log --oneline <base>..HEAD`, `git show --stat --oneline HEAD`.
-8. If `--push`: `git push`. Otherwise print reminder.
+5. Verify `manifest.base_commit` exists and is an ancestor of the current destination `HEAD` with `git merge-base --is-ancestor "$base_commit" HEAD`. Exit 14 with explanation if not (e.g., "run git fetch first" or "check out the destination branch containing the base commit").
+6. Record `pre_apply_head=$(git rev-parse HEAD)`. Apply patches in manifest order: build an array from `manifest.patches[].filename` and run `git am --3way "${patch_files[@]}"`. Do not use a shell glob.
+7. On `git am` failure, run `git am --abort` when an am state directory exists, then assert `HEAD` is still `pre_apply_head`, `git status --porcelain` is empty, and `$(git rev-parse --git-path rebase-apply)` plus `$(git rev-parse --git-path rebase-merge)` are absent. Exit 15 either way, but if cleanup assertions fail, print the failed assertion and the repo path for manual repair.
+8. Post-apply checks: `git diff --check "$base_commit..HEAD"`, `git log --oneline "$base_commit..HEAD"`, `git show --stat --oneline HEAD`.
+9. If `--push`: `git push`. Otherwise print reminder.
 
 Exit codes:
 - `0` — success
 - `1` — usage error
 - `12` — checksum mismatch
 - `13` — repo identity mismatch (remote URL)
-- `14` — base commit not reachable
+- `14` — base commit missing or not an ancestor of destination HEAD
 - `15` — `git am` failed (patches aborted)
 - `16` — destination worktree dirty
 
@@ -144,7 +145,7 @@ Checksum and filename rules:
 11  no commits to export
 12  checksum mismatch
 13  repo identity mismatch
-14  base commit not reachable
+14  base commit missing or not ancestor of destination HEAD
 15  git am failed
 16  destination worktree dirty
 ```
@@ -184,13 +185,14 @@ Similarly, mock `scp`/`tar` transfer by having the mock SSH write to a local dir
 
 ### apply tests
 
-- Happy path: clean destination repo, matching remote URL, reachable base, patches apply cleanly. Verify commits exist after apply.
+- Happy path: clean destination repo, matching remote URL, base commit present as an ancestor of `HEAD`, patches apply cleanly. Verify commits exist after apply.
 - Checksum mismatch: tamper with a patch file after fetch. Exits 12.
 - Manifest validation: duplicate filenames, path traversal filenames, non-hex digests, patch count mismatch, and unlisted `.patch` files each exit 12 before `git am`.
 - Repo identity mismatch: destination has different origin URL. Exits 13 with both URLs shown.
-- Base commit not reachable: destination is behind. Exits 14 with "git fetch" hint.
+- Base commit missing: destination is behind. Exits 14 with "git fetch" hint.
+- Base commit not ancestor: destination has the base object only on another ref or branch. Exits 14 with checkout/fetch guidance before `git am`.
 - Dirty destination worktree: exits 16.
-- `git am` conflict: create a conflicting commit in destination before apply. Exits 15, worktree is clean after abort.
+- `git am` conflict: create a conflicting commit in destination before apply. Exits 15; `HEAD` is unchanged, worktree/index are clean, and `.git/rebase-apply`/`.git/rebase-merge` are absent after abort.
 - `--push`: verify git push is called (via mock git wrapper).
 - Without `--push`: verify git push is NOT called.
 - Multiple patches: all apply in manifest order, log shows correct range.
