@@ -85,9 +85,9 @@ Runs on the public-authorized host. SSHes into the source VM and generates the p
    d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel.
    e. Writes a JSON manifest to `<tmpdir>/manifest.json` with `jq`, containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
    f. Outputs only the temp dir path to stdout.
-3. Resolve the final local artifact dir. If `--output` is provided, it must not already exist. Extract into a local staging dir created with `mktemp -d` in the final dir's parent; after successful tar extraction and a readable `manifest.json`, rename the staging dir to the final output path. For the default output, the `mktemp -d /tmp/allod-patch.XXXXXXXXXX` path may be the final dir, but it must be removed on transfer or validation failure.
+3. Resolve the final local artifact dir. If `--output` is provided, it must not already exist. Extract into a local staging dir created with `mktemp -d` in the final dir's parent; after successful tar extraction and a regular non-symlink `manifest.json`, rename the staging dir to the final output path. For the default output, the `mktemp -d /tmp/allod-patch.XXXXXXXXXX` path may be the final dir, but it must be removed on transfer or validation failure.
 4. Transfer the artifact directory using a static SSH tar script that decodes and validates the remote temp dir path, then runs `tar -cz -C "$tmpdir" .`, piped to local `tar -xz -C "$staging"`.
-5. Remove the remote temp dir only after local tar extraction succeeds, `manifest.json` is readable, and the staging dir has been moved or accepted as the final output. Use a static SSH cleanup script that decodes and validates the temp dir path before running `rm -rf -- "$tmpdir"`. On transfer or local extraction failure, remove the local staging dir, leave the final output absent, and print the remote temp dir path so the human can clean up manually. If cleanup SSH fails after local promotion, keep the local artifact, exit 1, and print both the local artifact path and remote temp dir path for manual cleanup; do not report fetch success.
+5. Remove the remote temp dir only after local tar extraction succeeds, `manifest.json` is regular and not a symlink, and the staging dir has been moved or accepted as the final output. Use a static SSH cleanup script that decodes and validates the temp dir path before running `rm -rf -- "$tmpdir"`. On transfer, local extraction, or local artifact validation failure, remove the local staging dir, leave the final output absent, and print the remote temp dir path so the human can clean up manually. If cleanup SSH fails after local promotion, keep the local artifact, exit 1, and print both the local artifact path and remote temp dir path for manual cleanup; do not report fetch success.
 6. Print summary: patch count, base..head range, local artifact path.
 
 Exit codes:
@@ -100,8 +100,8 @@ Exit codes:
 
 Runs on the public-authorized host against the destination repo.
 
-1. Resolve the artifact directory to an absolute path and read `manifest.json` from it.
-2. Validate the manifest JSON shape and verify sha256 of each listed patch file matches the manifest. Exit 12 on malformed JSON, missing or wrong-type required fields, unsafe filename, missing listed patch file, non-regular listed patch file, patch count mismatch, duplicate filename, unlisted `.patch` file, or checksum mismatch.
+1. Resolve the artifact directory to an absolute path. Require `<artifact-dir>/manifest.json` to be a regular non-symlink file before reading it.
+2. Validate the manifest JSON shape and verify sha256 of each listed patch file matches the manifest. Exit 12 on malformed JSON, missing or wrong-type required fields, non-full or non-hex `base_commit`/`head_commit`, unsafe filename, missing listed patch file, non-regular listed patch file, patch count mismatch, duplicate filename, unlisted `.patch` file, or checksum mismatch.
 3. Resolve destination repo (from `--repo` or cwd). Require clean worktree.
 4. Verify destination repo's `origin` URL matches `manifest.repo_remote`. Exit 13 on mismatch with actionable message showing both URLs.
 5. Verify `manifest.base_commit` exists and is an ancestor of the current destination `HEAD` with `git merge-base --is-ancestor "$base_commit" HEAD`. Exit 14 with explanation if not (e.g., "run git fetch first" or "check out the destination branch containing the base commit").
@@ -150,6 +150,7 @@ Checksum and filename rules:
 
 - Compute each digest from the patch file bytes with `sha256sum -b -- "$patch_file"` and store only the first field: the lowercase 64-character hex digest. The trailing newline printed by `sha256sum` is not part of the digest.
 - Verify apply-side digests with the same `sha256sum -b` command and exact string comparison. Do not use `sha256sum -c` against manifest-derived text, because filename parsing would become a second input surface.
+- `manifest.json` itself must be a regular file inside the artifact directory, not a symlink, directory, or other non-regular file. `base_commit` and `head_commit` must be full lowercase Git object IDs: 40 hex characters for SHA-1 repositories or 64 hex characters for SHA-256 repositories. Reject refs, abbreviated hashes, rev expressions, and values with control characters.
 - Each `patches[].filename` must be a basename ending in `.patch`, with no `/`, no `..`, and no control characters. It must name an existing regular file inside the artifact directory, not a symlink, directory, or other non-regular file. `patch_count` must equal the length of the `patches` array and the number of `.patch` files in the artifact directory.
 - Duplicate filenames or non-hex digests are manifest integrity failures and exit 12.
 
@@ -210,6 +211,7 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 - `--output <dir>`: artifacts land in specified directory.
 - `--output <dir>` existing path: exits 1 before remote work.
 - Local extraction failure: exits 1, final output dir is absent, local staging is removed, and the remote temp dir path is printed for manual cleanup.
+- Local artifact validation failure after extraction: missing, symlinked, or non-regular `manifest.json` exits 1, leaves the final output absent, removes local staging, prints the remote temp dir path, and does not run remote cleanup.
 - `--base` custom ref: patches cover the specified range.
 - Remote stdout discipline: `git format-patch` filename output does not pollute the fetched temp dir control value.
 - Remote temp dir validation: empty, multi-line, relative, and non-`/tmp/allod-patch.XXXXXXXXXX` control values exit 1 before tar or cleanup, leave the final output absent, and never run `rm -rf` against the invalid path.
@@ -220,7 +222,7 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 - Happy path: clean destination repo, matching remote URL, base commit present as an ancestor of `HEAD`, patches apply cleanly. Verify commits exist after apply.
 - Artifact path resolution: run `apply` from a cwd that is neither the artifact directory nor the destination repo. Patches still apply because `git am` receives artifact-rooted paths.
 - Checksum mismatch: tamper with a patch file after fetch. Exits 12.
-- Manifest validation: malformed JSON, missing or wrong-type required fields, duplicate filenames, path traversal filenames, basenames not ending in `.patch`, control-character filenames, non-hex digests, missing listed patch files, symlink or non-regular listed patch files, patch count mismatch, and unlisted `.patch` files each exit 12 before `git am`.
+- Manifest validation: malformed JSON, symlinked or non-regular `manifest.json`, missing or wrong-type required fields, duplicate filenames, path traversal filenames, basenames not ending in `.patch`, control-character filenames, non-full or non-hex `base_commit`/`head_commit`, refname or rev-expression commit fields, non-hex digests, missing listed patch files, symlink or non-regular listed patch files, patch count mismatch, and unlisted `.patch` files each exit 12 before `git am`.
 - Repo identity mismatch: destination has different origin URL. Exits 13 with both URLs shown.
 - Base commit missing: destination is behind. Exits 14 with "git fetch" hint.
 - Base commit not ancestor: destination has the base object only on another ref or branch. Exits 14 with checkout/fetch guidance before `git am`.
