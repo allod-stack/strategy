@@ -78,8 +78,8 @@ Runs on the public-authorized host. SSHes into the source VM and generates the p
 
 1. Parse `<ssh-host>:<source-repo>` into SSH host and absolute repo path.
 2. SSH into the source VM using the remote SSH contract and run a single remote script that:
-   a. Validates the source worktree is clean (`git diff --quiet && git diff --cached --quiet`). Exits non-zero if dirty.
-   b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates HEAD is ahead of base (`git rev-list "$base_commit..HEAD"` is non-empty). Exits non-zero if nothing to export.
+   a. Validates the source worktree is clean with `git status --porcelain` empty, so tracked, staged, and untracked changes are all blocked. Exits 10 if dirty.
+   b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates `base_commit` is an ancestor of `HEAD` with `git merge-base --is-ancestor "$base_commit" HEAD`, then validates `git rev-list "$base_commit..HEAD"` is non-empty. Exits 11 if `HEAD` is not strictly ahead of base.
    c. Creates a temp dir on the remote with a fixed `mktemp -d /tmp/allod-patch.XXXXXXXXXX` template and installs a trap that removes it if generation fails before the path is handed back.
    d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel.
    e. Writes a JSON manifest to `<tmpdir>/manifest.json` with `jq`, containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
@@ -93,7 +93,7 @@ Exit codes:
 - `0` — success
 - `1` — usage error, SSH failure, or remote error
 - `10` — source worktree is dirty
-- `11` — no commits to export (HEAD is not ahead of base)
+- `11` — source `HEAD` is not strictly ahead of base
 
 ### `patch apply`
 
@@ -152,7 +152,7 @@ Checksum and filename rules:
 0   success
 1   usage error / SSH failure / general error
 10  source worktree dirty
-11  no commits to export
+11  source HEAD is not ahead of base
 12  checksum mismatch
 13  repo identity mismatch
 14  base commit missing or not ancestor of destination HEAD
@@ -192,8 +192,9 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 
 - Happy path: single commit ahead of base produces one patch + valid manifest. Verify patch count, filenames, sha256s in manifest, artifact dir exists locally.
 - Multiple commits: produces multiple patches in order.
-- Dirty source worktree: exits 10 with actionable message.
+- Dirty source worktree: tracked, staged, and untracked changes each exit 10 with actionable messages.
 - No commits to export (HEAD == base): exits 11.
+- Source base not ancestor of `HEAD`: exits 11 before `git format-patch`.
 - SSH connection failure (mock returns non-zero): exits 1 with message.
 - Remote cleanup: after successful fetch, remote temp dir is removed (verify via mock).
 - `--output <dir>`: artifacts land in specified directory.
