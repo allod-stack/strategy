@@ -71,13 +71,14 @@ Runs on the public-authorized host. SSHes into the source VM and generates the p
 2. SSH into the source VM using the remote SSH contract and run a single remote script that:
    a. Validates the source worktree is clean (`git diff --quiet && git diff --cached --quiet`). Exits non-zero if dirty.
    b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates HEAD is ahead of base (`git rev-list "$base_commit..HEAD"` is non-empty). Exits non-zero if nothing to export.
-   c. Creates a temp dir on the remote with a fixed `mktemp -d /tmp/allod-patch.XXXXXXXXXX` template.
+   c. Creates a temp dir on the remote with a fixed `mktemp -d /tmp/allod-patch.XXXXXXXXXX` template and installs a trap that removes it if generation fails before the path is handed back.
    d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel.
    e. Writes a JSON manifest to `<tmpdir>/manifest.json` with `jq`, containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
    f. Outputs only the temp dir path to stdout.
-3. Transfer the artifact directory from the remote to the local `--output` dir (default: `/tmp/allod-patch-<timestamp>-XXXXXX` via mktemp). Use a static SSH tar script that decodes the remote temp dir path and runs `tar -cz -C "$tmpdir" .`, piped to local `tar -xz -C "$output"`.
-4. Remove the remote temp dir after successful transfer with a static SSH cleanup script that decodes the temp dir path and runs `rm -rf -- "$tmpdir"`. On transfer failure, print the remote temp dir path so the human can clean up manually.
-5. Print summary: patch count, base..head range, local artifact path.
+3. Resolve the final local artifact dir. If `--output` is provided, it must not already exist. Extract into a local staging dir created with `mktemp -d` in the final dir's parent; after successful tar extraction and a readable `manifest.json`, rename the staging dir to the final output path. For the default output, the `mktemp -d /tmp/allod-patch.XXXXXXXXXX` path may be the final dir, but it must be removed on transfer or validation failure.
+4. Transfer the artifact directory using a static SSH tar script that decodes the remote temp dir path and runs `tar -cz -C "$tmpdir" .`, piped to local `tar -xz -C "$staging"`.
+5. Remove the remote temp dir only after local tar extraction succeeds, `manifest.json` is readable, and the staging dir has been moved or accepted as the final output. Use a static SSH cleanup script that decodes the temp dir path and runs `rm -rf -- "$tmpdir"`. On transfer or local extraction failure, remove the local staging dir, leave the final output absent, and print the remote temp dir path so the human can clean up manually.
+6. Print summary: patch count, base..head range, local artifact path.
 
 Exit codes:
 - `0` — success
@@ -179,6 +180,8 @@ Similarly, mock `scp`/`tar` transfer by having the mock SSH write to a local dir
 - SSH connection failure (mock returns non-zero): exits 1 with message.
 - Remote cleanup: after successful fetch, remote temp dir is removed (verify via mock).
 - `--output <dir>`: artifacts land in specified directory.
+- `--output <dir>` existing path: exits 1 before remote work.
+- Local extraction failure: exits 1, final output dir is absent, local staging is removed, and the remote temp dir path is printed for manual cleanup.
 - `--base` custom ref: patches cover the specified range.
 - Remote stdout discipline: `git format-patch` filename output does not pollute the fetched temp dir control value.
 - Remote command injection guard: source repo paths containing spaces, semicolons, quotes, and `$()` characters are fetched correctly, and an invalid `--base` value containing shell metacharacters fails without creating a sentinel file.
