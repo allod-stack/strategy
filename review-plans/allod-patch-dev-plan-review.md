@@ -30,19 +30,13 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
+Concentrate your review on these areas where the hardened plan is still most likely to drift or overreach. These are lenses, not checklists — follow the thread wherever it leads.
 
-1. **SSH remote command surface.** The `fetch` subcommand SSHes into a source VM and runs a multi-step script remotely. Every piece of user-supplied input that reaches the remote shell (repo path, base ref, temp dir path) is an injection vector. Verify the plan constrains the remote command to prevent shell expansion of user input, and that the test suite covers adversarial inputs.
+1. **Contract-to-test traceability.** Verify every explicit contract now in the plan has a concrete acceptance test: static SSH commands, adversarial input handling, stdout control, checksum/manifest validation, manifest-order apply, output staging, `git am` cleanup, namespace routing, and rollback cleanup.
 
-2. **Artifact integrity across the transfer boundary.** Patches are generated on one machine, transferred via tar-over-SSH, and applied on another. The manifest's sha256 checksums are the sole integrity guarantee. Verify the plan specifies which sha256 tool to use, how the checksum is computed (binary vs text mode, trailing newline), and whether the apply-side comparison can produce false positives or negatives.
+2. **Operational sequencing.** Walk the plan in execution order and verify the agent/human boundary is still clear: agent-local tests first, human SSH command review and cross-VM smoke test before merge, then artifact/temp-dir cleanup if validation fails.
 
-3. **git am failure and worktree state.** The plan says `git am --abort` on failure, but `git am` can leave state in `.git/rebase-apply/` even after abort in some edge cases. Verify the plan's cleanup guarantees and whether the acceptance tests actually assert the worktree is clean post-abort, not just that the exit code is correct.
-
-4. **Test mock fidelity.** The SSH mock strategy executes remote commands locally against a test repo. This elides real SSH quoting, connection failures, and the tar pipe. Verify the mock design does not mask quoting bugs that would only surface over real SSH, and that the plan acknowledges what the mocks cannot cover.
-
-5. **Exit code collision and routing.** The plan reserves 10-16 for patch and notes 1-6 are used by `allod change`. Since both namespaces share the `allod` script entry point, verify there is no overlap and that the routing logic (how `allod` dispatches to `change` vs `patch`) is specified or inferable from the existing code.
-
-6. **Remote temp dir lifecycle.** The plan says fetch creates a temp dir on the remote, transfers its contents, then removes it. On transfer failure, it prints the path for manual cleanup. Verify the plan handles the case where the remote script succeeds but the local tar extraction fails (remote dir already deleted?), and whether partial transfer leaves inconsistent local state.
+3. **Bash implementation complexity.** Challenge any requirement that would force fragile shell abstraction or new dependencies beyond Bash, git, jq, coreutils, tar, and ssh. Keep the security boundary strict, but avoid turning the script into a framework.
 
 ## Review Guidelines
 
