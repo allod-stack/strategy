@@ -53,20 +53,30 @@ allod patch receive <ssh-host>:<source-repo> <destination-repo> [--base <ref>] [
 
 `--base` defaults to `origin/master`.
 
+### Remote SSH contract
+
+Every SSH invocation in `patch fetch` must keep user-supplied values out of the remote command string.
+
+- Invoke SSH with the host as an argument (`ssh -- "$host" ...`) after rejecting an empty host and an empty source repo.
+- The remote command text must be static. Do not build commands such as `ssh "$host" "tar cz -C $tmpdir ."` or interpolate `<source-repo>`, `--base`, or the remote temp dir path into remote shell syntax.
+- Pass `<source-repo>`, `--base`, and later the remote temp dir path through a no-shell-expansion channel, such as base64-encoded literals decoded inside a static `bash -se` remote script. Reject decoded values containing NUL or newline; require the source repo path to be absolute.
+- Quote every decoded value in remote commands (`git -C "$repo" ...`, `tar -cz -C "$tmpdir" .`, `rm -rf -- "$tmpdir"`). Do not use user input in `mktemp` templates.
+- Keep remote generation stdout as a control channel. `git format-patch` output must go to stderr or a log file; stdout from the generation command is exactly one line containing the remote temp dir path.
+
 ### `patch fetch`
 
 Runs on the public-authorized host. SSHes into the source VM and generates the patch artifact.
 
 1. Parse `<ssh-host>:<source-repo>` into SSH host and absolute repo path.
-2. SSH into the source VM and run a single remote script that:
+2. SSH into the source VM using the remote SSH contract and run a single remote script that:
    a. Validates the source worktree is clean (`git diff --quiet && git diff --cached --quiet`). Exits non-zero if dirty.
-   b. Resolves `--base` ref. Validates HEAD is ahead of base (`git rev-list <base>..HEAD` is non-empty). Exits non-zero if nothing to export.
-   c. Creates a temp dir on the remote.
-   d. Runs `git format-patch <base>..HEAD -o <tmpdir>`.
+   b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates HEAD is ahead of base (`git rev-list "$base_commit..HEAD"` is non-empty). Exits non-zero if nothing to export.
+   c. Creates a temp dir on the remote with a fixed `mktemp -d /tmp/allod-patch.XXXXXXXXXX` template.
+   d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel.
    e. Writes a JSON manifest to `<tmpdir>/manifest.json` containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
-   f. Outputs the temp dir path to stdout.
-3. Transfer the artifact directory from the remote to the local `--output` dir (default: `/tmp/allod-patch-<timestamp>-XXXXXX` via mktemp). Use `tar cz -C <tmpdir> . | ssh ... cat` piped in reverse: `ssh <host> "tar cz -C <tmpdir> ."` piped to local `tar xz -C <output>`.
-4. Remove the remote temp dir after successful transfer (SSH rm -rf). On transfer failure, print the remote temp dir path so the human can clean up manually.
+   f. Outputs only the temp dir path to stdout.
+3. Transfer the artifact directory from the remote to the local `--output` dir (default: `/tmp/allod-patch-<timestamp>-XXXXXX` via mktemp). Use a static SSH tar script that decodes the remote temp dir path and runs `tar -cz -C "$tmpdir" .`, piped to local `tar -xz -C "$output"`.
+4. Remove the remote temp dir after successful transfer with a static SSH cleanup script that decodes the temp dir path and runs `rm -rf -- "$tmpdir"`. On transfer failure, print the remote temp dir path so the human can clean up manually.
 5. Print summary: patch count, base..head range, local artifact path.
 
 Exit codes:
@@ -160,6 +170,8 @@ Similarly, mock `scp`/`tar` transfer by having the mock SSH write to a local dir
 - Remote cleanup: after successful fetch, remote temp dir is removed (verify via mock).
 - `--output <dir>`: artifacts land in specified directory.
 - `--base` custom ref: patches cover the specified range.
+- Remote stdout discipline: `git format-patch` filename output does not pollute the fetched temp dir control value.
+- Remote command injection guard: source repo paths containing spaces, semicolons, quotes, and `$()` characters are fetched correctly, and an invalid `--base` value containing shell metacharacters fails without creating a sentinel file.
 
 ### apply tests
 
