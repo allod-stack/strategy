@@ -165,7 +165,7 @@ These start at 10 to avoid collision with `allod change` exit codes (1-6) since 
 ## Agent Gates
 
 - Human reviews the SSH command surface in `fetch` before merging. The remote command must not pass unsanitized user input to a shell.
-- Human tests the cross-VM workflow manually after the tool lands (the automated tests use local SSH mocking, not real VMs).
+- Human runs one cross-VM fetch/apply/receive smoke test before merging the tools PR. The automated tests use local SSH mocking, not real VMs, so this blocks merge until the real SSH/tar path has been exercised.
 
 ## Acceptance Tests
 
