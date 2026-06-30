@@ -120,7 +120,12 @@ Exit codes:
 
 ### `patch receive`
 
-Smooth-path wrapper. Runs `fetch` then `apply`. Passes `--push` through to `apply`. Exits with the first non-zero exit code.
+Smooth-path wrapper. It must not parse human-readable `fetch` summary output to discover the artifact path.
+
+1. Create a receive-owned parent temp dir with `mktemp -d /tmp/allod-patch-receive.XXXXXXXXXX`, set `artifact_dir="$parent/artifact"`, and run the same fetch implementation with `--output "$artifact_dir"` so the output path is exact and not pre-existing.
+2. If fetch fails before promoting `artifact_dir`, remove the receive-owned parent dir and exit with fetch's status.
+3. Run apply against `artifact_dir`. Pass `--push` through to `apply`.
+4. Leave `artifact_dir` in place and print it on apply failure or success, so the human can inspect the transferred patches. Exits with the first non-zero exit code.
 
 ### Manifest format
 
@@ -222,9 +227,10 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 
 ### receive tests
 
-- Happy path: end-to-end fetch + apply succeeds. Verify commits in destination.
-- Fetch failure propagates: dirty source causes exit 10 (not masked).
-- Apply failure propagates: checksum mismatch causes exit 12.
+- Happy path: end-to-end fetch + apply succeeds. Verify commits in destination and the printed receive artifact path exists.
+- Artifact handoff: receive passes its explicit `artifact_dir` from fetch to apply without parsing the human-readable fetch summary.
+- Fetch failure propagates: dirty source causes exit 10 (not masked), and the receive-owned parent temp dir is removed when no artifact was promoted.
+- Apply failure propagates: checksum mismatch causes exit 12, and the artifact dir remains printed for inspection.
 - `--push` passed through to apply.
 
 ### Run
