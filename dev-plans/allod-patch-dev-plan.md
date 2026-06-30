@@ -53,6 +53,15 @@ allod patch receive <ssh-host>:<source-repo> <destination-repo> [--base <ref>] [
 
 `--base` defaults to `origin/master`.
 
+### Top-level dispatch
+
+The existing `allod` script must add a `patch` namespace alongside `change`:
+
+- Top-level `usage` lists both `change` and `patch`.
+- `main` routes `allod patch ...` to `patch_main`, and `patch_main` routes only `fetch`, `apply`, `receive`, and `-h|--help`.
+- Missing or unknown patch subcommands exit 1 with the patch usage text.
+- Patch-specific failures use 10-16. Generic usage/SSH/remote failures may use 1 even though `allod change` also uses 1 for generic failure.
+
 ### Remote SSH contract
 
 Every SSH invocation in `patch fetch` must keep user-supplied values out of the remote command string.
@@ -161,6 +170,13 @@ These start at 10 to avoid collision with `allod change` exit codes (1-6) since 
 ## Acceptance Tests
 
 Test script: `allod/tools/tests/allod-patch.sh`
+
+### CLI routing tests
+
+- `allod --help` lists both `change` and `patch`.
+- `allod patch --help` prints patch usage and exits 0.
+- `allod patch` with no subcommand exits 1 with patch usage.
+- `allod patch nope` exits 1 with an unknown patch command message.
 
 ### SSH mock strategy
 
