@@ -110,11 +110,11 @@ Runs on the public-authorized host against the destination repo.
 7. On `git am` failure, run `git am --abort` when an am state directory exists, then assert `HEAD` is still `pre_apply_head`, `git status --porcelain` is empty, and `$(git rev-parse --git-path rebase-apply)` plus `$(git rev-parse --git-path rebase-merge)` are absent. Exit 15 either way, but if cleanup assertions fail, print the failed assertion and the repo path for manual repair.
 8. Post-apply checks use `applied_range="$pre_apply_head..HEAD"`, not `base_commit..HEAD`, so pre-existing destination commits are not revalidated. Run `git diff --check "$applied_range"` before any push. If it fails, leave the applied commits in place, skip push, exit 1, and print the repo path, `pre_apply_head`, current `HEAD`, and manual fix/reset guidance.
 9. Print summaries for the applied range: `git log --oneline "$applied_range"` and `git show --stat --oneline HEAD`.
-10. If `--push` and post-apply checks passed: `git push`. Otherwise print reminder.
+10. If `--push` and post-apply checks passed: run `git push`. If `git push` fails, leave the applied commits in place, exit 1, and print the repo path, `pre_apply_head`, current `HEAD`, and manual push/reset guidance. Otherwise print reminder.
 
 Exit codes:
 - `0` — success
-- `1` — usage error, or post-apply validation failure after commits were applied and push was skipped
+- `1` — usage error, post-apply validation failure after commits were applied and push was skipped, or push failure after commits were applied
 - `12` — manifest/checksum integrity failure
 - `13` — repo identity mismatch (remote URL)
 - `14` — base commit missing or not an ancestor of destination HEAD
@@ -159,7 +159,7 @@ Checksum and filename rules:
 
 ```
 0   success
-1   usage error / SSH failure / general error, including post-apply validation failure after commits were applied
+1   usage error / SSH failure / general error, including post-apply validation or push failure after commits were applied
 10  source worktree dirty
 11  source range is not exportable
 12  manifest/checksum integrity failure
@@ -233,6 +233,7 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 - Destination already ahead of base: pre-existing destination commits after `base_commit` do not affect post-apply validation; a pre-existing whitespace error in `base_commit..pre_apply_head` does not fail a clean apply.
 - Post-apply whitespace failure: a patch that introduces whitespace errors exits 1 after applying commits, skips push, and prints the repo path plus reset/fix context.
 - `--push`: verify git push is called (via mock git wrapper).
+- `--push` failure: exits 1, leaves applied commits in place, and prints the repo path plus reset/push context.
 - Without `--push`: verify git push is NOT called.
 - Multiple patches: all apply in manifest order, log shows correct range.
 
