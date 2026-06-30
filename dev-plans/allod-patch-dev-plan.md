@@ -259,6 +259,6 @@ Revert the commit that adds `patch` namespace to `allod/tools/allod`, the test f
 
 If validation already ran the tool:
 
-- Delete local artifact dirs created under `/tmp/allod-patch.*` or any explicit `--output` paths used for testing.
+- Delete local artifact dirs created under `/tmp/allod-patch.*`, receive-owned artifact dirs under `/tmp/allod-patch-receive.*`, or any explicit `--output` paths used for testing.
 - SSH to the source VM and remove any remote temp dir path printed after a failed transfer.
 - If smoke testing applied commits to a disposable destination branch, delete/reset that branch; if it applied to a real branch, use normal git revert/reset workflow chosen by the human.
