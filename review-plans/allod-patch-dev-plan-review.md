@@ -30,13 +30,13 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-Concentrate your review on these areas where the hardened plan is still most likely to drift or overreach. These are lenses, not checklists — follow the thread wherever it leads.
+This pass produced no remaining BLOCKER, GAP, or QUESTION findings after the plan fixes. If another pass is requested, move from plan completeness to implementation readiness.
 
-1. **Contract-to-test traceability.** Verify every explicit contract now in the plan has a concrete acceptance test: static SSH commands, adversarial input handling, stdout control, checksum/manifest validation, manifest-order apply, output staging, `git am` cleanup, namespace routing, and rollback cleanup.
+1. **Implementation drift.** Compare the eventual `allod/tools/allod` diff against the plan's contracts, especially static SSH command construction, receive artifact handoff, manifest rejection paths, and `git am` cleanup.
 
-2. **Operational sequencing.** Walk the plan in execution order and verify the agent/human boundary is still clear: agent-local tests first, human SSH command review and cross-VM smoke test before merge, then artifact/temp-dir cleanup if validation fails.
+2. **Test realism.** Verify `allod/tools/tests/allod-patch.sh` exercises the documented failure modes through the script boundary instead of helper-only shortcuts, with the mock SSH preserving stdin/stdout and tar behavior.
 
-3. **Bash implementation complexity.** Challenge any requirement that would force fragile shell abstraction or new dependencies beyond Bash, git, jq, coreutils, tar, and ssh. Keep the security boundary strict, but avoid turning the script into a framework.
+3. **Human-gate evidence.** Confirm the implementation PR records SSH command-surface review and one real cross-VM fetch/apply/receive smoke test before merge.
 
 ## Review Guidelines
 
