@@ -166,10 +166,11 @@ Test script: `allod/tools/tests/allod-patch.sh`
 
 Tests do not use real SSH. Instead, create a mock `ssh` script on PATH that:
 - Parses the host and remote command from args
-- Executes the remote command locally against a test repo (simulating the remote)
-- This works because the remote commands are pure git + coreutils operations
+- Executes the remote command through a shell boundary with stdin/stdout preserved, so quoting and tar-pipe behavior are exercised instead of bypassed by direct helper calls
+- Records each remote command string and asserts it is static: raw source repo paths, base refs, and remote temp dir paths must not appear in the command text
+- Supports failure modes for connection failure, remote generation failure, remote tar failure, truncated tar output, and cleanup failure
 
-Similarly, mock `scp`/`tar` transfer by having the mock SSH write to a local directory that simulates the remote filesystem.
+The mock remote filesystem is local test data, but transfer still uses the same stdout tar stream shape as production: mock SSH writes gzipped tar bytes and local `tar -xz` consumes them. This does not cover SSH authentication, login-shell startup files, host key policy, or real network failures; that residual gap is why the Agent Gates require human cross-VM testing before merge.
 
 ### fetch tests
 
