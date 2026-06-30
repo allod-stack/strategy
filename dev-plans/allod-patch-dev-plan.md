@@ -78,17 +78,18 @@ Every SSH invocation in `patch fetch` must keep user-supplied values out of the 
 Runs on the public-authorized host. SSHes into the source VM and generates the patch artifact.
 
 1. Parse `<ssh-host>:<source-repo>` into SSH host and absolute repo path.
-2. SSH into the source VM using the remote SSH contract and run a single remote script that:
+2. Before any SSH, resolve the final local artifact dir and preflight the local destination. If `--output` is provided, its parent must already exist as a writable directory and the final output path must not exist, including a dangling symlink. Destination preflight failures exit 1 before remote work.
+3. SSH into the source VM using the remote SSH contract and run a single remote script that:
    a. Validates the source worktree is clean with `git status --porcelain` empty, so tracked, staged, and untracked changes are all blocked. Exits 10 if dirty.
    b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates `base_commit` is an ancestor of `HEAD` with `git merge-base --is-ancestor "$base_commit" HEAD`, then validates `git rev-list "$base_commit..HEAD"` is non-empty. Rejects any merge commit in the export range with `git rev-list --merges "$base_commit..HEAD"` non-empty, because `git format-patch` omits merge commits and would not faithfully represent the source branch. Exits 11 if the source range is not exportable.
    c. Creates a temp dir on the remote with a fixed `mktemp -d /tmp/allod-patch.XXXXXXXXXX` template and installs a trap that removes it if generation fails before the path is handed back.
    d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel.
    e. Writes a JSON manifest to `<tmpdir>/manifest.json` with `jq`, containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
    f. Outputs only the temp dir path to stdout.
-3. Resolve the final local artifact dir. If `--output` is provided, it must not already exist. Extract into a local staging dir created with `mktemp -d` in the final dir's parent; after successful tar extraction and a regular non-symlink `manifest.json`, rename the staging dir to the final output path. For the default output, the `mktemp -d /tmp/allod-patch.XXXXXXXXXX` path may be the final dir, but it must be removed on transfer or validation failure.
-4. Transfer the artifact directory using a static SSH tar script that decodes and validates the remote temp dir path, then runs `tar -cz -C "$tmpdir" .`, piped to local `tar -xz -C "$staging"`.
-5. Remove the remote temp dir only after local tar extraction succeeds, `manifest.json` is regular and not a symlink, and the staging dir has been moved or accepted as the final output. Use a static SSH cleanup script that decodes and validates the temp dir path before running `rm -rf -- "$tmpdir"`. On transfer, local extraction, or local artifact validation failure, remove the local staging dir, leave the final output absent, and print the remote temp dir path so the human can clean up manually. If cleanup SSH fails after local promotion, keep the local artifact, exit 1, and print both the local artifact path and remote temp dir path for manual cleanup; do not report fetch success.
-6. Print summary: patch count, base..head range, local artifact path.
+4. Create a local staging dir with `mktemp -d` in the final dir's parent. Extract into staging; after successful tar extraction and a regular non-symlink `manifest.json`, rename the staging dir to the final output path. For the default output, the `mktemp -d /tmp/allod-patch.XXXXXXXXXX` path may be the final dir, but it must be removed on transfer or validation failure.
+5. Transfer the artifact directory using a static SSH tar script that decodes and validates the remote temp dir path, then runs `tar -cz -C "$tmpdir" .`, piped to local `tar -xz -C "$staging"`.
+6. Remove the remote temp dir only after local tar extraction succeeds, `manifest.json` is regular and not a symlink, and the staging dir has been moved or accepted as the final output. Use a static SSH cleanup script that decodes and validates the temp dir path before running `rm -rf -- "$tmpdir"`. On transfer, local extraction, or local artifact validation failure, remove the local staging dir, leave the final output absent, and print the remote temp dir path so the human can clean up manually. If cleanup SSH fails after local promotion, keep the local artifact, exit 1, and print both the local artifact path and remote temp dir path for manual cleanup; do not report fetch success.
+7. Print summary: patch count, base..head range, local artifact path.
 
 Exit codes:
 - `0` — success
@@ -209,7 +210,8 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 - Remote cleanup: after successful fetch, remote temp dir is removed (verify via mock).
 - Remote cleanup failure after successful local promotion: exits 1, preserves the local artifact, and prints both local and remote cleanup paths.
 - `--output <dir>`: artifacts land in specified directory.
-- `--output <dir>` existing path: exits 1 before remote work.
+- `--output <dir>` existing path, including a dangling symlink: exits 1 before remote work.
+- `--output <dir>` with a missing or unwritable parent directory: exits 1 before remote work.
 - Local extraction failure: exits 1, final output dir is absent, local staging is removed, and the remote temp dir path is printed for manual cleanup.
 - Local artifact validation failure after extraction: missing, symlinked, or non-regular `manifest.json` exits 1, leaves the final output absent, removes local staging, prints the remote temp dir path, and does not run remote cleanup.
 - `--base` custom ref: patches cover the specified range.
