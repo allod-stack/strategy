@@ -73,7 +73,7 @@ Runs on the public-authorized host. SSHes into the source VM and generates the p
    b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates HEAD is ahead of base (`git rev-list "$base_commit..HEAD"` is non-empty). Exits non-zero if nothing to export.
    c. Creates a temp dir on the remote with a fixed `mktemp -d /tmp/allod-patch.XXXXXXXXXX` template.
    d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel.
-   e. Writes a JSON manifest to `<tmpdir>/manifest.json` containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
+   e. Writes a JSON manifest to `<tmpdir>/manifest.json` with `jq`, containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
    f. Outputs only the temp dir path to stdout.
 3. Transfer the artifact directory from the remote to the local `--output` dir (default: `/tmp/allod-patch-<timestamp>-XXXXXX` via mktemp). Use a static SSH tar script that decodes the remote temp dir path and runs `tar -cz -C "$tmpdir" .`, piped to local `tar -xz -C "$output"`.
 4. Remove the remote temp dir after successful transfer with a static SSH cleanup script that decodes the temp dir path and runs `rm -rf -- "$tmpdir"`. On transfer failure, print the remote temp dir path so the human can clean up manually.
@@ -90,11 +90,11 @@ Exit codes:
 Runs on the public-authorized host against the destination repo.
 
 1. Read `manifest.json` from the artifact directory.
-2. Verify sha256 of each patch file matches the manifest. Exit non-zero on mismatch.
+2. Validate the manifest shape and verify sha256 of each patch file matches the manifest. Exit 12 on malformed manifest, unsafe filename, patch count mismatch, duplicate filename, unlisted `.patch` file, or checksum mismatch.
 3. Resolve destination repo (from `--repo` or cwd). Require clean worktree.
 4. Verify destination repo's `origin` URL matches `manifest.repo_remote`. Exit non-zero on mismatch with actionable message showing both URLs.
 5. Verify `manifest.base_commit` is reachable in the destination repo. Exit non-zero with explanation if not (e.g., "run git fetch first").
-6. Apply patches: `git am --3way <artifact-dir>/*.patch`. On failure, run `git am --abort` and exit non-zero.
+6. Apply patches in manifest order: build an array from `manifest.patches[].filename` and run `git am --3way "${patch_files[@]}"`. Do not use a shell glob. On failure, run `git am --abort` and exit non-zero.
 7. Post-apply checks: `git diff --check <base>..HEAD`, `git log --oneline <base>..HEAD`, `git show --stat --oneline HEAD`.
 8. If `--push`: `git push`. Otherwise print reminder.
 
@@ -113,6 +113,8 @@ Smooth-path wrapper. Runs `fetch` then `apply`. Passes `--push` through to `appl
 
 ### Manifest format
 
+Use `jq` for manifest generation and parsing. Use `sha256sum` from coreutils for checksums; do not introduce a Python dependency.
+
 ```json
 {
   "repo_remote": "ssh://git@forge.anarch.diy:2222/allod/memory.git",
@@ -125,6 +127,13 @@ Smooth-path wrapper. Runs `fetch` then `apply`. Passes `--push` through to `appl
   ]
 }
 ```
+
+Checksum and filename rules:
+
+- Compute each digest from the patch file bytes with `sha256sum -b -- "$patch_file"` and store only the first field: the lowercase 64-character hex digest. The trailing newline printed by `sha256sum` is not part of the digest.
+- Verify apply-side digests with the same `sha256sum -b` command and exact string comparison. Do not use `sha256sum -c` against manifest-derived text, because filename parsing would become a second input surface.
+- Each `patches[].filename` must be a basename ending in `.patch`, with no `/`, no `..`, and no control characters. `patch_count` must equal the length of the `patches` array and the number of `.patch` files in the artifact directory.
+- Duplicate filenames or non-hex digests are manifest integrity failures and exit 12.
 
 ### Exit code summary
 
@@ -177,13 +186,14 @@ Similarly, mock `scp`/`tar` transfer by having the mock SSH write to a local dir
 
 - Happy path: clean destination repo, matching remote URL, reachable base, patches apply cleanly. Verify commits exist after apply.
 - Checksum mismatch: tamper with a patch file after fetch. Exits 12.
+- Manifest validation: duplicate filenames, path traversal filenames, non-hex digests, patch count mismatch, and unlisted `.patch` files each exit 12 before `git am`.
 - Repo identity mismatch: destination has different origin URL. Exits 13 with both URLs shown.
 - Base commit not reachable: destination is behind. Exits 14 with "git fetch" hint.
 - Dirty destination worktree: exits 16.
 - `git am` conflict: create a conflicting commit in destination before apply. Exits 15, worktree is clean after abort.
 - `--push`: verify git push is called (via mock git wrapper).
 - Without `--push`: verify git push is NOT called.
-- Multiple patches: all apply in order, log shows correct range.
+- Multiple patches: all apply in manifest order, log shows correct range.
 
 ### receive tests
 
