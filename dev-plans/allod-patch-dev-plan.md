@@ -80,7 +80,7 @@ Runs on the public-authorized host. SSHes into the source VM and generates the p
 1. Parse `<ssh-host>:<source-repo>` into SSH host and absolute repo path.
 2. SSH into the source VM using the remote SSH contract and run a single remote script that:
    a. Validates the source worktree is clean with `git status --porcelain` empty, so tracked, staged, and untracked changes are all blocked. Exits 10 if dirty.
-   b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates `base_commit` is an ancestor of `HEAD` with `git merge-base --is-ancestor "$base_commit" HEAD`, then validates `git rev-list "$base_commit..HEAD"` is non-empty. Exits 11 if `HEAD` is not strictly ahead of base.
+   b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates `base_commit` is an ancestor of `HEAD` with `git merge-base --is-ancestor "$base_commit" HEAD`, then validates `git rev-list "$base_commit..HEAD"` is non-empty. Rejects any merge commit in the export range with `git rev-list --merges "$base_commit..HEAD"` non-empty, because `git format-patch` omits merge commits and would not faithfully represent the source branch. Exits 11 if the source range is not exportable.
    c. Creates a temp dir on the remote with a fixed `mktemp -d /tmp/allod-patch.XXXXXXXXXX` template and installs a trap that removes it if generation fails before the path is handed back.
    d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel.
    e. Writes a JSON manifest to `<tmpdir>/manifest.json` with `jq`, containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
@@ -94,7 +94,7 @@ Exit codes:
 - `0` — success
 - `1` — usage error, SSH failure, or remote error
 - `10` — source worktree is dirty
-- `11` — source `HEAD` is not strictly ahead of base
+- `11` — source range is not exportable: base is not an ancestor, `HEAD` is not strictly ahead of base, or the range contains merge commits
 
 ### `patch apply`
 
@@ -159,7 +159,7 @@ Checksum and filename rules:
 0   success
 1   usage error / SSH failure / general error, including post-apply validation failure after commits were applied
 10  source worktree dirty
-11  source HEAD is not ahead of base
+11  source range is not exportable
 12  manifest/checksum integrity failure
 13  repo identity mismatch
 14  base commit missing or not ancestor of destination HEAD
@@ -203,6 +203,7 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 - Dirty source worktree: tracked, staged, and untracked changes each exit 10 with actionable messages.
 - No commits to export (HEAD == base): exits 11.
 - Source base not ancestor of `HEAD`: exits 11 before `git format-patch`.
+- Merge commit in export range: exits 11 before `git format-patch` with a message that non-linear history is unsupported.
 - SSH connection failure (mock returns non-zero): exits 1 with message.
 - Remote cleanup: after successful fetch, remote temp dir is removed (verify via mock).
 - Remote cleanup failure after successful local promotion: exits 1, preserves the local artifact, and prints both local and remote cleanup paths.
