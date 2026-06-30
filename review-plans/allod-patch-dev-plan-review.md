@@ -30,17 +30,19 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-This pass resolved five GAP findings in the dev plan. No open BLOCKER, GAP, or QUESTION remains in the plan text; the next pass should move from plan completeness to implementation readiness.
+This pass resolved four GAP findings in the dev plan. No open BLOCKER, GAP, or QUESTION remains in the plan text; the next pass should review the implementation diff against the finalized contracts.
 
-1. **Static SSH transport.** Verify the `allod/tools/allod` diff uses byte-for-byte static remote command text per SSH phase, sends dynamic values only through stdin/base64 data, and rejects invalid remote temp dir control values before tar or cleanup.
+1. **Static SSH transport and output preflight.** Verify the `allod/tools/allod` diff uses byte-for-byte static remote command text per SSH phase, sends dynamic values only through stdin/base64 data, rejects invalid remote temp dir control values before tar or cleanup, and fails explicit local output-path problems before remote work starts.
 
-2. **Apply state handling.** Verify `patch apply` resolves artifact-rooted patch paths under `git -C`, checks only `pre_apply_head..HEAD`, and handles post-apply validation failures exactly as documented.
+2. **Source export fidelity.** Verify `patch fetch` rejects non-exportable source ranges before `git format-patch`, including empty ranges, base-not-ancestor cases, and merge commits that `format-patch` would omit.
 
-3. **Receive failure handoff.** Verify `patch receive` preserves and prints `artifact_dir`, skips apply, and propagates the fetch status when fetch fails after local artifact promotion.
+3. **Artifact integrity and apply state.** Verify `patch apply` requires a regular non-symlink manifest, rejects non-full or non-hex manifest commit IDs, resolves artifact-rooted patch paths under `git -C`, checks only `pre_apply_head..HEAD`, and handles `git am`, post-apply validation, and push failures exactly as documented.
 
-4. **Test realism.** Verify `allod/tools/tests/allod-patch.sh` exercises the documented failure modes through the script boundary instead of helper-only shortcuts, with the mock SSH preserving stdin/stdout and tar behavior.
+4. **Receive failure handoff.** Verify `patch receive` preserves and prints `artifact_dir`, skips apply, and propagates the fetch status when fetch fails after local artifact promotion.
 
-5. **Human-gate evidence.** Confirm the implementation PR records SSH command-surface review and one real cross-VM fetch/apply/receive smoke test before merge.
+5. **Test realism.** Verify `allod/tools/tests/allod-patch.sh` exercises the documented failure modes through the script boundary instead of helper-only shortcuts, with the mock SSH preserving stdin/stdout and tar behavior.
+
+6. **Human-gate evidence.** Confirm the implementation PR records SSH command-surface review and one real cross-VM fetch/apply/receive smoke test before merge.
 
 ## Review Guidelines
 
