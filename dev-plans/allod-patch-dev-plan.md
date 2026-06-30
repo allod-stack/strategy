@@ -32,7 +32,7 @@ Why:
 - New SSH-based cross-machine transport — no existing SSH code in the tool to build on. A bug could silently leave artifacts on the remote or fail to transfer patches.
 - Privacy/security boundary — the tool's purpose is preventing private context from leaking to public repos. The remote command surface must be minimal and auditable.
 - `git am` application can fail in ways that leave the destination repo in a conflicted state. The tool must handle this cleanly.
-- Rollback is a straight revert of the tools PR. No persistent state beyond the git commits applied by `apply`.
+- Rollback is a straight revert of the tools PR. Validation may create local artifact dirs, intentionally leave a printed remote temp dir after transfer failure, or apply git commits during smoke tests; those states have explicit cleanup steps in the rollback plan.
 
 Human scrutiny:
 
@@ -232,4 +232,10 @@ bash allod/tools/tests/allod-patch.sh
 
 ## Rollback Plan
 
-Revert the commit that adds `patch` namespace to `allod/tools/allod`, the test file, and the docs file. No persistent state, no packaging changes, no flake lock updates in this PR.
+Revert the commit that adds `patch` namespace to `allod/tools/allod`, the test file, and the docs file. No packaging changes or flake lock updates are in this PR.
+
+If validation already ran the tool:
+
+- Delete local artifact dirs created under `/tmp/allod-patch.*` or any explicit `--output` paths used for testing.
+- SSH to the source VM and remove any remote temp dir path printed after a failed transfer.
+- If smoke testing applied commits to a disposable destination branch, delete/reset that branch; if it applied to a real branch, use normal git revert/reset workflow chosen by the human.
