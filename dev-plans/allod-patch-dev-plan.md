@@ -100,9 +100,9 @@ Exit codes:
 Runs on the public-authorized host against the destination repo.
 
 1. Read `manifest.json` from the artifact directory.
-2. Validate the manifest shape and verify sha256 of each patch file matches the manifest. Exit 12 on malformed manifest, unsafe filename, patch count mismatch, duplicate filename, unlisted `.patch` file, or checksum mismatch.
+2. Validate the manifest JSON shape and verify sha256 of each listed patch file matches the manifest. Exit 12 on malformed JSON, missing or wrong-type required fields, unsafe filename, missing listed patch file, non-regular listed patch file, patch count mismatch, duplicate filename, unlisted `.patch` file, or checksum mismatch.
 3. Resolve destination repo (from `--repo` or cwd). Require clean worktree.
-4. Verify destination repo's `origin` URL matches `manifest.repo_remote`. Exit non-zero on mismatch with actionable message showing both URLs.
+4. Verify destination repo's `origin` URL matches `manifest.repo_remote`. Exit 13 on mismatch with actionable message showing both URLs.
 5. Verify `manifest.base_commit` exists and is an ancestor of the current destination `HEAD` with `git merge-base --is-ancestor "$base_commit" HEAD`. Exit 14 with explanation if not (e.g., "run git fetch first" or "check out the destination branch containing the base commit").
 6. Record `pre_apply_head=$(git rev-parse HEAD)`. Apply patches in manifest order: build an array from `manifest.patches[].filename` and run `git am --3way "${patch_files[@]}"`. Do not use a shell glob.
 7. On `git am` failure, run `git am --abort` when an am state directory exists, then assert `HEAD` is still `pre_apply_head`, `git status --porcelain` is empty, and `$(git rev-parse --git-path rebase-apply)` plus `$(git rev-parse --git-path rebase-merge)` are absent. Exit 15 either way, but if cleanup assertions fail, print the failed assertion and the repo path for manual repair.
@@ -112,7 +112,7 @@ Runs on the public-authorized host against the destination repo.
 Exit codes:
 - `0` — success
 - `1` — usage error
-- `12` — checksum mismatch
+- `12` — manifest/checksum integrity failure
 - `13` — repo identity mismatch (remote URL)
 - `14` — base commit missing or not an ancestor of destination HEAD
 - `15` — `git am` failed (patches aborted)
@@ -148,7 +148,7 @@ Checksum and filename rules:
 
 - Compute each digest from the patch file bytes with `sha256sum -b -- "$patch_file"` and store only the first field: the lowercase 64-character hex digest. The trailing newline printed by `sha256sum` is not part of the digest.
 - Verify apply-side digests with the same `sha256sum -b` command and exact string comparison. Do not use `sha256sum -c` against manifest-derived text, because filename parsing would become a second input surface.
-- Each `patches[].filename` must be a basename ending in `.patch`, with no `/`, no `..`, and no control characters. `patch_count` must equal the length of the `patches` array and the number of `.patch` files in the artifact directory.
+- Each `patches[].filename` must be a basename ending in `.patch`, with no `/`, no `..`, and no control characters. It must name an existing regular file inside the artifact directory, not a symlink, directory, or other non-regular file. `patch_count` must equal the length of the `patches` array and the number of `.patch` files in the artifact directory.
 - Duplicate filenames or non-hex digests are manifest integrity failures and exit 12.
 
 ### Exit code summary
@@ -158,7 +158,7 @@ Checksum and filename rules:
 1   usage error / SSH failure / general error
 10  source worktree dirty
 11  source HEAD is not ahead of base
-12  checksum mismatch
+12  manifest/checksum integrity failure
 13  repo identity mismatch
 14  base commit missing or not ancestor of destination HEAD
 15  git am failed
@@ -215,7 +215,7 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 
 - Happy path: clean destination repo, matching remote URL, base commit present as an ancestor of `HEAD`, patches apply cleanly. Verify commits exist after apply.
 - Checksum mismatch: tamper with a patch file after fetch. Exits 12.
-- Manifest validation: duplicate filenames, path traversal filenames, non-hex digests, patch count mismatch, and unlisted `.patch` files each exit 12 before `git am`.
+- Manifest validation: malformed JSON, missing or wrong-type required fields, duplicate filenames, path traversal filenames, basenames not ending in `.patch`, control-character filenames, non-hex digests, missing listed patch files, symlink or non-regular listed patch files, patch count mismatch, and unlisted `.patch` files each exit 12 before `git am`.
 - Repo identity mismatch: destination has different origin URL. Exits 13 with both URLs shown.
 - Base commit missing: destination is behind. Exits 14 with "git fetch" hint.
 - Base commit not ancestor: destination has the base object only on another ref or branch. Exits 14 with checkout/fetch guidance before `git am`.
