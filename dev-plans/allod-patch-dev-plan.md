@@ -83,7 +83,7 @@ Runs on the public-authorized host. SSHes into the source VM and generates the p
    a. Validates the source worktree is clean with `git status --porcelain` empty, so tracked, staged, and untracked changes are all blocked. Exits 10 if dirty.
    b. Resolves `--base` ref to `base_commit` with `git rev-parse --verify "$base^{commit}"`. Validates `base_commit` is an ancestor of `HEAD` with `git merge-base --is-ancestor "$base_commit" HEAD`, then validates `git rev-list "$base_commit..HEAD"` is non-empty. Rejects any merge commit in the export range with `git rev-list --merges "$base_commit..HEAD"` non-empty, because `git format-patch` omits merge commits and would not faithfully represent the source branch. Exits 11 if the source range is not exportable.
    c. Creates a temp dir on the remote with a fixed `mktemp -d /tmp/allod-patch.XXXXXXXXXX` template and installs a trap that removes it if generation fails before the path is handed back.
-   d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel.
+   d. Runs `git format-patch "$base_commit..HEAD" -o "$tmpdir"` with stdout redirected away from the control channel. Verifies at least one `.patch` file was created in `$tmpdir`; if `git format-patch` produced zero patches (e.g., every commit in the range is empty), exits 11.
    e. Writes a JSON manifest to `<tmpdir>/manifest.json` with `jq`, containing: `repo_remote` (origin URL), `base_commit` (full SHA), `head_commit` (full SHA), `patch_count`, and `patches` (array of `{filename, sha256}`).
    f. Outputs only the temp dir path to stdout.
 4. Create a local staging dir with `mktemp -d` in the final dir's parent. Extract into staging; after successful tar extraction and a regular non-symlink `manifest.json`, rename the staging dir to the final output path. For the default output, the `mktemp -d /tmp/allod-patch.XXXXXXXXXX` path may be the final dir, but it must be removed on transfer or validation failure.
@@ -95,7 +95,7 @@ Exit codes:
 - `0` — success
 - `1` — usage error, SSH failure, or remote error
 - `10` — source worktree is dirty
-- `11` — source range is not exportable: base is not an ancestor, `HEAD` is not strictly ahead of base, or the range contains merge commits
+- `11` — source range is not exportable: base is not an ancestor, `HEAD` is not strictly ahead of base, the range contains merge commits, or all commits in the range are empty
 
 ### `patch apply`
 
@@ -161,7 +161,7 @@ Checksum and filename rules:
 0   success
 1   usage error / SSH failure / general error, including post-apply validation or push failure after commits were applied
 10  source worktree dirty
-11  source range is not exportable
+11  source range is not exportable (not ancestor, not ahead, merge commits, or all-empty)
 12  manifest/checksum integrity failure
 13  repo identity mismatch
 14  base commit missing or not ancestor of destination HEAD
@@ -206,6 +206,7 @@ The mock remote filesystem is local test data, but transfer still uses the same 
 - No commits to export (HEAD == base): exits 11.
 - Source base not ancestor of `HEAD`: exits 11 before `git format-patch`.
 - Merge commit in export range: exits 11 before `git format-patch` with a message that non-linear history is unsupported.
+- All-empty-commit range: every commit in the range was created with `--allow-empty` (no diff). Exits 11 after `git format-patch` produces zero patches.
 - SSH connection failure (mock returns non-zero): exits 1 with message.
 - Remote cleanup: after successful fetch, remote temp dir is removed (verify via mock).
 - Remote cleanup failure after successful local promotion: exits 1, preserves the local artifact, and prints both local and remote cleanup paths.
