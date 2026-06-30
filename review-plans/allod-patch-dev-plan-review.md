@@ -30,7 +30,7 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-This pass resolved one GAP finding (zero-patch export from empty commits). No open BLOCKER, GAP, or QUESTION remains in the plan text. The plan is confirmed ready for implementation. The next pass should review the implementation diff against the finalized contracts.
+This pass resolved one GAP finding (rollback cleanup for receive-owned temp dirs). No open BLOCKER, GAP, or QUESTION remains in the plan text. No `allod patch` implementation branch or PR exists in `allod/tools` yet; the next pass should review the implementation diff against the finalized contracts once it exists.
 
 1. **Implementation fidelity.** Verify the `allod/tools/allod` diff matches the finalized interface contracts: static SSH command text per phase, stdin-only dynamic values, remote temp dir shape validation, local output preflight, source range checks (including the zero-patch guard), manifest validation, artifact-rooted `git am` paths, `pre_apply_head..HEAD` post-apply scope, and all documented failure/cleanup behaviors.
 
