@@ -52,13 +52,14 @@ Human scrutiny:
 - Confirm each PR only changes the intended CLI contract, tests, and README.
 - Review skip/reset decisions, option incompatibilities, and error messages
   before trying new behavior on a real workspace.
-- For PR 3, inspect the ref validation and clean/reset ordering first.
+- For PR 3, inspect the all-repo fetch/ref-validation preflight boundary,
+  reset branch semantics, and clean/reset ordering first.
 
 | PR or milestone | Risk | Reason | Human scrutiny |
 |---|---|---|---|
 | PR 1: live parallel `git pull` | R2 Medium | Restores faster parallel output and adds `--jobs`, while keeping existing `git pull` semantics. | Verify concurrency parsing, live output readability, and help/tests. |
 | PR 2: fetch plus fast-forward-only sync | R3 High | Changes default sync from `git pull` to explicit fetch/status/ff-only behavior across repos. | Verify ahead/diverged/no-upstream handling, retry behavior, and safe `--switch`. |
-| PR 3: explicit reset/clean mode | R4 Critical | Adds intentionally destructive reset and clean options. | Verify remote-tracking ref restriction, option incompatibilities, warnings, and fixture-only validation. |
+| PR 3: explicit reset/clean mode | R4 Critical | Adds intentionally destructive reset and clean options. | Verify remote-tracking ref restriction, all-repo preflight before any destructive command, option incompatibilities, warnings, and fixture-only validation. |
 
 ## Interface Contracts
 
@@ -70,9 +71,13 @@ Shared contracts:
 - Dirty working trees are skipped in normal mode.
 - Existing safe `--switch` behavior remains: a non-default branch is switched to
   the default branch only when the working tree is clean and the current branch
-  has no unpushed or diverged work relative to its upstream.
+  has no local commits ahead of its upstream and is not diverged. Upstream-only
+  commits on the current branch are not unpushed work and must not block
+  switching when the other safety checks pass.
 - Worker output may be emitted in completion order once live output is added, but
   each status line must identify the repo.
+- Help and README documentation must describe user-visible behavior and flags,
+  not PR sequencing trivia.
 
 PR 1 contracts:
 
@@ -83,7 +88,10 @@ PR 1 contracts:
 - Raise the default concurrency from `4` to `8`.
 - Keep using `git pull` for sync in this PR.
 - Help text must document `--jobs N`, `PULL_ALL_JOBS`, `--switch`, `-h/--help`,
-  the default job count, and that PR 1 still uses `git pull`.
+  the default job count, and configurable concurrent pulls.
+- README documentation must cover `--jobs N`, `PULL_ALL_JOBS`, the default job
+  count, `--switch`, examples, and the fact that live worker output may be
+  emitted in completion order while each status line identifies its repo.
 
 PR 2 contracts:
 
@@ -106,6 +114,10 @@ PR 2 contracts:
   rather than checking them out or rewriting them.
 - Help text must document the fetch retry flags, fast-forward-only behavior,
   ahead/diverged/no-upstream reporting, and the preserved `--switch` safety rule.
+- README documentation must cover `--fetch-retries`,
+  `--fetch-retry-delay`, fetch plus fast-forward-only behavior, and normal-mode
+  status outcomes for updated, up-to-date, ahead, diverged, no-upstream, and
+  dirty repos.
 
 PR 3 contracts:
 
@@ -114,19 +126,32 @@ PR 3 contracts:
   `--reset-to origin/master` and `--reset-to origin/HEAD`.
 - Reject local branches, tags, raw commit IDs, and missing refs for
   `--reset-to`.
-- In reset mode, fetch first, validate `REF` after fetch, then run
-  `git reset --hard REF` for each selected repo.
+- In reset mode, enforce a two-phase boundary across all selected repos:
+  1. Preflight phase: fetch every selected repo, then validate `REF` in every
+     selected repo after fetch.
+  2. Destructive phase: only if preflight succeeds for every selected repo, run
+     `git reset --hard REF` in the selected repos.
+- If fetch or ref validation fails in any selected repo, report the failure and
+  do not run `git reset --hard`, `git clean -fd`, or `git clean -fdx` in any
+  selected repo.
 - Add `--clean`, valid only with `--reset-to`; it runs `git clean -fd` after a
   successful reset.
 - Add `--clean-ignored`, valid only with `--reset-to`; it runs `git clean -fdx`
   after a successful reset and implies `--clean`.
 - Normal sync mode must reject `--clean` and `--clean-ignored`.
 - The initial PR should reject combining `--reset-to` with `--switch`; the reset
-  target already defines the desired commit.
+  mode operates in place on each repo's current branch/worktree.
+- Reset mode does not check out the default branch or any branch named by
+  `REF`. For example, `--reset-to origin/master` while a repo is on a feature
+  branch rewrites that current feature branch/worktree to `origin/master`.
 - Help text must clearly label `--reset-to`, `--clean`, and `--clean-ignored` as
   destructive, state that only remote-tracking refs are accepted initially, and
-  include examples using `--reset-to origin/master` and
-  `--reset-to origin/HEAD`.
+  state that reset mode acts on the current branch/worktree without checking out
+  the default branch. It must include examples using `--reset-to origin/master`
+  and `--reset-to origin/HEAD`.
+- README documentation must cover destructive reset/clean warnings,
+  remote-tracking-only refs, current-branch/worktree reset semantics, and
+  examples using `--reset-to origin/master` and `--reset-to origin/HEAD`.
 
 ## Agent Gates
 
@@ -149,15 +174,25 @@ Required fixture coverage:
 
 - PR 1 tests assert `--jobs` parsing, `--jobs` precedence over `PULL_ALL_JOBS`,
   invalid job rejection, default job count behavior, live output before all jobs
-  finish, existing `git pull` calls, and updated help text.
+  finish, existing `git pull` calls, user-facing help text without PR-phase
+  implementation detail, and README coverage for `--jobs`, `PULL_ALL_JOBS`,
+  default concurrency, completion-order output, repo-labeled status lines,
+  `--switch`, and examples.
 - PR 2 tests assert fetch retries, exhausted fetch failure reporting,
   fast-forward-only update, up-to-date reporting, ahead skip, diverged skip,
-  no-upstream skip, dirty skip, and safe `--switch` behavior.
+  no-upstream skip, dirty skip, and safe `--switch` behavior, including a
+  clean behind-only non-default branch that is switched rather than treated as
+  unpushed work. Tests also assert README coverage for retry flags, fetch plus
+  fast-forward-only behavior, and normal-mode status outcomes.
 - PR 3 tests assert `--reset-to origin/master` and `--reset-to origin/HEAD`
-  acceptance, rejection of non-remote refs, reset command ordering after fetch,
-  `--clean` and `--clean-ignored` command selection, rejection of clean flags
-  without `--reset-to`, rejection of `--reset-to` with `--switch`, and
-  destructive help text with the required examples.
+  acceptance, rejection of non-remote refs, rejection of missing or invalid refs,
+  all-repo preflight ordering where every selected repo is fetched and validates
+  `REF` before the first reset, no reset or clean anywhere if any selected repo
+  fails fetch or ref validation, `--clean` and `--clean-ignored` command
+  selection only after successful reset, rejection of clean flags without
+  `--reset-to`, rejection of `--reset-to` with `--switch`, destructive help text,
+  current-branch/worktree reset semantics, and README coverage with the required
+  warnings and examples.
 
 ## Rollback Plan
 
@@ -169,6 +204,9 @@ Required fixture coverage:
 - If a normal-mode regression affects real repos, inspect `git status`, branch
   upstreams, and `git reflog` in each affected repo before applying manual Git
   repair.
-- If reset/clean mode is misused on real repos, deleted untracked or ignored
-  files may not be recoverable from Git; rely on backups or external copies, and
-  use `git reflog` only for tracked commits and branch tips.
+- If reset mode aborts during preflight because any selected repo cannot fetch
+  or validate `REF`, no destructive command should have run; fix the ref or repo
+  state before retrying.
+- If a bug or misuse causes reset/clean mode to affect real repos, deleted
+  untracked or ignored files may not be recoverable from Git; rely on backups or
+  external copies, and use `git reflog` only for tracked commits and branch tips.
