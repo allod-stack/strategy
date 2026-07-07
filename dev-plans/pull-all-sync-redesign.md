@@ -32,9 +32,9 @@ Out of scope:
 
 ## Risk Assessment
 
-Residual risk: R2 Medium for the full issue, because the behavior changes a
-frequently used local workspace tool but remains limited to remote-backed Git
-checkouts with fixture coverage and manual Git fallback.
+Residual risk: R3 High for the full issue, because PR 3 adds explicit reset and
+clean operations that can discard unique local files across multiple workspace
+repos even though the authoritative remote state is not mutated.
 
 Why:
 
@@ -45,10 +45,12 @@ Why:
   users rely on.
 - PR 3 intentionally adds operations that can discard local commits, index
   state, worktree changes, untracked files, and ignored files when requested.
-- This is not R3 or R4 after validation because the destructive path is explicit,
-  fixture-tested, local to Git worktrees, does not touch secrets, lifecycle
-  state, deployed services, or remote repositories, and a damaged checkout can
-  normally be recloned from its remote.
+- This is not R4 after validation because the destructive path is explicit,
+  fixture-tested, local to Git worktrees, preflighted before reset/clean, and
+  does not touch secrets, lifecycle state, deployed services, shared
+  infrastructure, or remote repositories.
+- This remains R3 because `--clean` and `--clean-ignored` can remove local-only
+  files that are not recoverable from the authoritative remote.
 - Fixture tests can cover command selection and reporting, but human review
   should still inspect safety boundaries and help text before merge.
 
@@ -62,9 +64,9 @@ Human scrutiny:
 
 | PR or milestone | Risk | Reason | Human scrutiny |
 |---|---|---|---|
-| PR 1: live parallel `git pull` | R1 Low | Restores faster parallel output and adds `--jobs`, while keeping existing `git pull` semantics. | Verify concurrency parsing, live output readability, and help/tests. |
+| PR 1: live parallel `git pull` | R2 Medium | Restores faster parallel output and adds `--jobs` for a workspace-wide sync command, while keeping existing `git pull` semantics. | Verify concurrency parsing, live output readability, and help/tests. |
 | PR 2: fetch plus fast-forward-only sync | R2 Medium | Changes default sync from `git pull` to explicit fetch/status/ff-only behavior, with fixture coverage and manual Git fallback. | Verify ahead/diverged/no-upstream handling, retry behavior, and safe `--switch`. |
-| PR 3: explicit reset/clean mode | R2 Medium | Adds intentionally destructive reset and clean options that can discard local checkout state when explicitly invoked, without mutating remotes or unique infrastructure state. | Verify remote-tracking ref restriction, all-repo preflight before any destructive command, option incompatibilities, warnings, and fixture-only validation. |
+| PR 3: explicit reset/clean mode | R3 High | Adds intentionally destructive reset and clean options that can discard unique local checkout files across multiple repos when explicitly invoked, without mutating remotes or infrastructure state. | Verify remote-tracking ref restriction, all-repo preflight before any destructive command, option incompatibilities, warnings, and fixture-only validation. |
 
 ## Interface Contracts
 
