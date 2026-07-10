@@ -203,9 +203,15 @@ Human scrutiny:
   their token/key inputs are null.
 - `allod/profiles` netrc activation must continue to skip cleanly when
   `/root/.git-credentials` is absent.
-- `allod/nexus` bootstrap and verify scripts must operate on repo lists even
-  when `forge_key` is null, as long as every selected repo can be cloned through
-  unauthenticated public URLs.
+- `forge_key = null` no longer implies "privacy VM". The orchestration
+  discriminator for dev-VM treatment is a non-empty `repos` list:
+  `provision-vm-from-host` must run bootstrap and verify for `allod-dev`
+  despite `forge_key = null` (today it silently skips both),
+  `bootstrap-vm-from-host.sh` must not take the privacy-VM error exit,
+  `bootstrap-vm.sh` must not require `~/.ssh/<forge-key>` when every selected
+  repo resolves to a public `git` source, and `verify-vm-from-host` must
+  accept the VM as a development VM. Privacy VMs stay excluded by their empty
+  repo list.
 - Authenticated Forge SSH clone behavior must keep working for forks or private
   deployments that provide a Forge SSH key.
 
@@ -301,7 +307,11 @@ Required fixture coverage:
 
 - `allod/nexus` tests include a dev VM with repos and `forge_key = null`; it
   bootstraps and verifies public `git` source repos without calling
-  `setup-vm-forge-key.sh` or requiring `~/.ssh/<forge-key>`.
+  `setup-vm-forge-key.sh` or requiring `~/.ssh/<forge-key>`. The provisioning
+  fixture must assert `bootstrap-vm-from-host.sh` and `verify-vm-from-host`
+  are actually invoked for this VM — a fixture that only reaches the
+  installer phase passes even when the old `forge_key` gate still skips the
+  workspace bootstrap.
 - `allod/nexus` tests include a public no-auth provisioning fixture with no
   `secrets/vm-host-keys/<vm>-ssh.age` and no `machine-host-keys.json` entry;
   it must generate a runtime host key, place it in the `--extra-files` tree,
