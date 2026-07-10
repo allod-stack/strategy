@@ -37,9 +37,11 @@ In scope:
 - `allod/secrets`: remove fake credential assumptions from the public example;
   expose real public defaults for the Allod org, forge host, VM username, and
   optional credential fields without shipping working private keys or tokens.
-- `allod/profiles`: expose `nixosConfigurations.allod-dev`, make dev-profile
-  credential modules inert when token/key fields are null, and document the
-  no-edit public provisioning path plus optional credential wiring for forks.
+- `allod/profiles`: expose `nixosConfigurations.allod-dev`, convert the
+  `nexus` and `inventory` flake inputs from `git+ssh://` to public
+  `git+https://` URLs, make dev-profile credential modules inert when
+  token/key fields are null, and document the no-edit public provisioning
+  path plus optional credential wiring for forks.
 - Tests and docs that prove `allod-dev` builds, provisions through fixture paths,
   bootstraps public repo checkouts, and has no stale `dev-1` placeholders.
 
@@ -144,6 +146,13 @@ Human scrutiny:
   fields for token/GPG/Forge SSH material in the stock public state.
 - Public `allod/secrets` checks must allow the stock no-credential profile while
   still validating any optional credential records a fork supplies.
+- `allod/profiles` flake inputs must be fetchable without credentials. The
+  `nexus` and `inventory` inputs currently use
+  `git+ssh://git@forge.anarch.diy:2222/...`, which fails for a credentialless
+  user at first `nix build` and fails again inside the VM when
+  `self_rebuild = true` re-fetches inputs during `nixos-rebuild switch`. All
+  forge-hosted inputs must use public `git+https://` URLs and the regenerated
+  `flake.lock` must contain no `ssh://` URLs.
 - `allod/profiles` must expose `nixosConfigurations.allod-dev` and must not
   expose `nixosConfigurations.dev-1`.
 - `allod/profiles` credential modules must declare no `age.secrets` entries when
@@ -227,6 +236,7 @@ nix eval --json .#lib.devIdentities.allod-dev \
 
 cd "$WORK/allod/profiles"
 nix flake check
+! rg -n 'git\+ssh|ssh://' flake.nix flake.lock
 nix eval --json .#nixosConfigurations --apply builtins.attrNames \
   | jq -e 'index("allod-dev") != null and index("dev-1") == null'
 nix build .#nixosConfigurations.allod-dev.config.system.build.toplevel --no-link
