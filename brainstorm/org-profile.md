@@ -20,7 +20,7 @@ Run your forge. Run your VMs. Encrypt secrets to your keys. Plug AI providers in
 
 **Privacy VMs** are isolated environments for Tor and privacy-sensitive work, designed without Forge access or durable project state.
 
-**Service VMs** are persistent self-hosted services: Forgejo, CI runners, LLM routers, and other infrastructure declared with the same inventory, secrets, modules, and rebuild policy. This archetype is the natural home for services that should outlive a dev session.
+**Service VMs** are the planned home for persistent self-hosted services: Forgejo, CI runners, LLM routers, and other infrastructure declared with the same inventory, secrets, modules, and rebuild policy.
 
 ## Root of trust
 
