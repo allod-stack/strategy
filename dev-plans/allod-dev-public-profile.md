@@ -234,7 +234,14 @@ Human scrutiny:
   accept the VM as a development VM. Privacy VMs stay excluded by their empty
   repo list.
 - Authenticated Forge SSH clone behavior must keep working for forks or private
-  deployments that provide a Forge SSH key.
+  deployments that provide a Forge SSH key. That contract is broken today by a
+  schema split: `bootstrap-vm-from-host.sh` reads `.secret` from
+  `forge-ssh-keys.json` (and the nexus fixtures encode `.secret`), while
+  `allod/secrets` ships `secret_path`. A fork following the public file shape
+  gets a broken authenticated bootstrap. Align on one field name — update the
+  nexus reader and fixtures or the secrets file shape — and document the
+  record shape alongside the optional credential fields so forks wire a
+  working key on the first try.
 
 ## Agent Gates
 
