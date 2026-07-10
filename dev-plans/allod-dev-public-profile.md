@@ -19,6 +19,16 @@ Expected PR sequence:
 The final `profiles` PR carries the closing keyword because it consumes the
 merged public `nexus`, `inventory`, and `secrets` contracts.
 
+Lock sequencing: PRs 1–3 need no cross-repo lock bumps — `secrets` consumes
+`inventory` only for `supportedPlatforms`, which the rename does not change,
+and `nexus` has no forge-hosted inputs. The first implementation step of PR 4
+bumps the `profiles` flake.lock for `secrets`, `inventory`, `nexus`, and `vm`
+together; partial bumps fail closed on the `identities`/`machines`
+key-equality assertion and the forge-key state check, so do not bump
+upstreams piecemeal. Run the `profiles` acceptance block only after the
+upstream PRs merge and the locks are bumped; the per-repo blocks for PRs 1–3
+run standalone against each repo plus already-merged upstreams.
+
 ## Goal
 
 Ship a public `allod-dev` VM definition that a user can clone and provision for
