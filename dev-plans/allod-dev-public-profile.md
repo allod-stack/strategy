@@ -30,8 +30,11 @@ In scope:
 
 - `allod/nexus`: support credentialless public dev VM provisioning and workspace
   bootstrap, including HTTPS clones and verification when no Forge SSH key or
-  Forgejo token is configured, and runtime VM host-key generation with
-  host-side `known_hosts` pinning when no committed host-key state exists.
+  Forgejo token is configured, runtime VM host-key generation with host-side
+  `known_hosts` pinning when no committed host-key state exists, injection of
+  the operator's `~/.ssh/host.pub` into the VM user's `authorized_keys` via
+  `--extra-files`, and the documented installer-image path that authorizes
+  the same runtime key.
 - `allod/inventory`: replace `dev-1` with `allod-dev`, declare the real public
   Allod workspace repo set, and use public HTTPS clone URLs for repos that need
   no credentials.
@@ -131,9 +134,25 @@ Human scrutiny:
   `allod-dev` passes with no entry; renaming the `dev-1` entry to `allod-dev`
   with the old synthetic key is not an option, because bootstrap would pin
   `known_hosts` to a key the runtime-generated VM can never present.
-- Public no-auth provisioning must authorize the human's host SSH public key
-  through a runtime path, for example deriving it from the selected host identity
-  or accepting an explicit public-key file, without requiring a repo edit.
+- The operator's runtime SSH identity is the existing `~/.ssh/host` /
+  `~/.ssh/host.pub` keypair (the `AGE_IDENTITY` / `KEY` defaults the `nexus`
+  scripts already use). Provisioning must authorize `~/.ssh/host.pub` on the
+  installed system by writing the VM user's `~/.ssh/authorized_keys` through
+  the existing nixos-anywhere `--extra-files` tree. NixOS's default
+  `authorizedKeysFiles` already includes `%h/.ssh/authorized_keys`, and an
+  on-disk file survives stock `self_rebuild` runs — unlike anything derived
+  from the build-time `hostPublicKeys` in `secrets`, which activation
+  regenerates from the synthetic committed value on every stock rebuild.
+  The baked `hostPublicKeys` stay as the fork seam; they are not the stock
+  access path.
+- The install media must trust the same runtime key. `profiles#installer`
+  bakes the synthetic `secrets.lib.identity.hostPublicKeys` into root's
+  authorized keys, so an ISO built purely from stock inputs rejects a real
+  operator and nixos-anywhere never connects. The documented host-side path
+  must produce install media whose root login accepts `~/.ssh/host.pub`
+  (for example building `profiles#installer` with a runtime secrets
+  override); per the Agent Gates below, the exact command ships in the
+  `nexus` PR documentation before downstream repos rely on it.
 - Optional credential fields use `null` to mean "not configured"; modules and
   scripts must treat null as inert instead of trying to deploy or decrypt fake
   files.
@@ -287,7 +306,8 @@ Required fixture coverage:
   `secrets/vm-host-keys/<vm>-ssh.age` and no `machine-host-keys.json` entry;
   it must generate a runtime host key, place it in the `--extra-files` tree,
   record the public half host-side, pin `KNOWN_HOSTS_VMS` from that record,
-  and reach the installer/build phase. The existing refusal tests in
+  write the fixture operator's public key into the `--extra-files`
+  authorized_keys path for the VM user, and reach the installer/build phase. The existing refusal tests in
   `tests/provision-vm-from-host.sh` (`missing_ciphertext`, `decrypt_failure`,
   `key_mismatch`, `stale_pin`) must keep passing for VMs that declare pinned
   host-key state — the fail-fast becomes conditional, not deleted.
