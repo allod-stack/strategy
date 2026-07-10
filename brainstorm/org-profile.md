@@ -6,11 +6,11 @@ Target: `allod/.profile/README.md` (rendered as Forgejo org landing page)
 
 # Allod
 
-**Project-scoped VMs for coding agents.**
+Allod is a medieval term for a sovereign territorial claim that recognizes no higher authority. No rent, no fealty, no master. In modern times almost every aspect of our lives operates in some way on the internet: communication, payments, entertainment, and if you are a software developer, your livelihood. All of it happens on permissioned systems. On today's internet you are not free, you are a serf. Your code is hosted on someone else's server and the "free and open" license you put on it is under legal threat. The agents and models you use belong to a company and your access to those tools can (and will) be turned off with the flip of a switch. It's time to reverse this trend.
 
-Allod is a self-sovereign NixOS stack for agentic development: isolated QEMU VMs, age-encrypted secrets, git-tracked context, and focused CLI tools that make a multi-repo workspace feel like one system.
+Allod is a self-sovereign NixOS stack for agentic development. : isolated VMs, encrypted secrets, version controlled agent memory, and focused CLI tools that make a multi-repo workspace feel like one system.
 
-The VM isolation model is the key architectural choice. Each project type gets its own declarative development environment and a cage to contain your agents.
+The key architectural choice is the VM isolation model. Each project type gets its own VM that serves as a declarative development environment and a cage to contain your agents.
 
 The code is the architecture. Fork it, audit it, run it on your own hardware, and choose your forge, agents, and model routers.
 
