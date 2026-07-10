@@ -37,7 +37,15 @@ In scope:
   the same runtime key.
 - `allod/inventory`: replace `dev-1` with `allod-dev`, declare the real public
   Allod workspace repo set, and use public HTTPS clone URLs for repos that need
-  no credentials.
+  no credentials. Re-key the registry check that requires a `profiles`
+  checkout for development VMs on `self_rebuild` instead of
+  `forge_key != null`: a self-rebuilding VM needs `profiles` regardless of
+  credentials, and the credentialless `allod-dev` (`forge_key = null`,
+  `self_rebuild = true`) silently bypasses the current guard. Point the
+  synthetic `nexus` hypervisor machine's `repos` at aliases that resolve in
+  `repositories.json` (`allod/nexus` is not a registry key; hypervisors are
+  filtered out of the alias validation, so the dangling alias is never
+  caught).
 - `allod/secrets`: remove fake credential assumptions from the public example;
   expose real public defaults for the Allod org, forge host, VM username, and
   optional credential fields without shipping working private keys or tokens;
