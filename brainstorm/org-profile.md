@@ -1,4 +1,4 @@
-# Allod org profile -- draft README
+# Allod org profile draft
 
 Target: `allod/.profile/README.md` (rendered as Forgejo org landing page)
 
@@ -6,43 +6,55 @@ Target: `allod/.profile/README.md` (rendered as Forgejo org landing page)
 
 # Allod
 
-*An allod is land held in absolute ownership -- no rent, no fealty, no master.*
+**Own the machine your agents run on.**
 
-Allod is a self-sovereign NixOS VM stack for agentic coding and privacy tasks. It treats infrastructure as a declarative architecture: the code is the architecture. Hosts, guests, disk layouts, identities, repo registries, credentials, and workflow tools live as versioned Nix flakes and data files you can fork, audit, and host on your own server.
+Allod is a self-sovereign NixOS stack for agentic development: self-hosted Forgejo, isolated QEMU VMs, age-encrypted secrets, and focused CLI tools that make a multi-repo workspace feel like one system.
 
-Run your forge. Run your VMs. Encrypt secrets to your keys. Plug AI providers in as replaceable services, not foundations.
+The code is the architecture. Fork it, audit it, host it on your own server, and rebuild it on your own hardware.
 
-## Stack archetypes
+No GitHub dependency. No cloud IDE. No agents roaming around your host.
 
-**Nexus / hypervisor** is the physical machine: libvirt/QEMU, host-side provisioning, rebuilds, key rotation, and VM lifecycle.
+## Why
 
-**Dev VMs** are reproducible coding environments with workspace clones, Forge access, build tools, and agent harnesses. Each project type can have its own cage.
+Coding agents are powerful because they touch everything: repos, shells, tokens, build systems, notes, and private context. Allod gives that power a boundary.
 
-**Privacy VMs** are isolated environments for Tor and privacy-sensitive work, designed without Forge access or durable project state.
+- Reproducible development VMs instead of fragile laptops and cloud workspaces.
+- Self-hosted git, issues, pull requests, and runners instead of rented workflow control.
+- Explicit secrets and identity data instead of credentials scattered across machines.
+- Agent-friendly tooling without making proprietary AI providers the foundation.
 
-**Service VMs** are the planned home for persistent self-hosted services: Forgejo, CI runners, LLM routers, and other infrastructure declared with the same inventory, secrets, modules, and rebuild policy.
+## Architecture
 
-## Root of trust
+Allod is declarative infrastructure split by ownership. Public framework repos describe how the system works. Consumer-owned inventory and secrets decide what actually exists and who can materialize it.
 
-Allod keeps plaintext authority out of the public repos. Inventory and profile code can be public; secrets are age-encrypted; a single host identity is the root of trust that can SSH into VMs and decrypt secrets. VM SSH host keys are generated on the host and injected during provisioning so agenix can decrypt on first boot without manual state.
-
-The public code describes the system. The private keys decide who can materialize it.
-
-## Principles
-
-NixOS everywhere. No configuration drift, no snowflake machines, no hidden clickops. AI agents run as first-class citizens beside the human who owns the stack.
-
-Nothing here requires GitHub, AWS, or any service you do not control.
-
-## Repos
-
-| Repo | Role |
+| Layer | What it owns |
 |---|---|
-| [`allod/profiles`](https://forge.anarch.diy/allod/profiles) | Archetype profiles that assemble framework repos with inventory and secrets. |
-| [`allod/vm`](https://forge.anarch.diy/allod/vm) | Shared QEMU guest, disk layout, NixOS, and Home Manager modules. |
-| [`allod/nexus`](https://forge.anarch.diy/allod/nexus) | Hypervisor framework, provisioning scripts, lifecycle tools, and host policy. |
-| [`allod/inventory`](https://forge.anarch.diy/allod/inventory) | Machine specs, VM sizing, networking, platforms, and repo registry. |
-| [`allod/secrets`](https://forge.anarch.diy/allod/secrets) | Encrypted secrets, identities, credential inventory, and git policy data. |
-| [`allod/tools`](https://forge.anarch.diy/allod/tools) | Workspace, Forgejo, flake, and git-policy CLI tools. |
-| [`allod/memory`](https://forge.anarch.diy/allod/memory) | Version-controlled workflow memory for coding agents. |
-| [`allod/strategy`](https://forge.anarch.diy/allod/strategy) | Development plans, review prompts, and project direction. |
+| **Nexus / hypervisor** | The physical NixOS host, libvirt/QEMU, provisioning, rebuilds, key rotation, and VM lifecycle. |
+| **Dev VMs** | Agent-ready coding cages with workspace clones, Forge access, build tools, and project-specific state. |
+| **Privacy VMs** | Isolated environments for Tor and privacy-sensitive work, designed without Forge access or durable project state. |
+| **Service VMs** | Planned homes for persistent self-hosted services such as Forgejo, runners, and LLM routers. |
+
+## Trust model
+
+Public repos describe machines. Private keys activate them.
+
+A single host identity is the root of trust: it can SSH into guests and decrypt age secrets. VM SSH host keys are generated on the host and injected during provisioning, so agenix can decrypt VM secrets on first boot without manual post-install state.
+
+## Repos at a glance
+
+| Repo | Purpose |
+|---|---|
+| [`profiles`](https://forge.anarch.diy/allod/profiles) | Assembles hosts and VM archetypes from framework modules, inventory, and secrets. |
+| [`vm`](https://forge.anarch.diy/allod/vm) | Shared QEMU guest, disk, NixOS, and Home Manager modules. |
+| [`nexus`](https://forge.anarch.diy/allod/nexus) | Host framework and provisioning lifecycle tools. |
+| [`inventory`](https://forge.anarch.diy/allod/inventory) | Machine specs, VM sizing, networking, platforms, and repo registry. |
+| [`secrets`](https://forge.anarch.diy/allod/secrets) | Encrypted secrets, identities, credential inventory, and git policy data. |
+| [`tools`](https://forge.anarch.diy/allod/tools) | Workspace sync, Forgejo, flake, and protected-git workflow CLIs. |
+| [`memory`](https://forge.anarch.diy/allod/memory) | Version-controlled workflow memory for coding agents. |
+| [`strategy`](https://forge.anarch.diy/allod/strategy) | Project direction, development plans, and review prompts. |
+
+## Status
+
+Allod is active infrastructure, not a polished appliance. The public repos are being split, licensed, and documented so the stack can be forked, audited, and adapted without inheriting private machine state.
+
+Start with [`profiles`](https://forge.anarch.diy/allod/profiles) to see how the pieces assemble.
