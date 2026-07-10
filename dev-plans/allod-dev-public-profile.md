@@ -187,7 +187,11 @@ Human scrutiny:
     `allod/memory`
 - `allod/secrets` must expose `lib.devIdentities.allod-dev` with username
   `allod`, public Forge host `forge.anarch.diy`, and null optional credential
-  fields for token/GPG/Forge SSH material in the stock public state.
+  fields for token/GPG/Forge SSH material in the stock public state:
+  `forgeTokenFile`, `agentTokenFile`, `gpgPublicKeyFile`, `gpgSigningKey`,
+  and `sshKeyName` all null. The current flake derivation hardcodes non-null
+  token paths and `inherit`s `sshKeyName`, so the derivation itself must
+  learn null defaults, not just the per-VM data.
 - Public `allod/secrets` checks must allow the stock no-credential profile while
   still validating any optional credential records a fork supplies.
 - `allod/profiles` flake inputs must be fetchable without credentials. The
@@ -200,7 +204,16 @@ Human scrutiny:
 - `allod/profiles` must expose `nixosConfigurations.allod-dev` and must not
   expose `nixosConfigurations.dev-1`.
 - `allod/profiles` credential modules must declare no `age.secrets` entries when
-  their token/key inputs are null.
+  their token/key inputs are null. Stock `allod-dev` must evaluate to an empty
+  `config.age.secrets` attrset. The load-bearing offender is
+  `modules/agent-forgejo-token.nix`, which declares
+  `age.secrets.agent-pr-token` unconditionally (imported by the dev host
+  config); the flake-level `forgejo-https-token` entry is already conditional
+  on a non-null token file.
+- Dev home config must not dereference null credential identity fields: the
+  forge SSH matchBlock in `hosts/dev/<vm>/home.nix` interpolates
+  `identity.sshKeyName` into `identityFile` and must be conditional when the
+  field is null, or `allod-dev` fails to evaluate at all.
 - `allod/profiles` netrc activation must continue to skip cleanly when
   `/root/.git-credentials` is absent.
 - `forge_key = null` no longer implies "privacy VM". The orchestration
@@ -278,7 +291,8 @@ nix eval --json .#lib.devIdentities.allod-dev \
            and (.forgeTokenFile == null)
            and (.agentTokenFile == null)
            and (.gpgPublicKeyFile == null)
-           and (.gpgSigningKey == null)'
+           and (.gpgSigningKey == null)
+           and (.sshKeyName == null)'
 ! find secrets keys -type f | grep -E 'dev-1|dev_1|token|forge-key'
 jq -e '. == {}' machine-host-keys.json
 ! rg -n 'dev-1|dev_1|forgejo-https-token-dev-1|dev-1-forge-key|PRIVATE KEY|BEGIN OPENSSH' \
@@ -296,7 +310,7 @@ nix eval .#nixosConfigurations.allod-dev.config.system.activationScripts.netrc.t
 ! grep -n '^[[:space:]]*exit 0$' /tmp/allod-dev-netrc-activation.sh
 grep -q 'missing or empty, skipping' /tmp/allod-dev-netrc-activation.sh
 nix eval --json .#nixosConfigurations.allod-dev.config.age.secrets \
-  | jq -e 'has("forgejo-https-token") | not'
+  | jq -e '. == {}'
 test -d hosts/dev/allod-dev
 test ! -e hosts/dev/dev-1
 ! rg -n 'dev-1|dev_1|forgejo-https-token-dev-1|dev-1-forge-key' \
