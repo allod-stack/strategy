@@ -83,78 +83,53 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **Runtime host-key and SSH-authorization contract.** The plan leaves two
-   design forks open: the VM host key is "either NixOS generates it or accept a
-   runtime-generated key outside the repo," and the human's host public key is
-   authorized "for example deriving it from the selected host identity or
-   accepting an explicit public-key file." Both `nexus` provisioning and the
-   `profiles` no-secret path depend on which fork is chosen, and the Agent Gate
-   itself says a new runtime-input CLI must be documented before downstream repos
-   rely on it. What concretely authorizes SSH access on a first boot with no
-   committed host key, and where is that contract pinned so the four repos agree?
-   An implementer who picks a different fork per repo produces a VM that provisions
-   in fixtures but is unreachable in reality.
+1. **Scoped diff review of the pass-1 contract fixes.** Pass 1 (commits
+   `7d4c04c` through `2597f81` in this repo) replaced the plan's open design
+   forks with pinned contracts: `git+https` flake inputs for `profiles`;
+   host-side runtime VM host-key generation with `known_hosts` pinning and a
+   conditional `credential-profiles` host-entry requirement; operator
+   `~/.ssh/host.pub` injected into the VM user's `~/.ssh/authorized_keys` via
+   `--extra-files`, plus install media built against the same runtime key;
+   dev-VM orchestration keyed on a non-empty repo list instead of
+   `forge_key`. Structural fixes are where new blockers enter: verify these
+   contracts are mutually consistent and implementable against the actual
+   scripts. Sharp interactions to probe: exactly one writer for the runtime
+   host-key record; whether the conditional host-entry check still verifies
+   anything for forks that do pin keys; whether the injected authorized_keys
+   file coexists with qemu-guest's `fix-home-ownership` chown and sshd
+   StrictModes.
 
-2. **The "public clone with no credentials" premise is unvalidated locally.**
-   The entire goal rests on all eight `repositories.json` entries resolving to
-   genuinely public, clonable HTTPS URLs (`allod/profiles`, `allod/vm`,
-   `allod/nexus`, `allod/tools`, `allod/strategy`, `allod/secrets`,
-   `allod/inventory`, `allod/memory`). `nix flake check` and the fixtures never
-   touch the network, so a repo that is still private, absent, or gated behind a
-   login passes every acceptance test and then fails the stock VM's first
-   bootstrap with no credentials to fall back on. Does the plan name this as a
-   human-verifiable reachability check, and does it match the R3 score given that
-   the failure is a stranded provision the fixtures cannot catch?
+2. **Installer runtime-key mechanism is deferred to the nexus PR.** The plan
+   requires install media whose root login accepts `~/.ssh/host.pub` and
+   defers the exact build command (likely a runtime secrets override at ISO
+   build) to nexus PR documentation per the Agent Gate. When that CLI lands,
+   verify it against the plan contract, that `new-vm`'s `~/iso/` discovery
+   matches the documented flow, and that no step requires a repo edit.
 
-3. **Scrubbing fake credentials without breaking the generated build.** The plan
-   removes fake token/key material from active runtime paths and asserts that
-   null credential inputs must produce no `age.secrets` entry and that netrc
-   activation must skip cleanly when `/root/.git-credentials` is absent. The
-   sharp edge is whether any surviving module, systemd unit, or activation script
-   still references `config.age.secrets."forgejo-https-token".path` (or a decrypted
-   file that no longer exists) once the fake entry is gone. Does
-   `nix build .#nixosConfigurations.allod-dev...` actually evaluate and the
-   generated activation text actually skip, or does removing the placeholder leave
-   a dangling reference that makes the toplevel nonfunctional? This is the most
-   likely place for a genuine BLOCKER — inspect generated artifacts, not source
-   eval.
+3. **Absence proofs.** `vnprc` joined the grep alternations and the committed
+   defaults were vetted generic this pass (libvirt-default subnet IP,
+   QEMU-OUI MAC; the unusable TEST-NET values leave with the rename). Watch
+   implementation diffs for private material the pattern set still misses:
+   personal hostnames, real key material in fixtures, and any new committed
+   value that only looks generic.
 
-4. **Absence proofs must actually prove absence.** The privacy boundary is
-   defended almost entirely by negative `rg`/`find` checks for `dev-1`, tokens,
-   `forge-key`, and `PRIVATE KEY`/`BEGIN OPENSSH`. A green negative check on an
-   incomplete pattern set is false confidence. Do the patterns catch the leaks
-   that matter — `vnprc/*` references, personal/private host IPs, a real host key
-   or GPG key smuggled in, base64 or PEM key material that never matches
-   `BEGIN OPENSSH`, a personal git identity? And are the committed public defaults
-   (`ip = 192.168.122.15`, the MAC, `forge.anarch.diy`, username `allod`) truly
-   generic public values rather than something host-specific that only looks
-   harmless? If the answer to "how would we know a private value slipped in" is
-   only these greps, the boundary is thinner than R3 assumes.
+4. **Fixture depth on the no-auth paths.** The plan now requires fixtures to
+   assert invocation and artifact content: bootstrap and verify actually run
+   for the `forge_key = null` dev VM; the runtime host key and the operator
+   authorized_keys actually land in the `--extra-files` tree; the existing
+   refusal tests stay green for pinned-state VMs. Verify implemented fixtures
+   honor that rather than passing on exit codes.
 
-5. **Cold cross-repo sequencing and flake locks.** `profiles` consumes the merged
-   `nexus`/`inventory`/`secrets` contracts, and its acceptance block
-   (`nix build`, activation eval, `age.secrets` inspection) only passes once those
-   upstreams are present via bumped flake locks. Can someone execute this plan in
-   order without getting stuck — e.g., running the `profiles` tests before the
-   upstream PRs merge and the lock updates? Does the forward plan state the
-   lock-update step between PRs, or is lock handling only mentioned in the
-   rollback section? Verify each PR's acceptance tests depend only on that repo
-   plus already-merged upstreams.
+Next pass: scoped diff review of the pass-1 plan commits (`7d4c04c` through
+the focus-area update commit), not a full re-review, by a model other than
+`claude-fable-5` — no fix-stability record exists for this plan yet, so pick
+per Agent Rotation in `dev-plans.md`. Record how the pass-1 fixes held up.
 
-6. **Registry keys, checkout paths, and fixtures line up.** `machines.allod-dev.repos`
-   mixes bare keys (`profiles`, `vm`, `nexus`, `workspace-tools`, `strategy`) with
-   namespaced keys (`allod/secrets`, `allod/inventory`, `allod/memory`), while
-   `repositories.json` maps e.g. `workspace-tools` → `tools.git` → `allod/tools`.
-   Does every key in the machine's `repos` list resolve in `repositories.json`,
-   and do the checkout paths match what bootstrap and verify actually expect? A
-   key that doesn't resolve or a path mismatch strands a repo silently. Separately,
-   confirm the named test scripts (`tests/provisioning-contract.sh`,
-   `tests/registry-resolver.sh`, the no-auth and no-host-key fixtures) exist or are
-   explicitly in scope to be written, and that the no-auth fixtures exercise the
-   new `forge_key = null` branch rather than passing trivially.
-
-This is the first review pass; the areas above are the opening targets. Update
-them per "After Each Pass" as they are resolved or as new ones surface.
+Pass metadata: pass 1 (2026-07-10) reviewed the original plan text grounded
+in all five repos (anonymous HTTPS clones of `nexus`, `profiles`, and `vm`;
+live anonymous reachability probe of all eight public clone URLs — all 200).
+Update the areas above per "After Each Pass" as they are resolved or as new
+ones surface.
 
 ## Review Guidelines
 
