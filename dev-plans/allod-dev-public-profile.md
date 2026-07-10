@@ -103,7 +103,7 @@ Human scrutiny:
 | PR or milestone | Risk | Reason | Human scrutiny |
 |---|---|---|---|
 | PR 1: `allod/nexus` no-auth bootstrap | R3 High | Changes provisioning, bootstrap, and verification scripts so dev VMs can have public repos without Forge SSH credentials. | Verify no-auth branches are fixture-tested and authenticated behavior remains intact. |
-| PR 2: `allod/inventory` public allod-dev data | R2 Medium | Renames the public VM and records the real public Allod repo workspace using public clone URLs. | Verify repo registry paths, checkout paths, and `vm-specs.json` generation. |
+| PR 2: `allod/inventory` public allod-dev data | R2 Medium | Renames the public VM and records the real public Allod repo workspace using public clone URLs. R2 holds only with the anonymous-reachability acceptance check: the worst residual failure is a stranded first bootstrap on a non-public URL, which the offline fixtures cannot see. | Verify repo registry paths, checkout paths, and `vm-specs.json` generation. |
 | PR 3: `allod/secrets` public identity cleanup | R3 High | Removes fake credential assumptions and exposes null/optional auth fields consumed by profiles. | Verify checks prove absence of fake keys/tokens and preserve optional credential contracts. |
 | PR 4: `allod/profiles` integration | R3 High | Consumes the updated upstreams and changes generated profile behavior from placeholder `dev-1` to usable `allod-dev`. | Verify locks point at merged upstreams, generated config has no required fake secrets, and docs match the command path. |
 
@@ -202,6 +202,12 @@ Human scrutiny:
   learn null defaults, not just the per-VM data.
 - Public `allod/secrets` checks must allow the stock no-credential profile while
   still validating any optional credential records a fork supplies.
+- `identity.nix` `sshHosts` must track the renamed VM: the `allod-dev` entry's
+  `hostname` must equal `machines.allod-dev.ip` (`192.168.122.15`), replacing
+  the stale TEST-NET address, and stock entries must not point `identityFile`
+  at per-VM forge keys the template no longer ships. `sshHosts` is rendered
+  into the VM user's ssh matchBlocks by `modules/home-shared.nix`, so stale
+  values ship inside the VM, not just on the host.
 - `allod/profiles` flake inputs must be fetchable without credentials. The
   `nexus` and `inventory` inputs currently use
   `git+ssh://git@forge.anarch.diy:2222/...`, which fails for a credentialless
@@ -262,6 +268,15 @@ Human scrutiny:
 set -euo pipefail
 WORK=${WORK:-$HOME/work}
 
+# Public premise: all eight repos answer anonymous smart-HTTP. curl sends no
+# git credential-helper or netrc state, so this stays honest on hosts that
+# have credentials configured. Verified green 2026-07-10.
+for r in profiles vm nexus tools strategy secrets inventory memory; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' \
+    "https://forge.anarch.diy/allod/${r}.git/info/refs?service=git-upload-pack")
+  [ "$code" = 200 ] || { echo "repo not anonymously clonable: ${r} (${code})"; exit 1; }
+done
+
 cd "$WORK/allod/nexus"
 bash -n scripts/provision-vm-from-host scripts/bootstrap-vm-from-host.sh \
   scripts/bootstrap-vm.sh scripts/verify-vm-from-host scripts/lib/resolve-repos.sh
@@ -288,12 +303,24 @@ jq -e '."allod-dev".ip == "192.168.122.15"
        and ."allod-dev".mac == "52:54:00:ab:cd:15"
        and ."allod-dev".forge_key == null
        and ."allod-dev".self_rebuild == true' scripts/vm-specs.json
-jq -e '.repositories.profiles.source == "git"
-       and .repositories.profiles.remote == "https://forge.anarch.diy/allod/profiles.git"
-       and .repositories.vm.remote == "https://forge.anarch.diy/allod/vm.git"
-       and .repositories.nexus.remote == "https://forge.anarch.diy/allod/nexus.git"' \
-  scripts/repositories.json
-! rg -n 'dev-1|dev_1|forgejo-https-token-dev-1|dev-1-forge-key' \
+while read -r alias repo checkout; do
+  jq -e --arg a "$alias" \
+        --arg r "https://forge.anarch.diy/allod/${repo}.git" \
+        --arg c "$checkout" \
+    '.repositories[$a].source == "git"
+     and .repositories[$a].remote == $r
+     and .repositories[$a].checkout == $c' scripts/repositories.json
+done <<'EOF'
+profiles profiles allod/profiles
+vm vm allod/vm
+nexus nexus allod/nexus
+workspace-tools tools allod/tools
+strategy strategy allod/strategy
+allod/secrets secrets allod/secrets
+allod/inventory inventory allod/inventory
+allod/memory memory allod/memory
+EOF
+! rg -n 'dev-1|dev_1|vnprc' \
   flake.nix scripts/vm-specs.json scripts/repositories.json
 
 cd "$WORK/allod/secrets"
@@ -310,9 +337,11 @@ nix eval --json .#lib.devIdentities.allod-dev \
            and (.sshKeyName == null)'
 ! find secrets keys -type f | grep -E 'dev-1|dev_1|token|forge-key'
 jq -e '. == {}' machine-host-keys.json
-! rg -n 'dev-1|dev_1|forgejo-https-token-dev-1|dev-1-forge-key|PRIVATE KEY|BEGIN OPENSSH' \
+! rg -n 'dev-1|dev_1|vnprc|PRIVATE KEY|BEGIN OPENSSH' \
   identity.nix credentials.nix forge-ssh-keys.json forgejo-token-groups.json \
   secrets.nix machine-host-keys.json git keys secrets
+nix eval --json .#lib.identity \
+  | jq -e '.sshHosts."allod-dev".hostname == "192.168.122.15"'
 
 cd "$WORK/allod/profiles"
 nix flake check
@@ -328,7 +357,7 @@ nix eval --json .#nixosConfigurations.allod-dev.config.age.secrets \
   | jq -e '. == {}'
 test -d hosts/dev/allod-dev
 test ! -e hosts/dev/dev-1
-! rg -n 'dev-1|dev_1|forgejo-https-token-dev-1|dev-1-forge-key' \
+! rg -n 'dev-1|dev_1|vnprc' \
   flake.nix README.md hosts modules
 ```
 
