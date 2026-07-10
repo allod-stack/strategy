@@ -30,18 +30,22 @@ In scope:
 
 - `allod/nexus`: support credentialless public dev VM provisioning and workspace
   bootstrap, including HTTPS clones and verification when no Forge SSH key or
-  Forgejo token is configured.
+  Forgejo token is configured, and runtime VM host-key generation with
+  host-side `known_hosts` pinning when no committed host-key state exists.
 - `allod/inventory`: replace `dev-1` with `allod-dev`, declare the real public
   Allod workspace repo set, and use public HTTPS clone URLs for repos that need
   no credentials.
 - `allod/secrets`: remove fake credential assumptions from the public example;
   expose real public defaults for the Allod org, forge host, VM username, and
-  optional credential fields without shipping working private keys or tokens.
+  optional credential fields without shipping working private keys or tokens;
+  empty the machine host-key state (`machine-host-keys.json`) so the stock
+  template pins no VM host keys.
 - `allod/profiles`: expose `nixosConfigurations.allod-dev`, convert the
   `nexus` and `inventory` flake inputs from `git+ssh://` to public
   `git+https://` URLs, make dev-profile credential modules inert when
-  token/key fields are null, and document the no-edit public provisioning
-  path plus optional credential wiring for forks.
+  token/key fields are null, make the `credential-profiles` host-key entry
+  requirement conditional on committed host-key state, and document the
+  no-edit public provisioning path plus optional credential wiring for forks.
 - Tests and docs that prove `allod-dev` builds, provisions through fixture paths,
   bootstraps public repo checkouts, and has no stale `dev-1` placeholders.
 
@@ -103,9 +107,30 @@ Human scrutiny:
 - Any user-specific SSH public key or host provisioning input must be collected
   by host-side commands or environment variables at runtime, not committed into
   public repo definitions.
-- Public no-auth provisioning must not require
-  `secrets/vm-host-keys/allod-dev-ssh.age`; it should either let NixOS generate
-  the VM SSH host key or accept a runtime-generated host key outside the repo.
+- Stock public repos ship no `allod-dev` host-key state: no
+  `secrets/vm-host-keys/allod-dev-ssh.age` and no `machine-host-keys.json`
+  entry. When a VM has no pinned host-key state, `provision-vm-from-host`
+  generates an ed25519 host key on the host at runtime, injects it through the
+  existing `--extra-files` tree, and records the public half host-side outside
+  the repos (for example `~/.ssh/vm-host-keys/<vm>.pub`). Do not resolve this
+  by letting the VM generate its own key at first boot: the host could then
+  never pin `known_hosts` before connecting with
+  `StrictHostKeyChecking=yes`, and fork agenix decryption expects the
+  identity present before first boot. Refusal on missing, undecryptable, or
+  mismatched ciphertext remains fail-fast for VMs that do declare pinned
+  host-key state.
+- `bootstrap-vm-from-host.sh` and `verify-vm-from-host` must pin
+  `KNOWN_HOSTS_VMS` from the runtime-recorded public key when
+  `machine-host-keys.json` has no entry for the VM, keeping
+  `StrictHostKeyChecking=yes`. Dying on a missing JSON entry remains only for
+  VMs with committed host-key state.
+- The `credential-profiles` check in `allod/profiles` requires a
+  `credentials."<vm>-host"` entry for every dev/privacy VM, and
+  `allod/secrets` generates those entries from `machine-host-keys.json`. That
+  requirement must become conditional on committed host-key state so
+  `allod-dev` passes with no entry; renaming the `dev-1` entry to `allod-dev`
+  with the old synthetic key is not an option, because bootstrap would pin
+  `known_hosts` to a key the runtime-generated VM can never present.
 - Public no-auth provisioning must authorize the human's host SSH public key
   through a runtime path, for example deriving it from the selected host identity
   or accepting an explicit public-key file, without requiring a repo edit.
@@ -230,6 +255,7 @@ nix eval --json .#lib.devIdentities.allod-dev \
            and (.gpgPublicKeyFile == null)
            and (.gpgSigningKey == null)'
 ! find secrets keys -type f | grep -E 'dev-1|dev_1|token|forge-key'
+jq -e '. == {}' machine-host-keys.json
 ! rg -n 'dev-1|dev_1|forgejo-https-token-dev-1|dev-1-forge-key|PRIVATE KEY|BEGIN OPENSSH' \
   identity.nix credentials.nix forge-ssh-keys.json forgejo-token-groups.json \
   secrets.nix machine-host-keys.json git keys secrets
@@ -257,10 +283,14 @@ Required fixture coverage:
 - `allod/nexus` tests include a dev VM with repos and `forge_key = null`; it
   bootstraps and verifies public `git` source repos without calling
   `setup-vm-forge-key.sh` or requiring `~/.ssh/<forge-key>`.
-- `allod/nexus` tests include a public no-auth provisioning fixture that does
-  not provide `secrets/vm-host-keys/<vm>-ssh.age`; it must still reach the
-  installer/build phase through runtime SSH authorization rather than failing on
-  missing fake secret material.
+- `allod/nexus` tests include a public no-auth provisioning fixture with no
+  `secrets/vm-host-keys/<vm>-ssh.age` and no `machine-host-keys.json` entry;
+  it must generate a runtime host key, place it in the `--extra-files` tree,
+  record the public half host-side, pin `KNOWN_HOSTS_VMS` from that record,
+  and reach the installer/build phase. The existing refusal tests in
+  `tests/provision-vm-from-host.sh` (`missing_ciphertext`, `decrypt_failure`,
+  `key_mismatch`, `stale_pin`) must keep passing for VMs that declare pinned
+  host-key state — the fail-fast becomes conditional, not deleted.
 - `allod/nexus` tests keep existing authenticated Forge SSH bootstrap behavior
   for repos that use `source = "forge"` and provide a Forge SSH key.
 - `allod/profiles` checks inspect generated `allod-dev` activation text and age
