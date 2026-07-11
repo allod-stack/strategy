@@ -205,7 +205,7 @@ Phase 0 (on a rebuilt dev VM):
 ```sh
 go version
 cd /home/allod/work/allod/tools
-nix build .#checks-placeholder 2>/dev/null || nix flake check
+nix flake check
 bash tests/allod-change.sh && bash tests/allod-patch.sh   # still green on bash defaults
 for t in tests/forge/*.sh; do bash "$t"; done
 ```
@@ -235,8 +235,10 @@ readlink -f "$(command -v forge)"   # points at the Go package, not writeShellAp
 forge pr list; allod change begin -h; flake-status >/dev/null
 allod change begin -d smoke-test /home/allod/work/allod/tools   # protected repo → worktree path
 allod change cleanup <that-path>
-# token safety: no curl child, no token in any argv
-forge pr list & p=$!; grep -c token /proc/$p/cmdline; wait $p
+# token safety: the API path spawns no subprocesses, so no argv can carry the
+# token; enforced statically plus a Go test pinning in-process-only auth
+! grep -rn '"os/exec"' cmd/forge/ internal/forgeapi/
+go test ./internal/forgeapi/ -run TestAuthHeaderInProcessOnly -v
 ```
 
 Phase 4:
