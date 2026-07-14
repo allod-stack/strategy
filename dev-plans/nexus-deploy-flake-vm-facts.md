@@ -217,13 +217,25 @@ New helpers:
   "${deploy_flake}#vmFacts" --apply builtins.attrNames` (fixed `--apply` string;
   no interpolation into Nix code). Eval failure dies: "deploy flake
   `<deploy_flake>` does not expose vmFacts outputs; compose a profiles rev that
-  provides them (see allod/nexus#6)".
+  provides them (see allod/nexus#6)". Both helpers leave nix's stderr connected
+  to the operator (no `2>/dev/null` on the evals): a missing output, a cold
+  store with no network, a dirty-checkout syntax error, and a broken transitive
+  input all fail this same probe, and nix's own diagnostic is the only thing
+  that tells them apart — the die line classifies and points at adoption, it
+  must not replace the diagnostic.
 - `deploy_flake_vm_facts(deploy_flake, vm)` — probes `deploy_flake_vm_names`
   first and dies "unknown VM '<vm>' in deploy flake vmFacts" when absent (clean
-  message instead of raw nix attrpath stderr), then `nix eval --json
-  "${deploy_flake}#vmFacts.\"${vm}\""`, dying on eval failure. Prints compact
-  JSON. The VM name reaches nix only as an attrpath argument, never spliced into
-  an expression.
+  message instead of raw nix attrpath stderr — the unknown-VM path never runs a
+  per-VM eval, so passthrough and the clean message coexist), then `nix eval
+  --json "${deploy_flake}#vmFacts.\"${vm}\""`, dying on eval failure. Prints
+  compact JSON. The VM name reaches nix only as an attrpath argument, never
+  spliced into an expression. Probe-first costs a second eval per run but keeps
+  the failure classes disjoint by construction: membership is settled before
+  the per-VM fetch, so a per-VM eval failure is a completeness throw whose
+  passed-through stderr already names the VM and the missing fact; the die adds
+  only the remediation pointer. A single fetch-first eval would save the probe
+  on the success path at the price of classifying failures by parsing nix
+  stderr — rejected.
 - Field extractors over that JSON (jq, `-e`, die on null/missing with the
   existing message classes): `vm_fact_target_ip` ("no target IP"),
   `vm_fact_username` ("cannot resolve username"), `vm_fact_forge_key` (prints
@@ -345,7 +357,9 @@ PR3 test matrix (new or adapted cases; the `nix` stub keys on the `#vmFacts`
 attrpaths):
 
 - `tests/rotation-common.sh`: unit cases for `deploy_flake_vm_names` /
-  `deploy_flake_vm_facts` (missing-output die, unknown-VM die, eval-failure die);
+  `deploy_flake_vm_facts` (missing-output die, unknown-VM die, eval-failure die;
+  the die cases also assert the stub nix's stderr reached the caller's stderr
+  alongside the die message — pinning the no-swallow contract);
   field extractors (null ip, missing username, `null` forge key passthrough,
   malformed hostKeys shape dies in the material filter); the asserts under the new
   pure signatures — accept active and staged, **fail closed** with the reworded
