@@ -141,109 +141,62 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **The re-sourced fail-closed pin.** The asserts become pure comparisons
-   over materials extracted once in the script, and one facts eval feeds
-   target IP, username, pin materials, and ciphertext path as a single
-   snapshot. The risk is a silent weakening in the translation: today a VM
-   missing from `machine-host-keys.json` yields empty pinned materials and the
-   assert loop dies; tomorrow entry existence is an eval error and the assert
-   should never see the case. Trace refusal-before-mutation on the new path —
-   for mismatch, absence, malformed shape, and empty-but-present `hostKeys` —
-   and confirm every case that dies today has exactly one home in the new
-   flow, with a test asserting no `nixos-rebuild`/`new-vm`/`nixos-anywhere`
-   ran. Also the small seam the plan mitigates with a readability guard: the
-   facts eval puts the secrets source in the store, but store paths are not GC
-   roots — is the guard placed before any VM mutation?
+1. **Pass-1 fix verification (commits d03f3ae, 7ad8500, b5428fc, 4474ad5).**
+   Four contract-precision fixes landed without a fresh adversarial read:
+   nix-stderr passthrough on the facts helpers plus the probe-first rationale
+   (d03f3ae); throw-based guard mechanics — `? null` argument defaults,
+   `or null` wiring, negative cases forcing the field under test — and the
+   `.type`-forcing laziness boundary (7ad8500); refusal-coverage pinning — the
+   rebuild suite's blanket no-build assertion, the empty-but-present
+   `hostKeys` entry homed in the assert's security refusal, the adapted
+   forgeKey-drift case (b5428fc); and exact-invocation pinning — quoted
+   per-VM attrpath in PR2 acceptance, argv-logging stubs that reject
+   unexpected invocations (4474ad5). Check each against the rest of the plan:
+   does passthrough contradict the "clean message instead of raw nix attrpath
+   stderr" promise anywhere; do the `? null` mechanics keep `mkVmFacts` pure
+   enough that the mutation checks still need no fixture flakes; does the
+   exact-argv assertion collide with the zero-env case, where the attrpath
+   embeds the fixture-`$HOME` deploy path; and do the extractor spec and the
+   unit-case list state the same empty-materials contract (extractor passes
+   empty through, assert refuses)?
 
-2. **Nix evaluation semantics the plan banks on.** The contract leans on
-   several precise behaviors: `toString` of an in-source path names the file
-   inside the already-fetched store copy without a second import (where
-   interpolation or `builtins.toJSON` on a raw path would copy); per-VM
-   completeness asserts stay lazy so `--apply builtins.attrNames` works over
-   broken sibling data (yet the names set itself forces `.type` on every
-   machine); and the `vm-facts-negative` check uses `builtins.tryEval`, which
-   catches **only** `throw` and `assert` — a raw missing-attribute access in
-   the builder is uncatchable and would abort the whole check, and tryEval
-   cannot inspect message text at all. Can each claimed semantic be
-   demonstrated against the template flake, and does the builder contract
-   force explicit throw-based guards for every completeness rule rather than
-   bare attribute access?
+2. **Specified assertions vs implemented assertions.** The plan now names the
+   load-bearing test mechanics: stub argv cases grep the full recorded
+   command line (not a substring that passes on a wrong shape), negative
+   checks force the field under test, and every rebuild refusal path —
+   probe and facts dies included — asserts `assert_nixos_rebuild_not_called`.
+   The R3-not-R4 case rests on these being real. This area is the handoff to
+   implementation review: when the PRs open, read the test bodies against
+   those clauses, not the green.
 
-3. **What the stubbed suites can and cannot prove.** The nexus suites run
-   sandboxed with a stub `nix`, so they prove the scripts' handling of
-   stub-served facts JSON — never the real CLI contract. The exact invocation
-   shapes (`--apply builtins.attrNames`, the quoted
-   `#vmFacts."<vm>"` attrpath, `--json`/`--raw` output forms) are proven only
-   by the hand-run acceptance evals, and the listed PR2 commands do not use
-   the quoted per-VM shape the helper will emit. The provision suite also
-   gains its first `nix` stub, keyed on attrpath patterns. Do the acceptance
-   commands pin the exact shapes the helpers use, does a fixture case assert
-   what the stub actually received, and what real-nix behavior remains only
-   human-verified — is that residue named in the plan?
-
-4. **Cross-repo sequencing and mid-chain states.** PR2's lock bump can only
-   pin a secrets rev containing PR1 after PR1 merges; PR3 merges last so
-   pulled scripts never demand outputs the default deploy flake lacks. Walk
-   the mid-chain states cold: old scripts against a PR2-bumped lock (the lock
-   shape they parse is unchanged — confirm), new scripts against a stale
-   profiles checkout (dies at the probe with the adoption message — confirm
-   the message actually tells the operator what to do), and PR2-before-PR1
-   prevented only by ordering discipline in Agent Gates. Does anything
-   mid-chain strand an operator, and does the public-template-first boundary
-   hold with private adoption fully out of scope?
-
-5. **The DHCP seam and the residual worktree reads.** `provision` keeps
-   `INVENTORY_CHECKOUT` solely for the worktree-vs-pin IP preflight and the
-   `INVENTORY` export its unmigrated children read; the preflight's pinned
-   operand now comes from the facts eval instead of `git show`. The children
-   still derive username, forge state, and specs from working trees — so the
-   parent acting on pinned facts while children read drifted worktrees is a
-   chosen split-brain, guarded only for the IP. Is the preflight still
-   comparing the right two things, is the accepted consequence for non-IP
-   drift (e.g. facts `forgeKey` non-null while the worktree says null) stated
-   accurately and covered by the matrix's unchanged cases, and is deleting
-   `SECRETS_CHECKOUT` really invisible to bootstrap given its registry-derived
-   `IDENTITY_CONFIG` default?
-
-6. **Eval-failure diagnosis conflation.** `deploy_flake_vm_names` maps *any*
-   eval failure to "does not expose vmFacts outputs" — but a cold store with
-   no network, a syntax error in a dirty deploy-flake checkout, or a broken
-   transitive input all fail the same probe. An operator mid-incident could be
-   sent chasing a composition problem they do not have. Relatedly, the
-   helper pair costs two full evals per script run (names probe, then per-VM
-   fetch) to buy one clean unknown-VM message. Is the misdiagnosis acceptable
-   or mitigated (nix stderr passthrough on the die path?), and is the second
-   eval worth it, or can one eval serve both the membership check and the
-   fetch without muddying the message classes?
-
-7. **Coherence check reflexivity.** `vm-facts-coherence` compares `vmFacts`
-   against `${inventory}/scripts/vm-specs.json` and
-   `${secrets}/machine-host-keys.json` — files shipped by the same flake
-   inputs that feed the builder. It does cross real boundaries (Nix machine
-   data vs the generated JSON is pinned by inventory's own check; the lib
-   parse vs the raw file), but pressure-test what it can catch: field
-   mix-ups, filter mistakes, and name-set drift, yes — both sides reading the
-   same wrong source, no. Do the mutation checks fill exactly the hole the
-   coherence check cannot see, would each check demonstrably fail on
-   sabotaged input (principle 11: a validation that cannot fail does not
-   count), and is the hypervisor-entry asymmetry (nexus present in the secrets
-   attrsets, absent from vmFacts) handled by comparing against the
-   non-hypervisor machine set?
-
-8. **Deliberate semantic changes riding along.** Three rewires are chosen,
-   not incidental: the username is now pinned (reversing an explicit #5
-   decision — though it arguably fixes a real skew, since the ssh user and
-   the built config now ride one snapshot); an unknown VM dies at the facts
-   probe even with a positional IP (earlier than #5's late assert); and the
-   refusal message drops the rev interpolation for a `nix flake metadata`
-   pointer. Each is a behavior change an operator or a test grep will feel.
-   Is each stated with its operator consequence, re-pinned by a named test
-   case, and is anything else changing silently — message classes, probe
-   ordering relative to keyscan, or the env knobs deleted rather than
-   deprecated?
+3. **The human-gated residue (carry until the live run).** Real `nix eval`
+   behavior against the private deploy flake — input fetching through the
+   host's netrc/libgit2 path, eval latency on the host store, and whether the
+   passed-through diagnostics are actually legible mid-incident — is
+   structurally unreachable from the dev VM and the sandboxed harness. The
+   plan's Agent Gate carries it: by-hand
+   `nix eval <private-deploy>#vmFacts.<vm> --json` before the first live
+   rebuild. Confirm it stays a named gate; do not convert it into plan text.
 
 Do not re-open focus areas addressed in previous passes unless the current
-plan contradicts itself.
+plan contradicts itself. Pass 1 traced and closed: the die-case homing
+(every today-death has exactly one home in the new flow, refusals precede
+mutation), all mid-chain states (old scripts parse a PR2-bumped lock
+unchanged; PR2-before-PR1 fails its own acceptance), the DHCP preflight
+operands, `SECRETS_CHECKOUT` deletion invisible to bootstrap (registry-derived
+`IDENTITY_CONFIG`, code-verified), coherence reflexivity with the hypervisor
+asymmetry, and the three deliberate semantic changes — grounded in the tree
+and in `nix eval` experiments on nix 2.31 (quoted attrpaths, `--apply`
+laziness over broken siblings, tryEval's throw/assert-only scope, `toString`
+vs interpolation vs `--json` store behavior).
+
+Next pass: full pass over the updated plan, weighted toward Focus Area 1's
+verification of d03f3ae, 7ad8500, b5428fc, and 4474ad5. Those are GAP-level
+contract fixes, not structural rewires — no blocker-level change landed, so a
+full-pass read with fresh eyes beats a bare diff review. Run it with a model
+other than claude-fable-5 (the fixes' author); an Opus-class model is the
+planned rotation, and no fix-stability record exists yet — this was pass 1,
+so all four fixes await their first survival check.
 
 ## Review Guidelines
 
