@@ -37,9 +37,10 @@ In scope:
 - `scripts/provision-vm-from-host`: same env replacement; read the target IP and the
   age-encrypted host-key secret at the pinned `inventory`/`secrets` revisions; keep the
   fail-closed pin assert before `nixos-anywhere`; build `--flake "${DEPLOY_FLAKE}#..."`.
-- Tests: `tests/rotation-common.sh`, `tests/rebuild-vm-from-host.sh`,
-  `tests/provision-vm-from-host.sh`, and the shared `tests/provisioning-contract.sh`,
-  extended per the test matrix. `tests/rotate-token.sh` must still pass unchanged.
+- Tests: `tests/rotation-common.sh`, `tests/rebuild-vm-from-host.sh`, and
+  `tests/provision-vm-from-host.sh`, extended per the test matrix.
+  `tests/provisioning-contract.sh` (it covers `vm-health-check.sh`, not the derivation)
+  and `tests/rotate-token.sh` must still pass unchanged.
 
 Out of scope:
 
@@ -157,6 +158,12 @@ SECRETS_REV="$(resolve_flake_input_locked_rev "${DEPLOY_FLAKE}/flake.lock" secre
   `git -C "$IDENTITY_CONFIG" pull`). The deploy flake is the operator's composition and
   its lock is authoritative; auto-advancing it past the tested pin at rebuild time
   contradicts single-source-of-truth. The operator updates the deploy flake deliberately.
+  Operator-visible consequence, stated so it is chosen rather than discovered: a
+  deploy-flake checkout left behind its remote silently builds yesterday's system with
+  yesterday's pins — self-consistent and deterministic, which is the intended semantics
+  (deploy exactly what is pinned), but the pull half of the host workflow ("agent commits
+  and pushes; human pulls and runs host commands") is now entirely manual for these two
+  commands; the auto-pull was quietly doing it.
 
 ### `rotation-common.sh` functions
 
@@ -220,8 +227,14 @@ Left signature-stable on purpose (shared with out-of-scope scripts
 `nexus-host-key`, `vm-ssh-host-key`, `forge-ssh-key`): `resolve_target_ip(target)`
 (reads global `$SPECS`), `resolve_target_user(target)` (evals `$IDENTITY_CONFIG`),
 `resolve_forge_connection()` (evals `$IDENTITY_CONFIG`; not called by either in-scope
-script). Adding `_at_pin` siblings rather than mutating these keeps this issue's blast
-radius to the two provisioning scripts.
+script). Adding an `_at_pin` sibling rather than mutating these keeps this issue's blast
+radius to the two provisioning scripts — and the two families are semantically different,
+not merely scope-separated: the rotation scripts mutate live rotation state in the
+working tree (stage/activate/retire edit `machine-host-keys.json` and re-encrypt before
+any lock bump exists to read) and must see their own in-flight edits, while the
+provisioning scripts consume released, pinned state. A working-tree read is correct for
+the former and a drift bug for the latter, so the two code paths answering "what is this
+VM's IP" are not duplicate sources of one fact.
 
 ### Per-script wiring
 
@@ -231,7 +244,11 @@ radius to the two provisioning scripts.
   `assert_any_vm_host_key_material_pinned "$VM_NAME" "$PRESENTED..." "$SECRETS_CHECKOUT" "$SECRETS_REV" "${DEPLOY_FLAKE}/flake.lock"`;
   `nixos-rebuild switch --flake ".#${VM_NAME}"` becomes `--flake "${DEPLOY_FLAKE}#${VM_NAME}"`
   (no `cd`). Strict SSH options (`-i`, `StrictHostKeyChecking=yes`, the VMs known_hosts)
-  are unchanged.
+  are unchanged. Deliberate message-class change: with a positional IP override the
+  inventory pin is never consulted (the resolver sits in the `${2:-…}` default), so an
+  unknown VM plus an explicit IP now surfaces at the host-key assert ("not in pinned
+  secrets", no entry at the pin) instead of today's early inline "unknown VM" — still
+  fail-closed before any build.
 - `provision-vm-from-host`: `TARGET="$(resolve_target_ip_at_pin "$VM_NAME" "$INVENTORY_CHECKOUT" "$INVENTORY_REV")"`;
   resolve the bootstrap gate at the pin in the same breath — provision decides near its end
   whether to run bootstrap/verify from `FORGE_KEY=$(jq -r ".\"${VM_NAME}\".forge_key" "$SPECS")`,
