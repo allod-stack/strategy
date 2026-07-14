@@ -269,16 +269,22 @@ radius to the two provisioning scripts.
 
 ## Acceptance Tests
 
-All fixture-based, extending the existing harness. Run before declaring complete:
+All fixture-based, extending the existing harness. The acceptance gate is the full
+flake check — it runs **all ten** test suites plus `bash -n` and `shellcheck -x` over
+every script, and the changed lib is sourced by scripts whose suites
+(`nexus-host-key.sh`, `vm-ssh-host-key.sh`, `forge-ssh-key.sh`,
+`bootstrap-orchestration.sh`, `registry-resolver.sh`) are not in the focused loop; a
+helper regression there must surface before "done", not after:
 
 ```sh
 cd <allod/nexus checkout>
-for t in tests/rotation-common.sh tests/rebuild-vm-from-host.sh \
-         tests/provision-vm-from-host.sh tests/provisioning-contract.sh \
-         tests/rotate-token.sh; do
-  echo "== $t =="; bash "$t" || exit 1
-done
+nix flake check
 ```
+
+For fast iteration while implementing, the focused loop over the five directly touched
+suites (`tests/rotation-common.sh`, `tests/rebuild-vm-from-host.sh`,
+`tests/provision-vm-from-host.sh`, `tests/provisioning-contract.sh`,
+`tests/rotate-token.sh`) is fine — but do not declare complete on it.
 
 Test matrix (new or adapted cases):
 
