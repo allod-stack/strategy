@@ -44,6 +44,11 @@ Out of scope:
   issue — but because provision invokes `new-vm`, bootstrap, and verify as children inside
   an in-scope run, the per-script wiring below keeps one provisioning run coherent (IP
   preflight, `INVENTORY` export, pinned target passed through) without touching their code.
+  Known residual: the rotation scripts' printed runbooks say "in profiles:
+  `nix flake update secrets`" — after this change that step feeds the two in-scope scripts
+  only when profiles *is* the deploy flake (the public default); an operator on a private
+  deploy flake must bump their deploy flake's lock instead. Correcting that guidance
+  belongs to the follow-up migration, not this issue.
 - The follow-up "expose IP and host keys as flake outputs and drop side checkouts
   entirely" alternative from the issue. Rejected for now: it needs read-only outputs
   added to the profiles, inventory, and secrets flakes — a larger cross-repo change.
@@ -109,13 +114,33 @@ SECRETS_REV="$(resolve_flake_input_locked_rev "${DEPLOY_FLAKE}/flake.lock" secre
   `inventory` and `secrets` as direct root git inputs and builds every machine — so the
   public template invocation `rebuild-vm-from-host <vm>` needs zero env. An operator
   points `DEPLOY_FLAKE` at their private deploy flake to deploy real machines.
+- Deploy-flake contract: whatever `DEPLOY_FLAKE` names must pin `inventory` and `secrets`
+  as **direct root git inputs** in its `flake.lock`. `resolve_flake_input_locked_rev`
+  already dies with distinct messages on a missing input, a follows-array, a non-git
+  locked type, and a missing rev, so a noncompliant deploy flake fails loud at startup.
 - Checkout locations are resolved by convention/env, not from the lock, because the
   public deploy flake pins `inventory`/`secrets` by **remote forge URL**, not a local
   path. Revisions come from the lock; `ensure_git_commit_available` fetches a pinned rev
   into the local checkout when it is missing (same pattern the host-key path already
   uses). Drift is gone because content is read at the pin, never from the working tree.
+- The checkouts must be clones of the same repositories the deploy flake pins. A private
+  deploy flake pins private forks, so on the operator's host the conventional
+  `~/work/allod/{inventory,secrets}` checkouts must *be* those forks — otherwise
+  `ensure_git_commit_available`'s single fetch hits the wrong origin and the pinned rev
+  never appears. Do not hard-compare `origin` against the lock's `locked.url` (an ssh
+  checkout remote versus an https lock URL for the same repo is the normal case, so an
+  equality gate false-positives on every healthy host). Instead, extend
+  `ensure_git_commit_available`'s two fetch-miss deaths to also name the checkout's
+  `origin` URL and state that the checkout may track a different repository than the lock
+  pins — so "git fetch failed" attributes to the real fix: point `INVENTORY_CHECKOUT` /
+  `SECRETS_CHECKOUT` at a clone of the pinned fork. That message is where the operator
+  learns the private invocation; the env-block comments above are the other half.
 - These two scripts no longer source `scripts/lib/resolve-repos.sh` and no longer read
-  `repositories.json`; the env overrides above replace the registry indirection. The
+  `repositories.json`; the env overrides above replace the registry indirection. This is
+  behavior-preserving today: the public `repositories.json` carries no `profiles` or
+  `secrets` aliases, so `resolve_checkout` already falls back to `allod/profiles` /
+  `allod/secrets` — the same conventional paths these defaults hardcode. An operator
+  whose private registry maps those aliases elsewhere sets the env overrides once. The
   out-of-scope scripts keep their current registry usage.
 - Drop the implicit `git pull` of the build flake that the scripts do today (rebuild
   `cd "$MACHINE_PROFILES"; git pull`; provision `git -C "$MACHINE_PROFILES" pull` and
@@ -260,7 +285,9 @@ Test matrix (new or adapted cases):
     missing `machine-host-keys.json` at the pin is an infra failure, not a "not pinned"
     refusal.
   - `ensure_git_commit_available` fetches a missing pinned rev once and dies after a fetch
-    miss (existing cases, now reused for inventory).
+    miss (existing cases, now reused for inventory); the fetch-miss deaths additionally
+    name the checkout's `origin` URL and the may-track-a-different-fork hint (existing
+    assertions extended to grep both).
 - `tests/rebuild-vm-from-host.sh`: fixture provides a deploy-flake `flake.lock` pinning
   both inventory and secrets. With **no** `INVENTORY`/`MACHINE_PROFILES`/`IDENTITY_CONFIG`
   set (only `DEPLOY_FLAKE` + default checkout locations), rebuild derives IP + username +
