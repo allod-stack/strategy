@@ -137,14 +137,22 @@ Changed signatures (only callers are the two in-scope scripts, so safe to change
 | Function | Old inputs | New inputs |
 |---|---|---|
 | `machine_host_key_materials_at_secrets_pin` | `(vm, profiles_checkout, secrets_checkout)` — derives secrets rev from `profiles_checkout/flake.lock` | `(vm, secrets_checkout, secrets_rev)` — takes the resolved rev |
-| `die_vm_host_key_material_not_pinned` | `(vm, material, profiles_checkout, secrets_checkout)` | `(vm, material, secrets_checkout, secrets_rev)` |
-| `assert_any_vm_host_key_material_pinned` | `(vm, materials, profiles_checkout, secrets_checkout)` | `(vm, materials, secrets_checkout, secrets_rev)` |
-| `assert_vm_host_key_material_pinned` | `(vm, material, profiles_checkout, secrets_checkout)` | `(vm, material, secrets_checkout, secrets_rev)` |
+| `die_vm_host_key_material_not_pinned` | `(vm, material, profiles_checkout, secrets_checkout)` | `(vm, material, secrets_rev, flake_lock)` — pure message composition; the old signature's re-resolve and re-fetch in the failure path go away |
+| `assert_any_vm_host_key_material_pinned` | `(vm, materials, profiles_checkout, secrets_checkout)` | `(vm, materials, secrets_checkout, secrets_rev, flake_lock)` |
+| `assert_vm_host_key_material_pinned` | `(vm, material, profiles_checkout, secrets_checkout)` | `(vm, material, secrets_checkout, secrets_rev, flake_lock)` |
 
-The pin logic and refusal message are otherwise preserved verbatim, including the
-"Update the secrets input in profiles, commit, push, then retry" guidance and the
-`secrets@<rev>` / `flake.lock` context. This decouples the security assert from
-flake-lock parsing: the script resolves the rev once, the assert verifies against it.
+The refusal message cannot be "preserved verbatim": the current text interpolates the
+profiles lock path the new signatures no longer receive, and its "Update the secrets
+input in profiles" remediation is correct only when profiles *is* the deploy flake — for
+a private deploy flake it sends the operator to a repo whose lock these scripts no longer
+read. New refusal, same shape and same fail-closed die:
+`VM '<vm>' SSH host key <observed> is not in pinned secrets. <flake_lock> pins
+secrets@<rev>. Update the secrets input in the deploy flake, commit, push, then retry.`
+Callers pass `flake_lock="${DEPLOY_FLAKE}/flake.lock"`. `flake_lock` is message context
+only — the assert never parses it — so the decoupling stands: the script resolves the rev
+once, the assert verifies against it. The stale-pin tests (rotation-common refusal cases
+plus the rebuild/provision stale-pin cases) re-grep the deploy-flake lock path and the
+new remediation sentence, pinning the wording.
 
 New functions (used only by the two in-scope scripts):
 
@@ -173,7 +181,7 @@ radius to the two provisioning scripts.
 - `rebuild-vm-from-host`: `TARGET="${2:-$(resolve_target_ip_at_pin "$VM_NAME" "$INVENTORY_CHECKOUT" "$INVENTORY_REV")}"`;
   `VM_USERNAME="$(resolve_target_user_at_pin "$VM_NAME" "$SECRETS_CHECKOUT" "$SECRETS_REV")"`;
   scan presented keys as today, then
-  `assert_any_vm_host_key_material_pinned "$VM_NAME" "$PRESENTED..." "$SECRETS_CHECKOUT" "$SECRETS_REV"`;
+  `assert_any_vm_host_key_material_pinned "$VM_NAME" "$PRESENTED..." "$SECRETS_CHECKOUT" "$SECRETS_REV" "${DEPLOY_FLAKE}/flake.lock"`;
   `nixos-rebuild switch --flake ".#${VM_NAME}"` becomes `--flake "${DEPLOY_FLAKE}#${VM_NAME}"`
   (no `cd`). Strict SSH options (`-i`, `StrictHostKeyChecking=yes`, the VMs known_hosts)
   are unchanged.
@@ -189,7 +197,7 @@ radius to the two provisioning scripts.
   `git -C "$SECRETS_CHECKOUT" show "${SECRETS_REV}:secrets/vm-host-keys/${VM_NAME}-ssh.age"`
   piped into `age --decrypt` (preserve piping, never command substitution, so the trailing
   newline survives) after `ensure_git_commit_available`; derive the public key and call
-  `assert_vm_host_key_material_pinned "$VM_NAME" "$DERIVED_HOST_MATERIAL" "$SECRETS_CHECKOUT" "$SECRETS_REV"`
+  `assert_vm_host_key_material_pinned "$VM_NAME" "$DERIVED_HOST_MATERIAL" "$SECRETS_CHECKOUT" "$SECRETS_REV" "${DEPLOY_FLAKE}/flake.lock"`
   before `nixos-anywhere`; build `--flake "${DEPLOY_FLAKE}#${VM_NAME}"`. Reading the age
   secret at the pin (rather than the working tree) means a machine whose key material is
   not yet in the pinned secrets rev fails loud here — correct, and the pin assert remains
@@ -243,12 +251,14 @@ Test matrix (new or adapted cases):
     dies with "unknown VM" (absent entry) and "no target IP" (null IP).
   - `resolve_target_user_at_pin` evaluates `lib.vmUsernames.<vm>` at the pinned secrets rev
     (stub `nix` keyed on the `?rev=` reference) and dies on eval failure.
-  - Host-key helpers under the new `(…, secrets_checkout, secrets_rev)` signature:
-    accept active and staged material; **fail closed** with the stale-pin refusal when the
-    presented/derived material is absent from, mismatched against, or has no entry at the
-    pinned rev (the required security regression — assert the refusal message and that no
-    build ran); missing `machine-host-keys.json` at the pin is an infra failure, not a
-    "not pinned" refusal.
+  - Host-key helpers under the new `(…, secrets_checkout, secrets_rev, flake_lock)`
+    signature: accept active and staged material; **fail closed** with the reworded
+    stale-pin refusal when the presented/derived material is absent from, mismatched
+    against, or has no entry at the pinned rev (the required security regression — the
+    unit cases assert the refusal message including the passed lock path; the
+    no-build/no-new-vm half of the property is asserted by the script suites below);
+    missing `machine-host-keys.json` at the pin is an infra failure, not a "not pinned"
+    refusal.
   - `ensure_git_commit_available` fetches a missing pinned rev once and dies after a fetch
     miss (existing cases, now reused for inventory).
 - `tests/rebuild-vm-from-host.sh`: fixture provides a deploy-flake `flake.lock` pinning
