@@ -36,10 +36,14 @@ In scope:
 Out of scope:
 
 - `scripts/nexus-host-key`, `scripts/vm-ssh-host-key`, `scripts/forge-ssh-key`,
-  `scripts/bootstrap-vm-from-host.sh`, `scripts/verify-vm-from-host`. These share the
-  global-based `resolve_target_ip` / `resolve_target_user` / `resolve_forge_connection`
-  helpers, which this plan deliberately leaves signature-stable (see Interface
-  Contracts). Migrating them to the deploy-flake source is a follow-up, not this issue.
+  `scripts/bootstrap-vm-from-host.sh`, `scripts/verify-vm-from-host`, and `scripts/new-vm`.
+  The first five share the global-based `resolve_target_ip` / `resolve_target_user` /
+  `resolve_forge_connection` helpers, which this plan deliberately leaves signature-stable
+  (see Interface Contracts); `new-vm` reads the inventory working tree directly for the
+  DHCP reservation. Migrating them to the deploy-flake source is a follow-up, not this
+  issue — but because provision invokes `new-vm`, bootstrap, and verify as children inside
+  an in-scope run, the per-script wiring below keeps one provisioning run coherent (IP
+  preflight, `INVENTORY` export, pinned target passed through) without touching their code.
 - The follow-up "expose IP and host keys as flake outputs and drop side checkouts
   entirely" alternative from the issue. Rejected for now: it needs read-only outputs
   added to the profiles, inventory, and secrets flakes — a larger cross-repo change.
@@ -190,6 +194,21 @@ radius to the two provisioning scripts.
   secret at the pin (rather than the working tree) means a machine whose key material is
   not yet in the pinned secrets rev fails loud here — correct, and the pin assert remains
   the fail-closed backstop regardless.
+- `provision-vm-from-host`, single-run coherence with its children: `new-vm` derives the
+  DHCP reservation (IP + MAC) from the inventory **working tree**, while `TARGET` is now
+  pinned — on a drifted checkout, `--replace` would destroy the existing VM and then hang
+  forever at "Waiting for installer SSH" on an address the VM never receives. Today's
+  script cannot hit that split-brain (both reads are the same working tree); the pin change
+  introduces it, so preflight before `new-vm`: compare the pinned IP against
+  `jq -r --arg v "$VM_NAME" '.[$v].ip' "${INVENTORY_CHECKOUT}/scripts/vm-specs.json"` and
+  die on mismatch naming both IPs and the fix (pull/sync the inventory checkout, or update
+  the deploy flake). Export `INVENTORY="$INVENTORY_CHECKOUT"` so `new-vm`,
+  `bootstrap-vm-from-host.sh`, and `verify-vm-from-host` (which keep their own `INVENTORY`
+  defaults) read exactly the checkout the preflight validated, and pass the pinned
+  `TARGET` as the second argument to bootstrap and verify (both already accept a target-ip
+  override) so one run cannot install to the pinned IP and then bootstrap a drifted one.
+  The children's remaining working-tree reads (username, forge key state, known_hosts
+  material) stay with the follow-up migration.
 
 ## Agent Gates
 
@@ -244,7 +263,10 @@ Test matrix (new or adapted cases):
   mismatched derived key, and builds `--flake "${DEPLOY_FLAKE}#<vm>"`. The bootstrap gate
   reads `forge_key` at the inventory pin: the existing success case keeps asserting
   bootstrap/verify ran, plus an anti-drift case — working-tree `forge_key` nulled while the
-  pinned rev carries it (IP unchanged) — where bootstrap still runs.
+  pinned rev carries it (IP unchanged) — where bootstrap still runs. The DHCP-seam
+  preflight: a fixture whose working-tree IP differs from the pinned IP refuses before
+  `new-vm` (assert the both-IPs message and `assert_new_vm_not_called`). The success case
+  also asserts bootstrap and verify were invoked with the pinned `TARGET` argument.
 - `tests/provisioning-contract.sh`: unchanged, still green.
 - `tests/rotate-token.sh`: unchanged, still green — proves the signature-stable shared
   helpers and the token-rotation flow that also sources `rotation-common.sh` are
