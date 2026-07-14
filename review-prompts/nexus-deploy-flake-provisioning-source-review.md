@@ -148,74 +148,54 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-Pass 3 is a scoped diff review of the pass-2 plan commits
-`7b3ed2a..01766be` (two commits on `dev-plans/nexus-deploy-flake-provisioning-source.md`:
-a refusal-wording correctness fix and a recorded design decision), not a full
-re-review. Pass 2 found no blockers and no original-plan defects — every
-pass-1 structural fix (`c36b9d2..9213eda`) held up against the real scripts
-except one wording collision, now fixed. The plan text has substantively
-converged; the remaining targets are a confirming diff review plus two seams
-better resolved at implementation than in more plan prose.
+Pass 3 completed the scoped diff review of the pass-2 plan commits
+`7b3ed2a..01766be` (the refusal-wording correctness fix and the recorded
+two-checkout-knobs decision). It produced no BLOCKER, no GAP, no SIMPLIFY, and
+no QUESTION findings. Because pass 2 already had no BLOCKER and no
+original-plan GAP, the two-consecutive-clean stop condition is met: the plan
+text is converged. Do not run another plan-text pass unless the plan changes
+materially.
 
-1. **The pass-2 refusal-wording fix (7b3ed2a).** Pass 2 corrected the
-   Interface Contracts claim that provision keeps a `pin_mode=old` "stale-pin
-   case": because provision reads and decrypts the age secret at the pinned
-   rev *before* the host-key assert, a `pin_mode=old` provision fixture trips
-   the "No SSH host key secret" age-absent guard first, so provision's
-   reworded-refusal coverage rides the head-pin derived-key mismatch instead.
-   Confirm the edit is internally consistent with the provision test matrix
-   (which already lists only the mismatch case) and that no other plan text
-   still implies a `pin_mode=old` provision refusal. Do not reintroduce a
-   `pin_mode=old` provision case.
+Pass-2 fix stability:
 
-2. **Provision age-at-pin fixture precondition (hand to implementation
-   review).** The whole age-at-pin redesign presumes `setup_fixture` commits
-   the age blob into the secrets repo at the pinned rev — but today's
-   `setup_fixture` writes `alpha-dev-ssh.age` to the working tree *after* all
-   commits, uncommitted, because the current script reads it from the working
-   tree. The plan's matrix implies the commit (absent-at-pin "working-tree
-   copy present"; ciphertext-skew "the pin holds the good ciphertext"), so the
-   plan need not carry fixture mechanics. Verify at implementation that the
-   success/skew/garbage cases actually commit the blob at the pin; flag only if
-   the harness cannot express it.
+- `7b3ed2a` held up. The plan now says provision's reworded-remediation
+  coverage rides the head-pin derived-key mismatch, not a `pin_mode=old`
+  stale-pin fixture. That matches the planned provision matrix, and no other
+  plan text still implies a `pin_mode=old` provision refusal.
+- `01766be` held up. Keeping separate `INVENTORY_CHECKOUT` and
+  `SECRETS_CHECKOUT` knobs matches the real deploy-flake lock: `inventory` and
+  `secrets` are distinct direct root inputs and independently forkable repos.
+  Collapsing them into one work-root would create a false coupling.
 
-3. **The forge_key decide/execute seam (hand to implementation review).**
-   Provision's bootstrap gate now reads `forge_key` at the pinned inventory
-   rev, but the real `bootstrap-vm-from-host.sh` child re-reads `forge_key`
-   from the working tree and refuses on a null. If the pin carries a non-null
-   forge_key while the working tree nulls it (IP unchanged, so the DHCP
-   preflight does not catch it), provision decides "bootstrap" but the child
-   exits 1 after `nixos-anywhere` has installed — a loud, recoverable failure,
-   not a strand. The plan explicitly scopes the child's working-tree reads
-   (forge key state, username, known_hosts) to the follow-up migration. Judge
-   whether the plan's "one provisioning run coherent" framing should name this
-   decide/execute gap, or whether the follow-up scoping already covers it.
+Implementation-review handoff:
 
-Run an explicit SIMPLIFY sweep every pass. Pass 1 cut the username `_at_pin`
-resolver; pass 2 recorded the two-checkout-knobs decision (kept, not
-collapsed: `inventory` and `secrets` are independently forkable and the vars
-mirror the lock's two root inputs). No standing SIMPLIFY candidate remains on
-the plan text — the DHCP preflight is one comparison, the fetch-miss
-enrichment is two message lines, the pinned `forge_key` read is one
-git-show-pipe, and the inline username eval avoids resurrecting the deleted
-`IDENTITY_CONFIG` global. If a pass finds nothing to cut, say so; do not
-manufacture a deletion. (Two-plus consecutive zero-SIMPLIFY passes on a growing
-plan would be a smell — but pass 1 cut and pass 2 recorded, so the plan is not
-in pure accretion.)
+1. **Provision age-at-pin fixture precondition.** Verify the implemented
+   `setup_fixture` commits `secrets/vm-host-keys/<vm>-ssh.age` into the secrets
+   repo at the pinned rev for the success, ciphertext-skew, and garbage-at-pin
+   cases. Today's fixture writes `alpha-dev-ssh.age` after all commits because
+   the current script reads the working tree; the plan's matrix requires the
+   harness to express committed age blobs at the pin.
 
-Fix stability: pass 1 (claude-fable-5) commits `c36b9d2..9213eda` held up well
-under pass-2 scrutiny — nine of ten fixes were clean; only the refusal-wording
-sentence (652f4fa) collided with the age-absent guard (bfe07f7) and needed the
-7b3ed2a correction. Pass 2 (claude-opus-4-8) commits `7b3ed2a..01766be` have
-not yet been reviewed by a later pass; record how they hold up.
+2. **The forge_key decide/execute seam.** Verify the implemented provision
+   suite covers the planned behavior where provision reads `forge_key` at the
+   pinned inventory rev, while `bootstrap-vm-from-host.sh` and
+   `verify-vm-from-host` still re-read working-tree facts until the follow-up
+   migration. A pinned non-null `forge_key` with a working-tree null (IP
+   unchanged) is a loud, recoverable post-install child failure, not a stranded
+   machine; do not broaden this plan to migrate the children unless the
+   implementation creates a worse failure mode.
 
-Next pass: scoped diff review of `7b3ed2a..01766be`, not a full re-review, on a
-model other than the pass-2 author (claude-opus-4-8). claude-fable-5 is the
-most fix-stable on record and would be reviewing a different model's edit to
-its own 652f4fa area — a good check; any non-Opus reviewer is fine. If that
-pass produces no BLOCKER and no original-plan GAP, the two-consecutive-clean
-stop condition is met (pass 2 already qualifies) — declare the plan text
-converged and hand focus areas 2 and 3 to implementation review.
+SIMPLIFY sweep: pass 3 reconsidered the only standing reduction candidates and
+cut nothing. The two checkout knobs should stay separate; the DHCP preflight is
+one comparison guarding `new-vm`; the fetch-miss enrichment is message text at
+existing die sites; the pinned `forge_key` read is one `git show | jq`; and the
+inline username eval avoids resurrecting the deleted `IDENTITY_CONFIG` global.
+This is not a pure-accretion smell: pass 1 cut the username pin, pass 2 resolved
+the checkout-knob question, and pass 3 was a confirming diff review.
+
+Next pass: none for plan text. The next useful review is the implementation
+diff in `allod/nexus`, focused on the two handoff seams above plus the
+fail-closed host-key pin path.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
