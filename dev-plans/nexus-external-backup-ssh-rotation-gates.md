@@ -27,7 +27,13 @@ In scope:
 
 - `allod/secrets`: add an `externalSshTrustTargets` attrset to `identity.nix`,
   reachable through the existing `lib.identity`, referencing `sshHosts` aliases.
-  The public template ships synthetic example entries only.
+  The public template ships synthetic example entries only. Add a flake check
+  (alongside `credential-inventory`, which references neither `sshHosts` nor
+  the new attrset) asserting every entry's `sshHost` resolves in `sshHosts`,
+  `recovery` is one of the three known values, and `authorizedKeysPath` is a
+  string — a fork operator hand-edits `identity.nix`, and without this the
+  first feedback on a typo is a fail-closed die mid-rotation instead of a
+  failed `nix flake check` at commit time.
 - `allod/nexus`:
   - a resolver that reads `externalSshTrustTargets` and joins each entry to its
     `sshHosts` connection record (new helper in `scripts/lib/rotation-common.sh`);
@@ -59,7 +65,7 @@ Residual risk (per milestone, multi-PR):
 
 | PR / milestone | Risk | Reason | Human scrutiny |
 |---|---|---|---|
-| secrets: registry schema + synthetic entries | R2 Medium | Additive data in the identity template; no existing consumer of `sshHosts` or `identity` changes behavior; but it lives in the identity-bearing repo and defines the cross-repo contract. | Confirm the public template carries only synthetic hosts; confirm the shape matches what nexus consumes. |
+| secrets: registry schema + synthetic entries | R2 Medium | Additive data in the identity template, but not inert: each synthetic gate needs a synthetic `sshHosts` alias, and `home-shared.nix` maps every `sshHosts` entry into `programs.ssh.matchBlocks`, so the entries become literal `Host` blocks on every dev VM once profiles bumps its secrets input. Still R2: the template already ships synthetic `192.0.2.x` entries whose blocks are inert and this adds more of the same, it lives in the identity-bearing repo, and it defines the cross-repo contract. | Confirm the public template carries only synthetic hosts; confirm the shape matches what nexus consumes; confirm the added `sshHosts` aliases follow the existing synthetic-address convention. |
 | nexus: gates + resolver + tests + runbook | R3 High | Adds gating logic into the host-key rotation state machine (auth + secrets + the `~/.ssh/host` swap). The failure that matters is failing *open* — letting `retire` proceed while a required target still trusts only the retired key — which strands offsite backup access, a security/infrastructure boundary with a slow recovery path. | Read the activate/retire gate ordering; confirm auth-rejection and unreachable are both fatal for external gates; confirm the override cannot be satisfied without a typed per-target confirmation; inspect the printed commands for a real target class. |
 
 Why R3 and not R4 for the nexus PR: the risky operation is local and explicit
@@ -283,6 +289,10 @@ env overrides):
 bash tests/nexus-host-key.sh
 
 # Whole flake check (runs the suite + the packaging assertion)
+nix flake check
+
+# In secrets: registry shape check (alias resolution, recovery enum) over the
+# synthetic template entries
 nix flake check
 ```
 
