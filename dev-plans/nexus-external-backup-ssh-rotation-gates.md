@@ -83,18 +83,24 @@ and the reachable-vs-auth-failure classification for external targets.
    externalSshTrustTargets = {
      <name> = {
        sshHost = "<alias>";              # key into identity.sshHosts
-       requiredFor = [ "nexus-host-key-rotation" /* ... */ ];
        authorizedKeysPath = "<path on target>";
-       verify = "ssh-true";              # enum; only "ssh-true" defined initially
        recovery = "old-key" | "provider-console" | "provider-support";
      };
    };
    ```
 
-   A target is a rotation gate iff `requiredFor` contains
-   `"nexus-host-key-rotation"`. An absent `externalSshTrustTargets` attribute ⇒
-   empty set ⇒ no external gate (today's behavior). An eval failure of the
-   attribute ⇒ die (fail closed); it is never treated as empty.
+   Every declared entry is a rotation gate: declaring a target is what makes
+   it gate-worthy. The issue's example shape carried `requiredFor` and
+   `verify`; both are deliberately omitted. `requiredFor` would be a list
+   filtered for a single membership token with rotation as the only consumer,
+   and an entry with a typo'd or missing token would silently stop gating — the
+   exact fail-open class this plan exists to remove; a consumer tag returns
+   when a second consumer exists. `verify` had one legal value; the SSH probe
+   is hardcoded until a second verifier kind actually exists (see Agent Gates
+   for the restricted-shell caveat that would force one). An absent
+   `externalSshTrustTargets` attribute ⇒ empty set ⇒ no external gate (today's
+   behavior). An eval failure of the attribute ⇒ die (fail closed); it is
+   never treated as empty.
 
 2. **Connection resolution** — each gate's `sshHost` resolves through the
    existing `identity.sshHosts.<alias>` record
@@ -123,8 +129,8 @@ and the reachable-vs-auth-failure classification for external targets.
    predicate. Unlike the VM loop, an unreachable *external gate* is a hard stop,
    not a skip: a backup target we cannot reach is a target we cannot prove, and
    proving it is the entire point. Auth rejection is likewise a hard stop with
-   recovery text. `verify = "ssh-true"` selects this probe; an unknown `verify`
-   value ⇒ die.
+   recovery text. This probe is the only verifier; a `verify` field enters the
+   schema only together with a second verifier kind.
 
 4. **Phase behavior**:
    - `stage`: for each gate, print copy/paste setup commands using the staged
@@ -145,12 +151,19 @@ and the reachable-vs-auth-failure classification for external targets.
      secret is re-encrypted.
 
 5. **Override** — `--accept-unverified-external-host <name>` (repeatable), valid
-   on `activate` and `retire`. For each named target the command reads a typed
-   confirmation from stdin (e.g. `abandon external target <name>`, reusing the
+   on `activate` and `retire`. The activate-time form exists for transient
+   outages: activation can proceed past a temporarily-down target while the
+   retire gate still proves that target once it recovers. A permanently
+   decommissioned target should instead be deleted from the fork's registry;
+   the override is per-run and leaves the registry authoritative. For each
+   named target the command reads a typed confirmation from stdin (e.g.
+   `abandon external target <name>`, reusing the
    `confirm_missing_old_key_retire` prompt pattern) and echoes the exact
-   abandoned target (`name` + resolved `user@host`) into the phase output. A
-   named target not present in the registry ⇒ die. An unmatched confirmation ⇒
-   die.
+   abandoned target (`name` + resolved `user@host`) into the phase output. The
+   confirmation string embeds the specific target name, so it cannot be
+   satisfied by a generic yes or by a confirmation typed for a different
+   target. A named target not present in the registry ⇒ die. An unmatched
+   confirmation ⇒ die.
 
 6. **New env overrides** — `NEXUS_HOST_KEY_EXTERNAL_CONNECT_TIMEOUT` (seconds,
    default aligned with the existing VM connect-timeout default of 5). Registry
