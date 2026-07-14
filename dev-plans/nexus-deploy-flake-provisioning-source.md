@@ -174,6 +174,13 @@ radius to the two provisioning scripts.
   (no `cd`). Strict SSH options (`-i`, `StrictHostKeyChecking=yes`, the VMs known_hosts)
   are unchanged.
 - `provision-vm-from-host`: `TARGET="$(resolve_target_ip_at_pin "$VM_NAME" "$INVENTORY_CHECKOUT" "$INVENTORY_REV")"`;
+  resolve the bootstrap gate at the pin in the same breath — provision decides near its end
+  whether to run bootstrap/verify from `FORGE_KEY=$(jq -r ".\"${VM_NAME}\".forge_key" "$SPECS")`,
+  a working-tree `$SPECS` read this plan deletes from the environment surface, so replace it with
+  `FORGE_KEY="$(git -C "$INVENTORY_CHECKOUT" show "${INVENTORY_REV}:scripts/vm-specs.json" | jq -r --arg v "$VM_NAME" '.[$v].forge_key')"`
+  resolved up front next to `TARGET` (null still means privacy VM: skip bootstrap/verify as today;
+  leaving the late read unrewired would abort every dev-VM provision on an unbound `$SPECS` after
+  `nixos-anywhere` has already installed);
   read the age host-key secret at the pin —
   `git -C "$SECRETS_CHECKOUT" show "${SECRETS_REV}:secrets/vm-host-keys/${VM_NAME}-ssh.age"`
   piped into `age --decrypt` (preserve piping, never command substitution, so the trailing
@@ -234,7 +241,10 @@ Test matrix (new or adapted cases):
 - `tests/provision-vm-from-host.sh`: with only `DEPLOY_FLAKE` set, provision resolves the
   IP at the inventory pin, reads and decrypts the age host-key secret at the secrets pin,
   fails closed via `assert_vm_host_key_material_pinned` before `nixos-anywhere` on a
-  mismatched derived key, and builds `--flake "${DEPLOY_FLAKE}#<vm>"`.
+  mismatched derived key, and builds `--flake "${DEPLOY_FLAKE}#<vm>"`. The bootstrap gate
+  reads `forge_key` at the inventory pin: the existing success case keeps asserting
+  bootstrap/verify ran, plus an anti-drift case — working-tree `forge_key` nulled while the
+  pinned rev carries it (IP unchanged) — where bootstrap still runs.
 - `tests/provisioning-contract.sh`: unchanged, still green.
 - `tests/rotate-token.sh`: unchanged, still green — proves the signature-stable shared
   helpers and the token-rotation flow that also sources `rotation-common.sh` are
