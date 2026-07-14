@@ -102,14 +102,38 @@ and the reachable-vs-auth-failure classification for external targets.
    behavior). An eval failure of the attribute ⇒ die (fail closed); it is
    never treated as empty.
 
-2. **Connection resolution** — each gate's `sshHost` resolves through the
-   existing `identity.sshHosts.<alias>` record
-   (`{ hostname, user, port?, identityFile?, identitiesOnly? }`) via
-   `nix eval --raw path:${IDENTITY_CONFIG}#lib.identity.sshHosts.<alias>.<field>`,
-   mirroring `resolve_forge_connection`. A declared `sshHost` alias that is
-   absent from `sshHosts` ⇒ die (fail closed). Add the helper to
-   `rotation-common.sh` in the same style as `resolve_target_ip` /
-   `resolve_target_user` (e.g. `resolve_external_target`); the PR pins the name.
+2. **Connection resolution** — one `nix eval --json` invocation resolves the
+   whole registry, joined to `identity.sshHosts` inside the eval:
+
+   ```
+   nix eval --json "path:${IDENTITY_CONFIG}#lib.identity" --apply 'i:
+     builtins.mapAttrs (name: t: {
+       inherit (t) authorizedKeysPath recovery;
+       hostname = i.sshHosts.${t.sshHost}.hostname;
+       user = i.sshHosts.${t.sshHost}.user;
+       port = i.sshHosts.${t.sshHost}.port or 22;
+     }) (i.externalSshTrustTargets or {})'
+   ```
+
+   The `or {}` / in-eval join shape is load-bearing, not style. The
+   per-attribute pattern used by `resolve_forge_connection`
+   (`nix eval --raw ...#lib.identity.<attr> 2>/dev/null || die`) cannot
+   implement contract 1: `nix eval` of an absent attribute path exits nonzero
+   exactly like a real eval error, so mirroring it either dies on an absent
+   registry (breaking the no-op-on-absent landing-order and rollback claims)
+   or, "fixed" with `|| true`, treats every eval error as an empty registry —
+   the silent fail-open this plan exists to prevent. With the single-eval
+   shape, `or {}` catches only the missing attribute: a missing `sshHost`
+   alias, a missing required field, or any throw inside the values still
+   fails the eval (verified against nix 2.x behavior). Bash side: exit 0 ⇒
+   parse the JSON; nonzero exit ⇒ die and surface nix's stderr — never
+   swallow it with `2>/dev/null`, and never infer emptiness from empty
+   output. A missing optional `port` defaults to 22 inside the eval (a
+   per-field eval would spuriously die on portless entries). After parsing,
+   the resolver validates `recovery` against the three known values and dies
+   on anything else — remediation text must never silently print empty. Add
+   the helper to `rotation-common.sh` (e.g. `resolve_external_targets`); the
+   PR pins the name.
 
 3. **Verification command** — always uses the *rotation* key, never the
    operator's `identityFile`:
