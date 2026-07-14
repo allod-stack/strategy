@@ -132,69 +132,95 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific areas
 below.
 
-1. **Scoped diff review of the pass-1 plan commits (`b5a9569..55f8c3f`).** Pass 1
-   cut two schema fields (`requiredFor`, `verify`), pinned the resolver to a
-   single guarded `nix eval --json --apply` join, added a third probe-failure
-   class (host-key verification failure), moved registry resolution to
-   phase-start before any mutation, pinned the retire gate before the
-   `OLD_BACKUP` handling, and rewrote the stub contract and the secrets R2 row.
-   Structural fixes are where new blockers enter; verify each against the tree
-   the way pass 1 verified the original. Sharpest seams: (a) does the pinned
-   `--apply` expression carry everything the gate needs (names, port-as-number
-   vs `-p` string, the `identityFile` input for the premise warning — which the
-   join as sketched does *not* emit)? (b) does running the retire gate before
-   the cheap `OLD_BACKUP` state checks trade fail-fast on local corruption for
-   prompt ordering, and is that the right trade? (c) is the sorted-name gate
-   order + stdin confirmation sequence implementable with the
-   `confirm_missing_old_key_retire` pattern when `--accept-missing-old-key`
-   and multiple overrides combine in one run — is there a combined-stdin test
-   case, and should there be? (d) did dropping `requiredFor`/`verify` lose
-   anything the issue's registry design note actually needs?
+1. **Scoped diff review of the pass-2 plan commits (`2777072`, `551671c`).**
+   Pass 2 added `identityFile` (defaulted `null`) to the pinned resolver join
+   so the premise warning has data, named the tilde-vs-`$HOME` normalization
+   that compare needs, and added a combined-stdin retire acceptance case
+   (missing-old-key + one or more `--accept-unverified-external-host` in one
+   run, override confirmations consumed in sorted-name order before the
+   missing-old-key confirmation). Both are small, but the seams are: (a) is
+   the tilde-normalization guidance concrete enough that an implementer will
+   not ship a warning that still false-positives, or under-fires when
+   `AGE_IDENTITY` is overridden to a non-tilde path? (b) does the combined-
+   stdin case pin a *deterministic* stdin order the implementation can
+   actually honor — the override loop and `confirm_missing_old_key_retire`
+   each do a bare `read`, so the plan's "sorted overrides then missing-old-key"
+   is only well-defined if the override reads happen in one place before the
+   OLD_BACKUP branch; verify the plan text does not leave room for the reads to
+   interleave. Verify against the tree the way earlier passes did.
 
-2. **The client-key premise (carried; needs a human answer).** The plan now
+2. **The client-key premise (carried; needs a human answer).** The plan
    states the premise (Risk Assessment), gates it on per-target operator
    confirmation (Agent Gates), and warns when a gate alias declares an
-   `identityFile` other than the rotated identity. Still open until the
-   operator confirms, per real target: (a) the backup jobs authenticate with
-   `~/.ssh/host`, and (b) `ssh <user>@<host> true` is a valid no-op there — a
-   restricted storage-box shell fails the probe against a healthy key. If (b)
-   fails for a real target, a second verifier kind must be designed before
-   that target can be gated, which reshapes Interface Contract 3 and revisits
-   the `verify`-field cut. Do not close this from repo context; it is
-   operator-only.
+   `identityFile` other than the rotated identity (now backed by an emitted
+   field, pass 2). Still open until the operator confirms, per real target:
+   (a) the backup jobs authenticate with `~/.ssh/host`, and (b)
+   `ssh <user>@<host> true` is a valid no-op there — a restricted storage-box
+   shell fails the probe against a healthy key. If (b) fails for a real target,
+   a second verifier kind must be designed before that target can be gated,
+   which reshapes Interface Contract 3 and revisits the `verify`-field cut. Do
+   not close this from repo context; it is operator-only.
 
-3. **Stub implementability of the new contracts.** The plan now demands
-   per-class probe-shape assertions keyed by `<user>@<host>` and a fake-`nix`
-   arm for the single-eval registry query with per-fixture JSON and an
-   eval-error toggle. The stubs pattern-match substrings of `$*`: confirm the
-   external probe (no `UserKnownHostsFile`, `-F /dev/null`, optional `-p`) and
-   the `--apply` query are cleanly distinguishable without loosening the
-   VM/Forgejo assertions, and that the empty-registry fixture flows through
-   the same arm as populated ones (not a bespoke bypass that would let the
-   real query shape drift untested).
+3. **Stub/check implementability, deferred to implementation review.** The
+   plan demands per-class probe-shape assertions keyed by `<user>@<host>`, a
+   fake-`nix` arm for the single-eval registry query with per-fixture JSON and
+   an eval-error toggle, and a secrets-side flake check over the synthetic
+   registry. All three were verified *feasible* in the current tree this pass
+   (the real `ssh` stub hard-requires `UserKnownHostsFile` at
+   `tests/nexus-host-key.sh` and the `git` stub already models the
+   `-F /dev/null` external shape; the join and the flake-check logic evaluate
+   cleanly). What remains is not a plan-text question but a code question for
+   the implementation-review pass: confirm the external probe and the `--apply`
+   query are cleanly distinguishable in the stub without loosening the
+   VM/Forgejo assertions, that the empty-registry fixture flows through the
+   same fake-`nix` arm as populated ones, and that the emitted `identityFile`
+   field does not perturb the stub's `<user>@<host>` keying.
 
-Run the template's SIMPLIFY sweep every pass. Standing candidates after the
-pass-1 cuts: the `recovery` enum (kept — three genuinely different remediation
-actions, all demanded by the issue; re-cut only if the printed variants
-converge in implementation) and the `identityFile` premise warning (cut it if
-tilde-vs-`$HOME` normalization makes it fiddly out of proportion to its
-signal). The activate-time override was considered and kept with its rationale
-now recorded in the plan; do not re-litigate without new evidence.
+Run the template's SIMPLIFY sweep every pass. Standing candidates: the
+`recovery` enum (kept — three genuinely different remediation actions, all
+demanded by the issue; re-cut only if the printed variants converge in
+implementation) and the activate-time override (settled in pass 1 with
+recorded rationale; do not re-litigate without new evidence). The `identityFile`
+premise warning was reconsidered for cutting in pass 2 and **kept**: the
+normalization is a single bash parameter expansion, and it is the only
+automated evidence for the client-key premise (Focus Area 2). Re-cut only if
+implementation shows the normalization is genuinely fiddlier than one
+expansion or the warning proves noisy in practice.
 
 Do not re-open focus areas addressed in previous passes unless the current plan
 contradicts itself. Pass 1 resolved the original seven seed areas (fail-closed
 resolution mechanics, probe classification, known-hosts posture, override
-binding, template blast radius, fixture realism) into plan text; the areas
-above are what remains productive.
+binding, template blast radius, fixture realism); pass 2 resolved the pass-1
+diff-review area (verified the nine pass-1 fixes against the tree — see the
+fix-stability record below).
 
-Fix-stability record: pass-1 fixes authored by claude-fable-5; stability
-unknown until a later pass verifies them.
+Fix-stability record:
+- claude-fable-5 (pass 1, `b5a9569..55f8c3f`): eight of nine fixes held up under
+  pass-2 verification against the tree. The fail-closed resolver mechanics
+  (`2db48e4`) were confirmed empirically (absent→`{}` at exit 0; missing alias,
+  missing field → exit 1; portless alias → port 22; port emitted as JSON
+  number). Resolve-before-mutation, the none-declared count line, three-way
+  probe classification, the R2 blast-radius rewrite plus secrets flake check,
+  the `docs/` runbook pin, and the stub-shape/gate-ordering observables all
+  held. The one regression: `2db48e4`'s pinned join dropped `identityFile`,
+  which `3b3f523`'s later premise-warning requirement depended on — an internal
+  contradiction pass 2 fixed in `2777072`. Net: high stability; the single miss
+  was a cross-commit seam (a pin and a dependent requirement landed in separate
+  commits), the classic structural-fix blind spot.
+- claude-opus-4-8 (pass 2, `2777072`, `551671c`): stability unknown until a
+  later pass verifies them.
 
-Next pass: scoped diff review of `b5a9569..55f8c3f` (the nine pass-1 plan
-commits), not a full re-review, by a model other than claude-fable-5 — no
-fix-stability record exists for this prompt yet, so any capable non-author
-model qualifies. Read the findings summary in the pass-1 prompt commit for the
-finding-to-commit map, and record how the pass-1 fixes held up.
+Next pass: scoped diff review of `2777072` and `551671c` (the two pass-2 plan
+commits), not a full re-review, by a model other than claude-opus-4-8 —
+claude-fable-5 is eligible again (its pass-1 fixes were high-stability) and is
+the most fix-stable model on record for this prompt, so it is the preferred
+choice; any capable non-`claude-opus-4-8` model qualifies. Read the findings
+summary in the pass-2 prompt commit for the finding-to-commit map, verify the
+two fixes against the tree, and record how they held up. Convergence note: both
+pass-2 findings were pass-1-introduced GAPs and pass 2 found no original-plan
+defect and no BLOCKER, so one more clean pass over `2777072`/`551671c` would
+satisfy both stopping conditions and hand the residual (Focus Areas 2 and 3) to
+implementation review.
 
 ## Review Guidelines
 
