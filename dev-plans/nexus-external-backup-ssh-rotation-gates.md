@@ -41,9 +41,12 @@ In scope:
     in `scripts/nexus-host-key`;
   - a `--accept-unverified-external-host <name>` override with typed confirmation;
   - external-host cases in `tests/nexus-host-key.sh`;
-  - runbook text in `README.md` documenting external backup targets as rotation
-    gates, replacing the current "update external SSH hosts" follow-up reminders
-    in the printed activate/retire steps.
+  - runbook text in a new `docs/host-key-rotation.md`, linked from `README.md`'s
+    Documentation list, documenting external backup targets as rotation gates
+    (`README.md` itself has no rotation content today; the docs/ index is where
+    operator guides live). The "update external SSH hosts" follow-up reminders
+    being replaced live in the script's printed activate/retire steps
+    (`print_activate_steps` / `print_retire_steps`), not in any existing doc.
 
 Out of scope:
 
