@@ -146,7 +146,11 @@ SECRETS_REV="$(resolve_flake_input_locked_rev "${DEPLOY_FLAKE}/flake.lock" secre
   `origin` URL and state that the checkout may track a different repository than the lock
   pins — so "git fetch failed" attributes to the real fix: point `INVENTORY_CHECKOUT` /
   `SECRETS_CHECKOUT` at a clone of the pinned fork. That message is where the operator
-  learns the private invocation; the env-block comments above are the other half.
+  learns the private invocation; the env-block comments above are the other half. Two
+  checkout knobs rather than one shared work-root: `inventory` and `secrets` are
+  independently forkable (the lock pins them as two distinct forge repos) and the two vars
+  mirror the lock's two root inputs, so collapsing them into one convention root would
+  break the moment an operator forks only one.
 - These two scripts no longer source `scripts/lib/resolve-repos.sh` and no longer read
   `repositories.json`; the env overrides above replace the registry indirection. This is
   behavior-preserving today: the public `repositories.json` carries no `profiles` or
