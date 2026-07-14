@@ -193,9 +193,14 @@ read. New refusal, same shape and same fail-closed die:
 secrets@<rev>. Update the secrets input in the deploy flake, commit, push, then retry.`
 Callers pass `flake_lock="${DEPLOY_FLAKE}/flake.lock"`. `flake_lock` is message context
 only — the assert never parses it — so the decoupling stands: the script resolves the rev
-once, the assert verifies against it. The stale-pin tests (rotation-common refusal cases
-plus the rebuild/provision stale-pin cases) re-grep the deploy-flake lock path and the
-new remediation sentence, pinning the wording.
+once, the assert verifies against it. The reworded-refusal tests (rotation-common refusal
+cases, the rebuild stale-keyscan case, and provision's mismatched-derived-key case) re-grep
+the deploy-flake lock path and the new remediation sentence, pinning the wording. The
+provision case is a head-pin mismatch — a wrong key committed as the age secret at the
+pinned rev — not a `pin_mode=old` fixture: provision reads and decrypts the age secret at
+the pin *before* the host-key assert, so at an old rev the "No SSH host key secret"
+age-absent guard fires first and the assert is never reached. Provision's reworded-remediation
+coverage therefore rides the derived-key mismatch at the head pin, not a stale-pin fixture.
 
 New function (used only by the two in-scope scripts):
 
