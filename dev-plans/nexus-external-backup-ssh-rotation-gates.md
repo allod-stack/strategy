@@ -296,9 +296,27 @@ nix flake check
 nix flake check
 ```
 
-Cases the suite must add (extend the fake `ssh` stub to key off `<user>@<host>`
-with a controllable per-target outcome, mirroring the VM ssh stub and
-`vm_ssh_unreachable`):
+Stub work is load-bearing, not copy-paste. The fake `ssh` today hard-requires
+`UserKnownHostsFile=${fixture}/known_hosts_vms` on every invocation (exit 69),
+so it would reject every external probe as written. It must learn to
+distinguish target classes by `<user>@<host>` and assert a *per-class probe
+shape*: VM probes keep today's assertions (required `UserKnownHostsFile`);
+external probes must **require `-F /dev/null` and forbid `UserKnownHostsFile`**
+— an implementation that lazily reuses the VM probe would silently move
+external host-key trust into `KNOWN_HOSTS_VMS`, and the stub must catch
+exactly that. Both classes keep the `BatchMode`/`IdentitiesOnly`/
+`StrictHostKeyChecking` assertions and the rotation-key `-i` assertion (staged
+tmpdir key at `activate`, installed `~/.ssh/host` at `retire`). Outcomes must
+be controllable per target: `ssh-unreachable` is already a per-IP list, but
+`ssh-fail` is global — and since the VM loop runs before the external gate at
+`activate`, a global auth-failure toggle dies in the VM loop and an
+"external auth failure" case would go green without ever exercising the gate.
+Auth-reject and the new host-key-failure outcome need per-target toggles. The
+fake `nix` exits 65 on unknown queries: teach it the registry eval (serving
+per-fixture registry JSON) plus an eval-error toggle, or every new case below
+dies at exit 65 before testing anything.
+
+Cases the suite must add:
 
 - **empty/absent registry** → `stage`/`activate`/`retire` behave exactly as
   today apart from the single `external trust gates: none declared` line (no
@@ -309,7 +327,9 @@ with a controllable per-target outcome, mirroring the VM ssh stub and
 - **activate success** → all gates accept the staged key → activation proceeds
   and swaps `~/.ssh/host`.
 - **activate auth failure** → a gate rejects the staged key → activation stops,
-  `~/.ssh/host` unchanged, recovery text names the target.
+  `~/.ssh/host` unchanged and no `~/.ssh/host.pre-rotation` created (the state
+  pair that proves the gate fired before the swap), recovery text names the
+  target.
 - **activate unreachable** → a gate is network-unreachable → activation stops
   (distinct from the VM skip semantics), `~/.ssh/host` unchanged, and the
   stop text names the override flag.
@@ -318,8 +338,10 @@ with a controllable per-target outcome, mirroring the VM ssh stub and
   verify-then-seed `known_hosts` guidance distinct from the auth-rejection
   text (and never suggests `StrictHostKeyChecking=no`).
 - **retire success** → all gates accept the installed key → retire proceeds.
-- **retire auth failure** → a gate rejects the installed key → retire stops with
-  a named human gate before any secret is re-encrypted.
+- **retire auth failure** → a gate rejects the installed key → retire stops
+  with a named human gate; `nexus-host-key.json` still has staged state and
+  the old backup key still decrypts every declared secret (the observable
+  pair that proves neither `promote_staged_json` nor re-encryption ran).
 - **override** → `--accept-unverified-external-host <name>` with a matching
   typed confirmation → phase proceeds and records the abandoned `name` +
   `user@host`; a missing/mismatched confirmation or an unknown name → die.
