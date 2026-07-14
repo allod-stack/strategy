@@ -150,9 +150,19 @@ mkVmFacts = { machines, vmUsernames, machineHostKeys, vmHostKeySecretFiles }:
 - Each `vmFacts.<vm>` asserts **its own** completeness lazily (missing username,
   missing host-key entry, missing age file, missing/null ip are eval errors naming
   the VM and the missing fact — principle 11). Deliberately not strict across VMs:
-  one machine's broken data must not brick `nix eval` for every other machine
-  mid-incident. The check below forces the whole set, so global completeness still
-  fails CI closed.
+  one machine's broken fact-level data must not brick `nix eval` for every other
+  machine mid-incident. The laziness boundary: the names set itself forces
+  `.type` on every machine (the hypervisor filter), so a machine with a missing
+  or non-string `type` bricks the probe for every VM — accepted, that is
+  structurally corrupt machine data failing loud, and it must not be "fixed"
+  with a lazy `m.type or` default that would silently classify a typeless
+  machine as provisionable. The check below forces the whole set, so global
+  completeness still fails CI closed.
+- Guard mechanics, forced by what `builtins.tryEval` can catch (only `throw` and
+  `assert`): every per-VM completeness rule is an explicit `throw` naming the VM
+  and the fact. A bare attribute access (`vmUsernames.${vm}`) on sabotaged input
+  is an uncatchable abort that kills the whole `vm-facts-negative` check instead
+  of failing one case.
 - `hostKeySecretFile` is `toString` of the path at construction, never an
   interpolated path: the secrets input is already a store path, `toString` names
   the file inside it without a copy, and a plain string serializes identically
@@ -161,7 +171,15 @@ mkVmFacts = { machines, vmUsernames, machineHostKeys, vmHostKeySecretFiles }:
 - The builder asserts its data arguments are present with adoption-pointing
   messages (e.g. a secrets input lacking `lib.machineHostKeys` dies with "bump the
   secrets input past the rev that exposes lib.machineHostKeys", not an attribute
-  error).
+  error). Mechanics — both halves are load-bearing: the four arguments take
+  `? null` defaults and the builder throws on null at the top of its body (so
+  even the names probe reports it), and the flake wiring passes
+  `secrets.lib.<attr> or null`. Either shortcut defeats the message: a required
+  destructured argument dies uncatchably ("called without required argument")
+  when omitted, and a bare `secrets.lib.machineHostKeys` at the wiring site is
+  passed as a lazy thunk whose raw attribute-missing error fires inside the
+  builder when forced — in both cases the adoption message never runs and
+  `vm-facts-negative` aborts instead of catching a failure.
 - Flake wiring: `vmFacts = mkVmFacts { machines = inventory.machines; vmUsernames
   = secrets.lib.vmUsernames; machineHostKeys = secrets.lib.machineHostKeys;
   vmHostKeySecretFiles = secrets.lib.vmHostKeySecretFiles; }` as a top-level
@@ -176,8 +194,11 @@ mkVmFacts = { machines, vmUsernames, machineHostKeys, vmHostKeySecretFiles }:
     scripts read via `git show` until now.
   - **vm-facts-negative** — `builtins.tryEval` sabotage cases through
     `mkVmFacts`: a machine absent from `machineHostKeys`, an absent username, an
-    absent age file, a null ip — each must fail (a validation that cannot fail on
-    sabotage does not count).
+    absent age file, a null ip, and an omitted data argument (must fail with the
+    adoption message, exercising the `? null` guard) — each must fail (a
+    validation that cannot fail on sabotage does not count). Each case forces
+    the specific field under test: `tryEval` of an unforced lazy attrset
+    succeeds trivially and proves nothing.
 
 ### Deploy-flake contract (replaces #5's)
 
