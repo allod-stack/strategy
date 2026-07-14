@@ -1,4 +1,4 @@
-# Derive VM Target, Username, and Host-Key Pin from the Deploy Flake
+# Derive VM Target and Host-Key Pin from the Deploy Flake
 
 ## Tracking Issue
 
@@ -102,7 +102,8 @@ Human scrutiny:
   key is absent from, or mismatched against, the material at the pinned secrets rev — read
   the new test assertions, not just that the suite is green.
 - Before the first live run: against a real (private) deploy flake, confirm the derived
-  IP, username, and host-key material at the pinned revs match the intended target.
+  IP and host-key material at the pinned revs — and the username from the secrets
+  checkout — match the intended target.
 - The dropped implicit `git pull` of the build flake (see Interface Contracts) — confirm
   the deliberate-update workflow behaves as intended on the host.
 
