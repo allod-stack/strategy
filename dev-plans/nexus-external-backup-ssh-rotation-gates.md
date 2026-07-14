@@ -71,6 +71,17 @@ residual R4-flavored concern — proving the gate against the real VPS and offsi
 destination — is a human-only validation gate (see Agent Gates), not something
 the diff itself can guarantee.
 
+The plan rests on one asserted premise no public repo can confirm: that the
+external backup targets trust `~/.ssh/host` as the SSH *client* identity the
+backup jobs present — that is what makes rotating it a threat to backups and
+the probe's `-i <rotation-key>` the right proof. Nothing in `nexus`,
+`secrets`, `profiles`, or `inventory` references the backup scripts or their
+key; the premise comes from the tracking issue. If a target actually
+authenticates backups with a dedicated key, the gate proves the wrong thing
+for that target and rotation never threatened it. Agent Gates carries the
+operator confirmation; the resolver's `identityFile` cross-check (Interface
+Contracts 2) surfaces registry evidence either way.
+
 Human scrutiny first: the `do_activate` and `do_retire` gate-insertion points
 and the reachable-vs-auth-failure classification for external targets.
 
@@ -133,7 +144,12 @@ and the reachable-vs-auth-failure classification for external targets.
    the resolver validates `recovery` against the three known values and dies
    on anything else — remediation text must never silently print empty. Add
    the helper to `rotation-common.sh` (e.g. `resolve_external_targets`); the
-   PR pins the name.
+   PR pins the name. One cheap premise guard: when a gate's `sshHosts` alias
+   declares an `identityFile` that is not the rotated identity path, print a
+   warning naming both — deployment data saying the operator reaches this
+   host with a different key is exactly the signal that the target may not
+   trust `~/.ssh/host` at all (warn, not die: a target may legitimately trust
+   both keys).
 
 3. **Verification command** — always uses the *rotation* key, never the
    operator's `identityFile`:
@@ -240,6 +256,14 @@ and the reachable-vs-auth-failure classification for external targets.
   against them during a real or dry-run rotation is an operator step. This
   blocks the final acceptance criterion (prove printed commands and gates cover
   the external backup targets before old-key deletion).
+- **The client-key premise is operator-confirmed, per target.** Before
+  declaring a target in the private fork, the operator confirms (a) the backup
+  jobs authenticate to it with `~/.ssh/host` — if they use a dedicated backup
+  key, host-key rotation does not threaten that target and it does not belong
+  in this registry — and (b) `ssh <user>@<host> true` is a valid no-op there:
+  a restricted storage-box shell that refuses remote commands would fail the
+  probe against a healthy key, and such a target needs a second verifier kind
+  added before the gate is meaningful for it.
 - **Authorizing the staged key on external targets** — provider console,
   recovery shell, SSH append, or provider support — is human, on real
   infrastructure.
