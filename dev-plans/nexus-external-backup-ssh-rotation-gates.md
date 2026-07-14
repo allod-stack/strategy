@@ -132,6 +132,7 @@ and the reachable-vs-auth-failure classification for external targets.
        hostname = i.sshHosts.${t.sshHost}.hostname;
        user = i.sshHosts.${t.sshHost}.user;
        port = i.sshHosts.${t.sshHost}.port or 22;
+       identityFile = i.sshHosts.${t.sshHost}.identityFile or null;
      }) (i.externalSshTrustTargets or {})'
    ```
 
@@ -158,7 +159,15 @@ and the reachable-vs-auth-failure classification for external targets.
    warning naming both — deployment data saying the operator reaches this
    host with a different key is exactly the signal that the target may not
    trust `~/.ssh/host` at all (warn, not die: a target may legitimately trust
-   both keys).
+   both keys). The join above emits `identityFile` (defaulting to `null` for
+   an alias that declares none, since it is optional in `sshHosts`) precisely
+   so this guard has data to read from the single eval — do not add a second
+   `nix eval` for it. Compare after tilde-normalizing: `sshHosts.identityFile`
+   is a literal `~/.ssh/...` string while `AGE_IDENTITY` is an expanded
+   absolute path (`$HOME/.ssh/host`), so a naive string compare falsely flags
+   the common `identityFile = "~/.ssh/host"` case (e.g. `privacy-1` in the
+   template) as a mismatch; normalize `~` to `$HOME` (or compare both forms)
+   before deciding to warn.
 
 3. **Verification command** — always uses the *rotation* key, never the
    operator's `identityFile`:
