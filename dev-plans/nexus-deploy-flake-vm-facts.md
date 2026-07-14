@@ -263,7 +263,12 @@ New helpers:
   `null` for privacy VMs), `vm_fact_host_key_secret_file`, and
   `vm_fact_host_key_materials` — the last reuses today's jq material filter
   (active + optional staged, "type b64" shape enforced, error on bad shape) so
-  material validation strength is unchanged, only the JSON's source moved.
+  material validation strength is unchanged, only the JSON's source moved. An
+  entry with `active` and `staged` both null passes through the filter as empty
+  materials and succeeds — presence judgment stays with the asserts, which
+  refuse empty pinned materials with the security refusal exactly as today's
+  no-material case does; the extractor must not preempt that with a generic
+  extraction error, which would downgrade the message class.
 
 Changed signatures (callers are only the two in-scope scripts):
 
@@ -382,10 +387,13 @@ attrpaths):
   the die cases also assert the stub nix's stderr reached the caller's stderr
   alongside the die message — pinning the no-swallow contract);
   field extractors (null ip, missing username, `null` forge key passthrough,
-  malformed hostKeys shape dies in the material filter); the asserts under the new
-  pure signatures — accept active and staged, **fail closed** with the reworded
-  refusal (greps pin the new message including the `nix flake metadata` pointer)
-  on mismatched, absent, and no-entry material. Unit tests of the four deleted
+  malformed hostKeys shape dies in the material filter, an all-null entry yields
+  empty materials and succeeds); the asserts under the new pure signatures —
+  accept active and staged, **fail closed** with the reworded refusal (greps pin
+  the new message including the `nix flake metadata` pointer) on mismatched
+  material and on empty pinned materials — the no-entry case and the
+  present-but-all-null entry both collapse to the same empty-materials refusal
+  today, and must keep that single home. Unit tests of the four deleted
   helpers are deleted with them.
 - `tests/rebuild-vm-from-host.sh`: fixture drops the inventory/secrets git repos
   and the deploy-flake `flake.lock` (facts come from the stub); the zero-env case
@@ -396,6 +404,10 @@ attrpaths):
   keyscan, and all existing keyscan refusal modes (stale/empty/fail/malformed/
   multiple-no-match) keep `assert_nixos_rebuild_not_called` with re-pinned
   refusal wording; `--flake "${DEPLOY_FLAKE}#<vm>"` and `NIX_SSHOPTS` unchanged.
+  Every refusal case in the suite — the probe and facts-level dies included, not
+  only the keyscan modes — asserts `assert_nixos_rebuild_not_called`; that
+  blanket refusal-plus-no-build assertion on the facts-fed path is what the
+  R3-not-R4 case rests on.
 - `tests/provision-vm-from-host.sh`: inventory working-tree fixture stays (DHCP
   seam: preflight-mismatch case refusing before `new-vm` is unchanged, as are the
   `INVENTORY` export and pinned-`TARGET`-to-children assertions); secrets git
@@ -407,7 +419,10 @@ attrpaths):
   dies in the "Cannot decrypt" class; mismatched derived key refuses via the
   assert before `nixos-anywhere`; a garbage age file planted in the conventional
   secrets checkout path is never read (facts-path success — the anti-drift
-  successor of the old ciphertext-skew case). All refusal cases keep
+  successor of the old ciphertext-skew case); facts `forgeKey` wins over a
+  worktree-nulled `forge_key` and bootstrap+verify still run (adapting today's
+  pinned-forge-key-wins case to the facts source — the stated non-IP split-brain
+  consequence, unchanged in kind from #5). All refusal cases keep
   `assert_new_vm_not_called`.
 - `tests/provisioning-contract.sh`, `tests/rotate-token.sh`, and the shared-helper
   suites (`nexus-host-key.sh`, `vm-ssh-host-key.sh`, `forge-ssh-key.sh`,
