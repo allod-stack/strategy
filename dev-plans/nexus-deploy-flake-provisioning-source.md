@@ -6,8 +6,14 @@
 and host-key pin from the deploy flake in rebuild-vm-from-host and
 provision-vm-from-host". Single implementation PR expected; it carries
 `Closes allod/nexus#5`. If the diff grows past comfortable review size, split into
-(1) `rotation-common.sh` new resolvers + unit tests and (2) wiring the two scripts +
-their tests, with the closing keyword on the second (final) PR only.
+(1) **additive** `rotation-common.sh` helpers plus their unit tests — the four existing
+host-key helper signatures stay untouched so both scripts keep working and PR1 lands
+independently green — and (2) the signature changes, the two scripts' rewiring, and
+their suites, with the closing keyword on the second (final) PR only (`Refs` on the
+first). The signature changes must not land in PR1: bash re-means positional args
+silently, so old `(vm, materials, profiles_checkout, secrets_checkout)` callers against
+the new lib would pass a checkout path where a rev is expected and fail only at runtime
+— PR1 alone would leave master's scripts broken.
 
 ## Goal
 
@@ -60,7 +66,9 @@ Out of scope:
 
 ## Risk Assessment
 
-Residual risk: R3 High.
+Residual risk: R3 High. If the contingent split happens, risk is per PR: PR1 (additive
+helpers plus unit tests, no caller changes, dead code until wired) is R1; PR2 (the
+signature changes and script rewiring) carries this plan's R3.
 
 Why:
 
