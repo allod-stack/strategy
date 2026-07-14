@@ -12,19 +12,21 @@ their tests, with the closing keyword on the second (final) PR only.
 ## Goal
 
 Invoking `rebuild-vm-from-host <vm>` or `provision-vm-from-host <vm>` derives the
-target IP, username, and host-key pin from a single deploy-flake reference and needs
-no manual `INVENTORY=`, `MACHINE_PROFILES=`, or `IDENTITY_CONFIG=`.
+target IP and host-key pin from a single deploy-flake reference — and the username from
+the same conventional secrets checkout — with no manual `INVENTORY=`,
+`MACHINE_PROFILES=`, or `IDENTITY_CONFIG=`.
 
 ## Scope
 
 In scope:
 
-- `scripts/lib/rotation-common.sh`: add pinned-rev resolvers for IP and username; change
+- `scripts/lib/rotation-common.sh`: add a pinned-rev resolver for the target IP; change
   the host-key pinning helpers to take a resolved secrets revision instead of deriving
   it from a profiles checkout. Exact function contracts in Interface Contracts.
 - `scripts/rebuild-vm-from-host`: replace the three-checkout env block with one
-  `DEPLOY_FLAKE` reference; derive IP, username, and the presented-key pin check from
-  the deploy flake's locked `inventory` and `secrets` revisions; build
+  `DEPLOY_FLAKE` reference; derive the IP and the presented-key pin check from the deploy
+  flake's locked `inventory` and `secrets` revisions and the username from the secrets
+  checkout (see Interface Contracts for why the username is not pinned); build
   `--flake "${DEPLOY_FLAKE}#${VM_NAME}"`.
 - `scripts/provision-vm-from-host`: same env replacement; read the target IP and the
   age-encrypted host-key secret at the pinned `inventory`/`secrets` revisions; keep the
@@ -67,11 +69,12 @@ Why:
   preflight is the control (per architecture principle 7, host keys are pinned, never
   TOFU) that stops a rebuild from trusting an unexpected or absent SSH host key. The
   change re-sources the inputs of that control, so a regression could silently weaken it.
-- Identity now converges: after this change the target IP (inventory pin), the username
-  (secrets pin), the presented/derived host-key material check (secrets pin), and — in
-  provision — the injected age host-key secret (secrets pin) all flow from one deploy
-  flake. That is the intended single-source-of-truth win (principle 8) but concentrates
-  the failure surface into the lock-resolution and pinned-read path.
+- Identity now converges: after this change the target IP (inventory pin), the
+  presented/derived host-key material check (secrets pin), and — in provision — the
+  injected age host-key secret (secrets pin) all flow from one deploy flake; the username
+  reads the same secrets checkout's working tree (deliberately unpinned — see Interface
+  Contracts). That is the intended single-source-of-truth win (principle 8) but
+  concentrates the failure surface into the lock-resolution and pinned-read path.
 - Validation lowers this substantially: the existing harness already exercises the pin
   path in fixtures (fixture git repos + a `flake.lock` JSON + stubbed `nix`/`git`/
   `ssh-keyscan`/`nixos-rebuild`), and the plan requires a fail-closed regression test on
@@ -91,9 +94,8 @@ Human scrutiny:
   the new test assertions, not just that the suite is green.
 - Before the first live run: against a real (private) deploy flake, confirm the derived
   IP, username, and host-key material at the pinned revs match the intended target.
-- The username eval path (`nix eval` at a pinned git rev) and the dropped implicit
-  `git pull` of the build flake (see Interface Contracts) — confirm both behave as
-  intended on the host.
+- The dropped implicit `git pull` of the build flake (see Interface Contracts) — confirm
+  the deliberate-update workflow behaves as intended on the host.
 
 ## Interface Contracts
 
@@ -179,20 +181,32 @@ once, the assert verifies against it. The stale-pin tests (rotation-common refus
 plus the rebuild/provision stale-pin cases) re-grep the deploy-flake lock path and the
 new remediation sentence, pinning the wording.
 
-New functions (used only by the two in-scope scripts):
+New function (used only by the two in-scope scripts):
 
 - `resolve_target_ip_at_pin(vm, inventory_checkout, inventory_rev)` — `ensure_git_commit_available`
   then `git show "${rev}:scripts/vm-specs.json"` piped to `jq -r --arg v "$vm" '.[$v].ip'`;
   dies with an "unknown VM" message when the entry is absent and a "no target IP" message
   when the IP is null/empty (folding in the existence checks the scripts do inline today).
-- `resolve_target_user_at_pin(vm, secrets_checkout, secrets_rev)` — `ensure_git_commit_available`
-  then `nix eval --raw "git+file://${secrets_checkout}?rev=${secrets_rev}#lib.vmUsernames.${vm}"`;
-  dies on eval failure. Reads username at the pinned rev for consistency with IP and
-  host-key material. Rationale: `lib.vmUsernames` lives in the secrets flake and the
-  public profiles flake does not re-export it, so evaluating at the pin avoids imposing a
-  re-export contract on the deploy flake (which would be the out-of-scope flake-outputs
-  route). Tradeoff: a git-rev `nix eval` is heavier than evaluating a working-tree path;
-  acceptable for an occasional provisioning command.
+
+Username (rebuild only) — deliberately **not** an `_at_pin` sibling:
+
+- `VM_USERNAME="$(nix eval --raw "path:${SECRETS_CHECKOUT}#lib.vmUsernames.${VM_NAME}" 2>/dev/null)"`
+  with a die on eval failure — the same working-tree eval the script runs today,
+  retargeted from `IDENTITY_CONFIG` to `SECRETS_CHECKOUT`. The username is not the
+  security boundary: a wrong user fails SSH login against a host that already passed the
+  pinned host-key check, so its worst drift failure is a loud availability error. The
+  pinned alternative (`nix eval "git+file://${secrets_checkout}?rev=${secrets_rev}#…"`)
+  would be this plan's heaviest, least-testable mechanism: the nix build sandbox forces a
+  stub keyed on the `?rev=` string (a green stub proves only that the script builds the
+  reference), the git fetcher can fail on a rev reachable only via a remote-tracking ref
+  after `ensure_git_commit_available`'s fetch unless `?ref=`/`allRefs` is added (version-
+  dependent), and evaluating the secrets flake at any rev forces its locked inputs
+  (nixpkgs from GitHub, inventory from the forge) to be fetched or cached — so its only
+  real validation would be the human gate. The issue's default approach pins
+  `vm-specs.json` and `machine-host-keys.json` only; this matches it. Zero-env is
+  preserved because `SECRETS_CHECKOUT` has a convention default. `lib.vmUsernames` still
+  lives in the secrets flake (the profiles flake does not re-export it), so no re-export
+  contract is imposed on the deploy flake.
 
 Left signature-stable on purpose (shared with out-of-scope scripts
 `nexus-host-key`, `vm-ssh-host-key`, `forge-ssh-key`): `resolve_target_ip(target)`
@@ -204,7 +218,7 @@ radius to the two provisioning scripts.
 ### Per-script wiring
 
 - `rebuild-vm-from-host`: `TARGET="${2:-$(resolve_target_ip_at_pin "$VM_NAME" "$INVENTORY_CHECKOUT" "$INVENTORY_REV")}"`;
-  `VM_USERNAME="$(resolve_target_user_at_pin "$VM_NAME" "$SECRETS_CHECKOUT" "$SECRETS_REV")"`;
+  `VM_USERNAME` via the working-tree eval of `SECRETS_CHECKOUT` above;
   scan presented keys as today, then
   `assert_any_vm_host_key_material_pinned "$VM_NAME" "$PRESENTED..." "$SECRETS_CHECKOUT" "$SECRETS_REV" "${DEPLOY_FLAKE}/flake.lock"`;
   `nixos-rebuild switch --flake ".#${VM_NAME}"` becomes `--flake "${DEPLOY_FLAKE}#${VM_NAME}"`
@@ -273,9 +287,9 @@ Test matrix (new or adapted cases):
     that pins both; existing negative lock-shape cases keep passing.
   - `resolve_target_ip_at_pin` returns the IP recorded at the pinned inventory rev even
     when the inventory working tree is checked out at a different commit (anti-drift), and
-    dies with "unknown VM" (absent entry) and "no target IP" (null IP).
-  - `resolve_target_user_at_pin` evaluates `lib.vmUsernames.<vm>` at the pinned secrets rev
-    (stub `nix` keyed on the `?rev=` reference) and dies on eval failure.
+    dies with "unknown VM" (absent entry) and "no target IP" (null IP). (No username
+    resolver: the username stays a working-tree `path:` eval, covered by the rebuild
+    suite's existing `lib.vmUsernames.<vm>`-keyed nix stub.)
   - Host-key helpers under the new `(…, secrets_checkout, secrets_rev, flake_lock)`
     signature: accept active and staged material; **fail closed** with the reworded
     stale-pin refusal when the presented/derived material is absent from, mismatched
