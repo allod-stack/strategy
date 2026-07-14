@@ -132,24 +132,19 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific areas
 below.
 
-1. **Scoped diff review of the pass-2 plan commits (`2777072`, `551671c`).**
-   Pass 2 added `identityFile` (defaulted `null`) to the pinned resolver join
-   so the premise warning has data, named the tilde-vs-`$HOME` normalization
-   that compare needs, and added a combined-stdin retire acceptance case
-   (missing-old-key + one or more `--accept-unverified-external-host` in one
-   run, override confirmations consumed in sorted-name order before the
-   missing-old-key confirmation). Both are small, but the seams are: (a) is
-   the tilde-normalization guidance concrete enough that an implementer will
-   not ship a warning that still false-positives, or under-fires when
-   `AGE_IDENTITY` is overridden to a non-tilde path? (b) does the combined-
-   stdin case pin a *deterministic* stdin order the implementation can
-   actually honor — the override loop and `confirm_missing_old_key_retire`
-   each do a bare `read`, so the plan's "sorted overrides then missing-old-key"
-   is only well-defined if the override reads happen in one place before the
-   OLD_BACKUP branch; verify the plan text does not leave room for the reads to
-   interleave. Verify against the tree the way earlier passes did.
+1. **Plan-text review converged; next review is implementation review.** Pass 3
+   verified the pass-2 commits (`2777072`, `551671c`) against the current tree
+   and found no new plan defects. The resolver join now emits the optional
+   `identityFile` field without changing absent-registry or bad-alias
+   semantics, and the tilde-vs-`$HOME` compare guidance is concrete enough for
+   the current `sshHosts` data and `AGE_IDENTITY` default/override model. The
+   combined-stdin retire ordering is pinned in both Interface Contract 4 and
+   the Acceptance Tests: override confirmations happen in sorted-name order
+   before the `OLD_BACKUP` branch and before `confirm_missing_old_key_retire`.
+   Do not launch another plan-text pass unless the implementation changes the
+   plan contract.
 
-2. **The client-key premise (carried; needs a human answer).** The plan
+2. **The client-key premise (operator validation, carried to implementation).** The plan
    states the premise (Risk Assessment), gates it on per-target operator
    confirmation (Agent Gates), and warns when a gate alias declares an
    `identityFile` other than the rotated identity (now backed by an emitted
@@ -161,30 +156,31 @@ below.
    which reshapes Interface Contract 3 and revisits the `verify`-field cut. Do
    not close this from repo context; it is operator-only.
 
-3. **Stub/check implementability, deferred to implementation review.** The
+3. **Stub/check implementation review.** The
    plan demands per-class probe-shape assertions keyed by `<user>@<host>`, a
    fake-`nix` arm for the single-eval registry query with per-fixture JSON and
    an eval-error toggle, and a secrets-side flake check over the synthetic
-   registry. All three were verified *feasible* in the current tree this pass
+   registry. All three were verified *feasible* in the current tree in pass 2
    (the real `ssh` stub hard-requires `UserKnownHostsFile` at
    `tests/nexus-host-key.sh` and the `git` stub already models the
    `-F /dev/null` external shape; the join and the flake-check logic evaluate
-   cleanly). What remains is not a plan-text question but a code question for
-   the implementation-review pass: confirm the external probe and the `--apply`
-   query are cleanly distinguishable in the stub without loosening the
-   VM/Forgejo assertions, that the empty-registry fixture flows through the
-   same fake-`nix` arm as populated ones, and that the emitted `identityFile`
-   field does not perturb the stub's `<user>@<host>` keying.
+   cleanly). In the implementation PR, confirm the external probe and the
+   `--apply` query are cleanly distinguishable in the stub without loosening
+   the VM/Forgejo assertions, that the empty-registry fixture flows through the
+   same fake-`nix` arm as populated ones, that the emitted `identityFile` field
+   does not perturb the stub's `<user>@<host>` keying, and that the external
+   gate actually runs before the activate swap and before retire's
+   `OLD_BACKUP` handling.
 
-Run the template's SIMPLIFY sweep every pass. Standing candidates: the
-`recovery` enum (kept — three genuinely different remediation actions, all
-demanded by the issue; re-cut only if the printed variants converge in
-implementation) and the activate-time override (settled in pass 1 with
-recorded rationale; do not re-litigate without new evidence). The `identityFile`
-premise warning was reconsidered for cutting in pass 2 and **kept**: the
-normalization is a single bash parameter expansion, and it is the only
-automated evidence for the client-key premise (Focus Area 2). Re-cut only if
-implementation shows the normalization is genuinely fiddlier than one
+Run the template's SIMPLIFY sweep during implementation review. Standing
+candidates: the `recovery` enum (kept — three genuinely different remediation
+actions, all demanded by the issue; re-cut only if the printed variants
+converge in implementation) and the activate-time override (settled in pass 1
+with recorded rationale; do not re-litigate without new evidence). The
+`identityFile` premise warning was reconsidered for cutting in passes 2 and 3
+and **kept**: the normalization is one bash prefix expansion and the warning is
+the only automated evidence for the client-key premise (Focus Area 2). Re-cut
+only if implementation shows the normalization is genuinely fiddlier than one
 expansion or the warning proves noisy in practice.
 
 Do not re-open focus areas addressed in previous passes unless the current plan
@@ -192,7 +188,9 @@ contradicts itself. Pass 1 resolved the original seven seed areas (fail-closed
 resolution mechanics, probe classification, known-hosts posture, override
 binding, template blast radius, fixture realism); pass 2 resolved the pass-1
 diff-review area (verified the nine pass-1 fixes against the tree — see the
-fix-stability record below).
+fix-stability record below); pass 3 verified the two pass-2 fixes. The plan text
+has converged under the stopping rules; carry remaining questions into
+implementation review.
 
 Fix-stability record:
 - claude-fable-5 (pass 1, `b5a9569..55f8c3f`): eight of nine fixes held up under
@@ -208,19 +206,15 @@ Fix-stability record:
   was a cross-commit seam (a pin and a dependent requirement landed in separate
   commits), the classic structural-fix blind spot.
 - claude-opus-4-8 (pass 2, `2777072`, `551671c`): stability unknown until a
-  later pass verifies them.
+  pass 3 verified them.
+- gpt-5 (pass 3, `2777072`, `551671c` verification): both pass-2 fixes held up
+  against the tree. No new findings; no plan-file commit needed.
 
-Next pass: scoped diff review of `2777072` and `551671c` (the two pass-2 plan
-commits), not a full re-review, by a model other than claude-opus-4-8 —
-claude-fable-5 is eligible again (its pass-1 fixes were high-stability) and is
-the most fix-stable model on record for this prompt, so it is the preferred
-choice; any capable non-`claude-opus-4-8` model qualifies. Read the findings
-summary in the pass-2 prompt commit for the finding-to-commit map, verify the
-two fixes against the tree, and record how they held up. Convergence note: both
-pass-2 findings were pass-1-introduced GAPs and pass 2 found no original-plan
-defect and no BLOCKER, so one more clean pass over `2777072`/`551671c` would
-satisfy both stopping conditions and hand the residual (Focus Areas 2 and 3) to
-implementation review.
+Next pass: implementation review of the actual `allod/secrets` and
+`allod/nexus` PRs, not another plan-text pass, unless implementation changes
+the plan contract. Prefer a model other than the implementation author; use the
+focus areas above to review the real resolver, phase ordering, SSH probe shape,
+fixture harness, secrets flake check, and operator-only client-key premise.
 
 ## Review Guidelines
 
