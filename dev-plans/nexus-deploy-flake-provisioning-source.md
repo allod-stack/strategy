@@ -235,7 +235,15 @@ radius to the two provisioning scripts.
   read the age host-key secret at the pin —
   `git -C "$SECRETS_CHECKOUT" show "${SECRETS_REV}:secrets/vm-host-keys/${VM_NAME}-ssh.age"`
   piped into `age --decrypt` (preserve piping, never command substitution, so the trailing
-  newline survives) after `ensure_git_commit_available`; derive the public key and call
+  newline survives) after `ensure_git_commit_available`. Preserve the message classes on
+  the pinned path: first
+  `git -C "$SECRETS_CHECKOUT" cat-file -e "${SECRETS_REV}:secrets/vm-host-keys/${VM_NAME}-ssh.age"`,
+  dying with the "No SSH host key secret for '<vm>'" class naming the pinned rev when the
+  path is absent at the pin (the same guard pattern
+  `machine_host_key_materials_at_secrets_pin` uses for `machine-host-keys.json`; without
+  it a missing blob surfaces as a raw `git show` pipefail through the ERR trap), and keep
+  the "Cannot decrypt SSH host key secret" class on the pipeline itself; derive the
+  public key and call
   `assert_vm_host_key_material_pinned "$VM_NAME" "$DERIVED_HOST_MATERIAL" "$SECRETS_CHECKOUT" "$SECRETS_REV" "${DEPLOY_FLAKE}/flake.lock"`
   before `nixos-anywhere`; build `--flake "${DEPLOY_FLAKE}#${VM_NAME}"`. Reading the age
   secret at the pin (rather than the working tree) means a machine whose key material is
@@ -324,6 +332,15 @@ Test matrix (new or adapted cases):
   preflight: a fixture whose working-tree IP differs from the pinned IP refuses before
   `new-vm` (assert the both-IPs message and `assert_new_vm_not_called`). The success case
   also asserts bootstrap and verify were invoked with the pinned `TARGET` argument.
+  Age-secret cases move to the pin: **absent-at-pin** — the age file missing at the
+  pinned rev (working-tree copy present) refuses with the "No SSH host key secret" class
+  naming the pin, replacing the current delete-the-working-tree-file test whose semantics
+  stop mattering; **garbage-at-pin** — an undecryptable blob committed at the pin refuses
+  with the "Cannot decrypt" class; **ciphertext skew, pinned bytes win** — the working-tree
+  age file replaced with garbage while the pin holds the good ciphertext, provision
+  succeeds and the installed key material matches the pinned secret (the direct assertion
+  that the read left the working tree). All refusal cases assert
+  `assert_new_vm_not_called`.
 - `tests/provisioning-contract.sh`: unchanged, still green.
 - `tests/rotate-token.sh`: unchanged, still green — proves the signature-stable shared
   helpers and the token-rotation flow that also sources `rotation-common.sh` are
