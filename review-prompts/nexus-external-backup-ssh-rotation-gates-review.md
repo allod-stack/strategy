@@ -132,129 +132,69 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific areas
 below.
 
-1. **Fail-open vs. fail-closed — the core safety property.** The tool must never
-   let `retire` proceed while a required target still trusts only the retired key.
-   Scrutinize the three declared cases and the boundaries between them: (a) an
-   *absent* `externalSshTrustTargets` attribute ⇒ empty set ⇒ no gate (today's
-   behavior); (b) an *eval error* of the attribute ⇒ die; (c) a declared `sshHost`
-   alias that is *absent* from `sshHosts` ⇒ die. The danger lives on the seams. Is
-   the resolver's "no targets declared" path provably distinct from "resolution
-   failed," or can a typo in the attribute name, a malformed entry, or a
-   `nix eval` that prints empty-on-error collapse a required gate into the silent
-   empty-set path? Trace how the resolver tells "attribute is absent" from
-   "evaluating the attribute threw" — `nix eval --raw ... 2>/dev/null` returning
-   empty is exactly the shape that erases the distinction (see how
-   `resolve_target_user` and `resolve_forge_connection` swallow stderr today).
-   The whole plan's R3-not-R4 argument rests on "a bug fails toward more gating";
-   find the path where it fails toward *less*.
+1. **Scoped diff review of the pass-1 plan commits (`b5a9569..55f8c3f`).** Pass 1
+   cut two schema fields (`requiredFor`, `verify`), pinned the resolver to a
+   single guarded `nix eval --json --apply` join, added a third probe-failure
+   class (host-key verification failure), moved registry resolution to
+   phase-start before any mutation, pinned the retire gate before the
+   `OLD_BACKUP` handling, and rewrote the stub contract and the secrets R2 row.
+   Structural fixes are where new blockers enter; verify each against the tree
+   the way pass 1 verified the original. Sharpest seams: (a) does the pinned
+   `--apply` expression carry everything the gate needs (names, port-as-number
+   vs `-p` string, the `identityFile` input for the premise warning — which the
+   join as sketched does *not* emit)? (b) does running the retire gate before
+   the cheap `OLD_BACKUP` state checks trade fail-fast on local corruption for
+   prompt ordering, and is that the right trade? (c) is the sorted-name gate
+   order + stdin confirmation sequence implementable with the
+   `confirm_missing_old_key_retire` pattern when `--accept-missing-old-key`
+   and multiple overrides combine in one run — is there a combined-stdin test
+   case, and should there be? (d) did dropping `requiredFor`/`verify` lose
+   anything the issue's registry design note actually needs?
 
-2. **Which client key actually authenticates to the external backup targets.** The
-   plan's premise is that the rotated Nexus host key (`~/.ssh/host`) is the SSH
-   *client* identity the backup scripts present to the VPS and offsite
-   destination — which is why rotating it can strand backups, and why the
-   verification probe uses `-i <rotation-key>`. That premise is load-bearing and
-   the backup scripts are explicitly out of scope, so it is asserted, not shown.
-   If a target authenticates with a *dedicated* backup key instead of `~/.ssh/host`,
-   then rotating the host key does not affect that target at all, it is not a
-   host-key rotation gate, and probing it with `-i <rotation-key>` proves the
-   wrong key. Is there anything in the repo (deployment data, the identity
-   records, the VPS/offsite `authorizedKeysPath` values the plan already names)
-   that either confirms or refutes the "host key is the client key" premise, and
-   does the plan flag this as the assumption the operator must validate before the
-   gate means anything?
+2. **The client-key premise (carried; needs a human answer).** The plan now
+   states the premise (Risk Assessment), gates it on per-target operator
+   confirmation (Agent Gates), and warns when a gate alias declares an
+   `identityFile` other than the rotated identity. Still open until the
+   operator confirms, per real target: (a) the backup jobs authenticate with
+   `~/.ssh/host`, and (b) `ssh <user>@<host> true` is a valid no-op there — a
+   restricted storage-box shell fails the probe against a healthy key. If (b)
+   fails for a real target, a second verifier kind must be designed before
+   that target can be gated, which reshapes Interface Contract 3 and revisits
+   the `verify`-field cut. Do not close this from repo context; it is
+   operator-only.
 
-3. **Reachable-vs-auth classification for external gates.** External gates make
-   *unreachable* a hard stop (unlike the skippable VM loop) and reuse
-   `vm_ssh_unreachable`. Two questions: (a) Does that predicate cleanly separate
-   "network down" from "auth rejected / host-key changed" *for these targets*, or
-   can a real-world external outcome (a firewall dropping to `Connection refused`,
-   a load balancer TCP-resetting, DNS returning NXDOMAIN for a decommissioned
-   host) get classified as unreachable when the operator would want it treated as
-   a positive failure — noting that for external gates *both* outcomes stop the
-   phase, so the classification affects only the message and recovery text, not
-   the die/continue? (b) Do `BatchMode=yes` and `IdentitiesOnly=yes` actually
-   prevent every interactive prompt and every agent-key or default-key fallback
-   that would let the probe succeed on a key that is *not* the rotation key —
-   making the probe lie that the target trusts the staged/installed key when in
-   fact it trusts something else in the agent? The probe's honesty is the entire
-   gate.
+3. **Stub implementability of the new contracts.** The plan now demands
+   per-class probe-shape assertions keyed by `<user>@<host>` and a fake-`nix`
+   arm for the single-eval registry query with per-fixture JSON and an
+   eval-error toggle. The stubs pattern-match substrings of `$*`: confirm the
+   external probe (no `UserKnownHostsFile`, `-F /dev/null`, optional `-p`) and
+   the `--apply` query are cleanly distinguishable without loosening the
+   VM/Forgejo assertions, and that the empty-registry fixture flows through
+   the same arm as populated ones (not a bespoke bypass that would let the
+   real query shape drift untested).
 
-4. **External-target host-key checking.** The probe uses
-   `StrictHostKeyChecking=yes` with `-F /dev/null` and the operator's default
-   `~/.ssh/known_hosts`. Walk the first-contact case: if `known_hosts` lacks the
-   target (fresh operator, never SSH'd there), the probe fails on an unknown host
-   key even when the target would happily accept the rotation key — is a spurious
-   HARD STOP the right default, and does the recovery text tell the operator how
-   to legitimately seed `known_hosts` without also teaching them to blindly
-   `StrictHostKeyChecking=no` past the one check that matters? Then the changed-key
-   case: failing closed on a *changed* target host key for a backup channel is the
-   correct MITM posture — confirm the plan actually gets that posture (default
-   known-hosts, not a throwaway file) and says why, so a later pass does not
-   "simplify" it to auto-accept. Note the tension with the VM loop, which uses a
-   dedicated `UserKnownHostsFile`; the external probe deliberately does not, and
-   that difference must be intentional and stated.
-
-5. **Override scope and UX.** `--accept-unverified-external-host <name>` is
-   allowed at both `activate` and `retire`, with a typed confirmation reusing the
-   `confirm_missing_old_key_retire` prompt pattern. Two edges: (a) The issue
-   frames `retire` as the hard gate; is allowing *abandon at activate* premature
-   scope, given activate is reversible (nothing is deleted, `~/.ssh/host.pre-rotation`
-   still exists) and the operator could simply not pass the flag? Does an
-   activate-time abandon buy anything a retire-time abandon does not, or is it an
-   extra confirmed-destructive surface to get wrong? (b) Can the override be
-   satisfied non-interactively (piped stdin, as the existing missing-old-key test
-   does) or with a *mismatched* name — e.g. `--accept-unverified-external-host foo`
-   plus a typed confirmation for a *different* target, or a name that is not in the
-   registry — in a way that abandons a gate the operator did not mean to abandon?
-   The plan says an unknown name ⇒ die and an unmatched confirmation ⇒ die;
-   confirm the confirmation is bound to the *specific* named target, not a generic
-   yes.
-
-6. **Public/private template split and the `sshHosts` blast radius.** Synthetic
-   `externalSshTrustTargets` entries ship in the PUBLIC `secrets` template; real
-   targets live in private forks. Because each gate's `sshHost` must resolve to an
-   existing `sshHosts` alias, shipping synthetic gate entries forces synthetic
-   `sshHosts` entries — and `home-shared.nix` turns every `sshHosts` entry into a
-   `programs.ssh.matchBlocks` block on every dev VM. So: (a) Does adding synthetic
-   entries inject bogus `Host` blocks (pointing at `192.0.2.x` or example
-   hostnames) into every dev VM's generated SSH config, and is that harmless or a
-   confusing footgun? (b) Does anything — `home-shared.nix`, the secrets
-   `credential-inventory` check, or `nix flake check` on either side — reference a
-   gate's `sshHost` alias in a way that *fails* if the alias is absent, breaking
-   evaluation for a fork that declares gates but trims the example `sshHosts`? (c)
-   Is there any path for a real hostname/user/address to reach the public repo —
-   e.g. a synthetic gate whose `authorizedKeysPath` or `recovery` text hints at
-   real infra, or an operator who edits the template instead of their fork? The
-   privacy boundary is a hard `[BLOCKER]` line if any real-target value can land
-   in public.
-
-7. **Test-fixture realism — can the suite pass while the real gate has a hole?**
-   The fake `ssh` stub must (a) accept the *new* external probe shape — which
-   omits `UserKnownHostsFile` and so is rejected with exit 69 by the current stub —
-   without loosening the assertions that keep the VM/Forgejo probes honest; (b)
-   distinguish external-target probes from VM and Forgejo probes by `user@host`;
-   (c) model per-target accept / auth-reject / unreachable independently (today's
-   `ssh-fail`/`ssh-unreachable` are global). The trap: a stub that is too permissive
-   turns the acceptance gate green while the real gate has a gap. Specifically,
-   does the plan require the stub to *assert the rotation key is the one presented*
-   to each external target (not just to the VMs), and to *assert the probe ran
-   before* the `~/.ssh/host` swap at activate and before `promote_staged_json` at
-   retire — the two orderings that are the entire safety property? A suite that
-   checks "activation stopped" but not "the probe fired before the swap" would pass
-   a plan that runs the gate one line too late.
-
-Run the template's SIMPLIFY sweep every pass. Prime suspects for this plan: the
-`verify` enum ships with only `"ssh-true"` defined — does the enum earn its
-existence now, or is it a one-value switch that should be a single hardcoded probe
-until a second verifier exists? The `recovery` enum has three values
-(`old-key` / `provider-console` / `provider-support`) that only change *printed
-text* at `stage` — is all three variants' worth of branching justified, or is one
-parameterized template enough? The activate-time override (Focus Area 5) is a
-scope candidate. `requiredFor` is a list that today is filtered for a single
-membership token — is the list shape premature? Flag ceremony that is not safety.
+Run the template's SIMPLIFY sweep every pass. Standing candidates after the
+pass-1 cuts: the `recovery` enum (kept — three genuinely different remediation
+actions, all demanded by the issue; re-cut only if the printed variants
+converge in implementation) and the `identityFile` premise warning (cut it if
+tilde-vs-`$HOME` normalization makes it fiddly out of proportion to its
+signal). The activate-time override was considered and kept with its rationale
+now recorded in the plan; do not re-litigate without new evidence.
 
 Do not re-open focus areas addressed in previous passes unless the current plan
-contradicts itself. (This is the first pass; the areas above are the seed.)
+contradicts itself. Pass 1 resolved the original seven seed areas (fail-closed
+resolution mechanics, probe classification, known-hosts posture, override
+binding, template blast radius, fixture realism) into plan text; the areas
+above are what remains productive.
+
+Fix-stability record: pass-1 fixes authored by claude-fable-5; stability
+unknown until a later pass verifies them.
+
+Next pass: scoped diff review of `b5a9569..55f8c3f` (the nine pass-1 plan
+commits), not a full re-review, by a model other than claude-fable-5 — no
+fix-stability record exists for this prompt yet, so any capable non-author
+model qualifies. Read the findings summary in the pass-1 prompt commit for the
+finding-to-commit map, and record how the pass-1 fixes held up.
 
 ## Review Guidelines
 
