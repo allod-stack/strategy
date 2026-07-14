@@ -156,7 +156,15 @@ and the reachable-vs-auth-failure classification for external targets.
    recovery text. This probe is the only verifier; a `verify` field enters the
    schema only together with a second verifier kind.
 
-4. **Phase behavior**:
+4. **Phase behavior**. Every phase resolves the registry once, at the start,
+   before any state mutation, and prints the resolved gate count — including
+   an explicit `external trust gates: none declared` line when empty. The
+   count line is the operator-visible signal for the one seam fail-closed
+   resolution cannot cover: a fork typo of the top-level attribute name is
+   indistinguishable from "no gates declared", and an operator who declared
+   gates must be able to notice them missing from the phase output. Gates are
+   processed in sorted-name order so multi-gate output and stdin-fed
+   confirmations are deterministic.
    - `stage`: for each gate, print copy/paste setup commands using the staged
      public key and the target's `authorizedKeysPath`, plus the `recovery`-
      specific variant — `old-key`: append the staged key over SSH using the
@@ -164,6 +172,11 @@ and the reachable-vs-auth-failure classification for external targets.
      `echo '<staged-pub>' >> <authorizedKeysPath>` for a console/recovery shell;
      `provider-support`: a support-request block embedding the staged public key.
      No verification at `stage` (the target may not trust the key yet).
+     Resolve-at-start matters most here: `do_stage` mutates the secrets
+     checkout (`update_staged_json`, re-encryption) before it prints, so a
+     registry that only failed at print time would leave a dirty secrets
+     checkout plus a staged backup that block the next run until manually
+     cleaned up. A malformed registry must die before stage writes anything.
    - `activate`: after the existing staged-key decrypt / VM / Forgejo checks and
      **before** installing `OLD_BACKUP` and swapping `~/.ssh/host`, prove the
      staged key against every gate not covered by an accepted override. Any
@@ -171,8 +184,12 @@ and the reachable-vs-auth-failure classification for external targets.
      leaves `~/.ssh/host` untouched.
    - `retire`: **before** `promote_staged_json` and re-encryption, prove the
      installed `~/.ssh/host` against every gate not covered by an accepted
-     override. Any failure stops retirement with a named human gate before any
-     secret is re-encrypted.
+     override. Run the external gate after `assert_identity_public_matches`
+     confirms the installed key is the staged key and before the `OLD_BACKUP`
+     handling, so a probe failure or a mistyped override confirmation dies
+     before the operator is asked to type the missing-old-key confirmation.
+     Any failure stops retirement with a named human gate before any secret
+     is re-encrypted.
 
 5. **Override** — `--accept-unverified-external-host <name>` (repeatable), valid
    on `activate` and `retire`. The activate-time form exists for transient
@@ -227,7 +244,8 @@ with a controllable per-target outcome, mirroring the VM ssh stub and
 `vm_ssh_unreachable`):
 
 - **empty/absent registry** → `stage`/`activate`/`retire` behave exactly as
-  today (no external gate, no new output blocks).
+  today apart from the single `external trust gates: none declared` line (no
+  gate, no per-target output blocks).
 - **stage output** → contains a setup command per gate embedding the staged
   public key and the target's `authorizedKeysPath`, with the correct `recovery`
   variant text.
