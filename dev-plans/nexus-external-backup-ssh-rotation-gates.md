@@ -357,6 +357,16 @@ Cases the suite must add:
 - **override** → `--accept-unverified-external-host <name>` with a matching
   typed confirmation → phase proceeds and records the abandoned `name` +
   `user@host`; a missing/mismatched confirmation or an unknown name → die.
+- **combined stdin confirmations at retire** → `retire
+  --accept-missing-old-key --accept-unverified-external-host <a>
+  --accept-unverified-external-host <b>` with `<a>`/`<b>` and the
+  missing-old-key line fed on stdin → the two override confirmations are
+  consumed in sorted-name order *before* the missing-old-key confirmation
+  (the external gate runs before the `OLD_BACKUP` handling), so a single
+  stdin stream ordered `<sorted overrides> then <missing-old-key>` proceeds
+  and a stream that swaps that order dies on a mismatched confirmation. This
+  is the case that exercises the sorted-name determinism claim against two
+  distinct stdin-reading prompts in one run.
 - **fail-closed resolution** → a gate whose `sshHost` alias is absent from
   `sshHosts`, an `externalSshTrustTargets` eval error, and an unknown
   `recovery` value → die (never silently skipped). Run at `stage`, the die
