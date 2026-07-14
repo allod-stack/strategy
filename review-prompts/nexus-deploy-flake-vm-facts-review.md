@@ -141,6 +141,11 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
+Plan-text review has converged. Pass 2 and pass 3 both produced no BLOCKER and
+no original-plan GAP, so the second stop condition is met. Do not run another
+plan-text review unless the plan text changes; carry the remaining focus areas
+to implementation review.
+
 1. **Specified assertions vs implemented assertions (implementation-review
    handoff).** The plan names the load-bearing test mechanics: stub argv cases
    grep the full recorded command line (not a substring that passes on a wrong
@@ -149,11 +154,12 @@ areas below.
    path — probe and facts dies included — asserts
    `assert_nixos_rebuild_not_called`, and every provision refusal asserts
    `assert_new_vm_not_called`. Pass 2 confirmed the plan's *specification* of
-   these mechanics is sound against nix 2.31 (see the fix trace below), so the
+   these mechanics is sound against nix 2.31; pass 3 re-read the current
+   nexus/profiles/secrets/inventory tree and found no plan-text gap. The
    residual risk is purely that the *test bodies* match the spec once the PRs
    open. The R3-not-R4 case rests on these being real: when PR3 lands, read the
    test bodies against those clauses, not the green. Structurally unreachable
-   from plan text — this is the review's live edge.
+   from plan text - this is the implementation review's live edge.
 
 2. **The human-gated residue (carry until the live run).** Real `nix eval`
    behavior against the private deploy flake — input fetching through the
@@ -162,8 +168,8 @@ areas below.
    structurally unreachable from the dev VM and the sandboxed harness. The
    plan's Agent Gate carries it: by-hand
    `nix eval <private-deploy>#vmFacts.<vm> --json` before the first live
-   rebuild. Pass 2 confirmed it stays a named gate (Agent Gates section), not
-   plan text — keep it that way.
+   rebuild. Pass 2 and pass 3 confirmed it stays a named gate (Agent Gates
+   section), not plan text - keep it that way.
 
 Do not re-open focus areas closed in previous passes unless the current plan
 contradicts itself. Pass 1 traced and closed: the die-case homing (every
@@ -204,15 +210,18 @@ plus fresh nix 2.31 experiments (all sound; none re-opened):
   is known to the test (`FIXTURE_DEPLOY`), so the exact-argv grep interpolates
   it.
 
-Next pass: full read with fresh eyes — pass 2 committed no plan change, so
-there is no scoped diff to review. Run it with a model other than
-claude-fable-5 (pass 1) and claude-opus-4-8 (pass 2). The plan text is
-converging: pass 2 produced no BLOCKER and no original-plan GAP, which is one
-clean pass under the stop rubric. If pass 3 is also clean (no BLOCKER, no
-original-plan GAP), the second stop condition triggers and plan-text review
-ends — hand Focus Areas 1 and 2 to implementation review and resolve any
-residual SIMPLIFYs there. Fix-stability: all four claude-fable-5 fixes are
-1-pass-stable (survived pass 2's full adversarial re-read unchanged).
+Pass 3 did a full fresh read against the same current tree (not a scoped diff)
+and found no BLOCKER, no GAP, no SIMPLIFY, and no QUESTION. It re-checked the
+required dev-plan sections, PR linkage, current nexus die-vs-proceed behavior,
+child-script checkout behavior, secrets/inventory/profiles flake boundaries,
+Nix 2.31 CLI shapes, jq empty-output behavior, rollback order, and the SIMPLIFY
+candidates. No plan-file commit was needed.
+
+Stop condition: met. Pass 2 and pass 3 are consecutive clean passes with no
+BLOCKER and no original-plan GAP. Plan-text review ends here. Next work is
+implementation review of the PR bodies and test bodies, especially Focus Areas
+1 and 2 above. Fix-stability: all four claude-fable-5 fixes are 2-pass-stable
+(survived pass 2 and pass 3 unchanged).
 
 ## Review Guidelines
 
