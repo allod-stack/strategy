@@ -145,16 +145,39 @@ and the reachable-vs-auth-failure classification for external targets.
    ```
 
    `<rotation-key>` is the decrypted staged key at `activate` and the installed
-   `~/.ssh/host` at `retire`. `-F /dev/null` ignores operator ssh_config;
-   target host-key trust comes from the operator's default `~/.ssh/known_hosts`,
-   so a missing or changed target host key fails the probe by design (the backup
-   channel is exactly where a MITM must block, not auto-accept). Network-
-   unreachable outcomes are classified with the existing `vm_ssh_unreachable`
-   predicate. Unlike the VM loop, an unreachable *external gate* is a hard stop,
-   not a skip: a backup target we cannot reach is a target we cannot prove, and
-   proving it is the entire point. Auth rejection is likewise a hard stop with
-   recovery text. This probe is the only verifier; a `verify` field enters the
-   schema only together with a second verifier kind.
+   `~/.ssh/host` at `retire`. `-F /dev/null` makes the probe config-independent
+   (a command-line `-F` skips the system-wide `/etc/ssh/ssh_config` as well as
+   the user config), and `-i` + `IdentitiesOnly=yes` make the rotation key the
+   only identity ssh will try — OpenSSH adds default identities only when none
+   is specified, and `BatchMode=yes` excludes interactive fallbacks — so the
+   probe cannot succeed via an agent or default key that is not the rotation
+   key. Target host-key trust comes from the operator's default
+   `~/.ssh/known_hosts`, so a missing or changed target host key fails the
+   probe by design (the backup channel is exactly where a MITM must block, not
+   auto-accept).
+
+   Every probe failure is a hard stop; classification affects only the
+   message and recovery text, and there are three classes, not two:
+
+   - *Unreachable* — the existing `vm_ssh_unreachable` predicate, shared
+     unchanged with the VM loop; only the disposition differs (the VM loop
+     skips, external gates die). Recovery text names
+     `--accept-unverified-external-host` as the deliberate path for a target
+     that is gone for good — a decommissioned host whose DNS is dropped reads
+     as "unreachable", and the override is the operator's recourse.
+   - *Host-key verification failure* — a new external-only match on ssh's
+     host-key diagnostics (`Host key verification failed`,
+     `REMOTE HOST IDENTIFICATION HAS CHANGED`, `No ... host key is known`).
+     Without this class, a fresh operator whose `known_hosts` lacks the target
+     hits first contact and is told the target "rejected the staged key" —
+     wrong, and an invitation to reach for `StrictHostKeyChecking=no`.
+     Recovery text: verify the target's host-key fingerprint out-of-band
+     (provider console), then seed `~/.ssh/known_hosts` explicitly; for the
+     changed-key case, say plainly this is the MITM posture working and the
+     key must be verified before trust is updated. The text must never
+     suggest disabling strict host-key checking.
+   - *Auth rejection* — the fallthrough; the target answered and refused the
+     key. Recovery text is the per-target `recovery`-variant setup command.
 
 4. **Phase behavior**. Every phase resolves the registry once, at the start,
    before any state mutation, and prints the resolved gate count — including
@@ -254,7 +277,12 @@ with a controllable per-target outcome, mirroring the VM ssh stub and
 - **activate auth failure** → a gate rejects the staged key → activation stops,
   `~/.ssh/host` unchanged, recovery text names the target.
 - **activate unreachable** → a gate is network-unreachable → activation stops
-  (distinct from the VM skip semantics).
+  (distinct from the VM skip semantics), `~/.ssh/host` unchanged, and the
+  stop text names the override flag.
+- **activate host-key failure** → a gate's target host key is unknown or
+  changed → activation stops, `~/.ssh/host` unchanged, and the text gives
+  verify-then-seed `known_hosts` guidance distinct from the auth-rejection
+  text (and never suggests `StrictHostKeyChecking=no`).
 - **retire success** → all gates accept the installed key → retire proceeds.
 - **retire auth failure** → a gate rejects the installed key → retire stops with
   a named human gate before any secret is re-encrypted.
