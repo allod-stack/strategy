@@ -362,9 +362,12 @@ nix eval .#lib.vmHostKeySecretFiles --json | jq -e 'has("allod-dev") and has("pr
 
 # PR2 — profiles (includes the new coherence + negative checks)
 cd ~/work/allod/profiles && nix flake check
-# Genuine no-checkout derivation on template data — the real-eval proof:
-nix eval .#vmFacts --apply builtins.attrNames --json   # non-hypervisor set only
-nix eval .#vmFacts.allod-dev --json | jq -e '
+# Genuine no-checkout derivation on template data — the real-eval proof.
+# The first two commands are the exact invocation shapes the PR3 helpers emit
+# (fixed --apply string; quoted per-VM attrpath), so the real nix CLI contract
+# the sandboxed suites cannot reach is proven here:
+nix eval --json .#vmFacts --apply builtins.attrNames   # non-hypervisor set only
+nix eval --json '.#vmFacts."allod-dev"' | jq -e '
   .ip and .username and .hostKeys.active and .hostKeySecretFile'
 test -r "$(nix eval --raw .#vmFacts.allod-dev.hostKeySecretFile)"
 ! nix eval .#vmFacts.nexus 2>/dev/null          # hypervisor excluded
@@ -379,8 +382,15 @@ recursive nix is unavailable), so the script-level cases prove the scripts'
 handling of facts; the real derivation is proven by PR2's checks and the
 `nix eval` commands above; the human's live run bridges the two.
 
-PR3 test matrix (new or adapted cases; the `nix` stub keys on the `#vmFacts`
-attrpaths):
+PR3 test matrix (new or adapted cases). The `nix` stubs key on the `#vmFacts`
+attrpaths, log the argv they receive, and exit nonzero on any unexpected
+invocation (the existing rebuild stub's exit-67 pattern); in each script suite
+at least one case asserts the exact invocation recorded — `--json`, the fixed
+`--apply builtins.attrNames` string, and the quoted `#vmFacts."<vm>"` attrpath
+— so a helper emitting a shape real nix would reject fails in fixtures instead
+of at the first live run. The stubs prove the scripts' handling of stub-served
+facts; the shapes themselves are proven real by the PR2 acceptance evals above,
+which use the identical forms:
 
 - `tests/rotation-common.sh`: unit cases for `deploy_flake_vm_names` /
   `deploy_flake_vm_facts` (missing-output die, unknown-VM die, eval-failure die;
