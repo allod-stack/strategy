@@ -73,8 +73,9 @@ file layout drift):
   file, derives the public key, asserts the pin, runs `nixos-anywhere --flake
   "${MACHINE_PROFILES}#${VM_NAME}"` — and then, near the end, reads
   `FORGE_KEY=$(jq -r ".\"${VM_NAME}\".forge_key" "$SPECS")` to decide whether
-  to run bootstrap and verify. That late `forge_key` read is a `$SPECS`
-  consumer the plan's environment-surface replacement never mentions.
+  to run bootstrap and verify. Pass 1 rewired that late read to the pinned
+  inventory rev (resolved up front next to the IP) — verify the rewiring, not
+  its absence.
 - `provision-vm-from-host` invokes `bootstrap-vm-from-host.sh` and
   `verify-vm-from-host` as child processes. Both re-derive `SPECS` and
   `IDENTITY_CONFIG` from their own registry defaults and read the **working
@@ -86,10 +87,9 @@ file layout drift):
   `machine_host_key_materials_at_secrets_pin` derives the secrets rev from
   `profiles/flake.lock` itself; `ensure_git_commit_available` fetches once from
   the checkout's origin on a miss. `die_vm_host_key_material_not_pinned`
-  interpolates the lock path into its message: `"<flake_lock> pins
-  secrets@<rev>. Update the secrets input in profiles, commit, push, then
-  retry."` The new `(vm, material, secrets_checkout, secrets_rev)` signature
-  receives no lock path — reconcile that with "message preserved verbatim".
+  interpolates the lock path into its message. Pass 1 replaced "preserved
+  verbatim" with a reworded refusal and threaded `flake_lock` through the
+  asserts as message-only context (Focus Area 2 below).
 - The secrets flake has its own locked inputs (`nixpkgs` from GitHub,
   `inventory` from the forge URL). Evaluating it — at any rev — forces those
   inputs to be fetched or already cached. A "pinned local read" via `nix eval`
@@ -110,12 +110,11 @@ file layout drift):
   `$HOME/work/allod/{inventory,secrets}`.
 - `nix flake check` in nexus runs **all ten** test suites inside the build
   sandbox (no network, no real nix daemon), so the harness structurally cannot
-  exercise real `nix eval git+file://...?rev=` semantics — the stub is forced,
-  and real-eval confirmation lands on the human Agent Gate. The plan's
-  acceptance loop runs only five suites; the other five (`nexus-host-key.sh`,
-  `vm-ssh-host-key.sh`, `forge-ssh-key.sh`, `bootstrap-orchestration.sh`,
-  `registry-resolver.sh`) also exercise code that sources the changed lib and
-  will run in `nix flake check` regardless.
+  exercise real remote-fetching `nix eval` semantics. The plan's acceptance
+  gate is now `nix flake check` itself (pass 1); the five suites outside the
+  focused loop (`nexus-host-key.sh`, `vm-ssh-host-key.sh`, `forge-ssh-key.sh`,
+  `bootstrap-orchestration.sh`, `registry-resolver.sh`) exercise code that
+  sources the changed lib and run in it regardless.
 - `rotate-token` sources both `resolve-repos.sh` and `rotation-common.sh` and
   keeps registry usage; its suite staying green is a real signature-stability
   probe for the shared helpers, not ceremony.
@@ -131,10 +130,12 @@ from `dev-plans.md`: Tracking Issue, Goal, Scope, Risk Assessment, Interface
 Contracts, Agent Gates, Acceptance Tests, and Rollback Plan. Agent Gates may be
 omitted only if no actions require a human (they apply here). The plan expects
 a single PR carrying `Closes allod/nexus#5` with a contemplated split into two
-PRs (closing keyword on the second) — if the split is real, the plan must
-assign residual risk per PR; it currently scores one R3 for the whole. Verify
-the rollback plan's revert order (wiring PR before lib PR) matches the split it
-describes.
+PRs (closing keyword on the second). Pass 1 made the split additive-first
+(PR1 adds helpers only, existing signatures untouched; PR2 carries the
+signature changes and wiring) and assigned per-PR risk (PR1 R1, PR2 R3) —
+verify the additive-first claim survives contact with the actual contract
+table, and that the rollback plan's revert order (wiring PR before lib PR)
+still matches.
 
 ## Focus Areas
 
@@ -147,155 +148,84 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **The scope boundary: two parallel resolver families in one lib.** The plan
-   adds `_at_pin` siblings for IP and username while leaving
-   `resolve_target_ip` / `resolve_target_user` / `resolve_forge_connection`
-   signature-stable for three out-of-scope rotation scripts. Two code paths
-   answering "what is this VM's IP/user" invite drift, and the boundary must
-   actually hold. Concretely: (a) `provision-vm-from-host` reads `.forge_key`
-   from `$SPECS` after `nixos-anywhere` to decide bootstrap/verify — the plan
-   deletes `SPECS` from the environment surface without saying where
-   `forge_key` now comes from; pinned read, retained working-tree read, or
-   oversight? (b) provision's children (`bootstrap-vm-from-host.sh`,
-   `verify-vm-from-host`) re-derive IP and username from the registry and the
-   working tree — one provisioning run can install to the pinned IP and then
-   bootstrap against a drifted working-tree IP. Is that seam acknowledged?
-   (c) Is there a real semantic reason the global family survives (rotation
-   tools mutate live working-tree state; provisioning tools consume pinned
-   state), and does the plan say so, or does it only argue blast radius? Ask
-   directly: after this change, does any in-scope code path still read a
-   working-tree fact the plan claims is pinned?
+Pass 2 is a scoped diff review of the pass-1 plan commits
+`c36b9d2..9213eda` (eleven commits on `dev-plans/nexus-deploy-flake-provisioning-source.md`),
+not a full re-review. Structural fixes are where new blockers enter; read the
+diff against the real scripts, not against pass 1's descriptions of them.
 
-2. **`nix eval` at a local git rev is not `git show`.** `resolve_target_user_at_pin`
-   runs `nix eval --raw "git+file://${secrets_checkout}?rev=${secrets_rev}#lib.vmUsernames.${vm}"`.
-   Nix's git fetcher resolves revs through the refs it fetches, not the
-   checkout's object database: after `ensure_git_commit_available` fetches, the
-   pinned rev may exist only via a remote-tracking ref while the local branch
-   is behind — `git show` reads it fine, but `git+file?rev=` can die with
-   "cannot find Git revision" absent `?ref=`/`allRefs` depending on nix
-   version. Dirty-tree semantics also differ from the current `path:` eval.
-   And evaluating the secrets flake at any rev forces its own locked inputs
-   (nixpkgs from GitHub, inventory from the forge) to be fetched or cached —
-   the "local pinned read" has network dependencies and real weight. None of
-   this is exercisable in fixtures: the sandbox forces a stub keyed on the
-   `?rev=` string, so the only validation of the real incantation is the human
-   gate. Does the exact incantation work when the rev is not reachable from
-   the checked-out branch? What is the failure mode offline? Should the plan
-   pin the flake-ref shape (`?ref=`, `allRefs`) or document the constraint —
-   and is the heaviest, least-testable mechanism in the plan even warranted
-   for a fact whose worst failure is availability, not a pin bypass (see the
-   SIMPLIFY sweep)?
+1. **The provision rewiring blockers (c36b9d2, c9d85e0).** Both fixes add new
+   mechanism to the flagship flow. (a) The pinned `forge_key` read:
+   `git show | jq -r '.[$v].forge_key'` prints the string `null` for a JSON
+   null *and* for an absent entry — the gate tests `!= "null"`, and the
+   absent-entry ambiguity is harmless only because `resolve_target_ip_at_pin`
+   dies first on unknown VMs; confirm the plan's ordering makes that
+   dependency survive implementation. (b) The DHCP-seam preflight plus
+   `INVENTORY` export plus pinned-`TARGET` pass-through: does the preflight
+   compare against the exact file `new-vm` will read under every override
+   combination; does exporting `INVENTORY` leak anywhere else provision
+   reaches; does handing bootstrap the pinned IP interact correctly with its
+   known_hosts rewrite (it filters entries by the target IP it is given)?
+   (c) Is the preflight still one comparison, or growing into a sync engine?
 
-3. **Convention checkout locations versus the private deploy flake.** The
-   issue's whole point is the operator's private deploy flake, yet
-   `INVENTORY_CHECKOUT`/`SECRETS_CHECKOUT` default to the public
-   `~/work/allod/{inventory,secrets}`. A private deploy flake pins private
-   forks; those revs will not exist in the public checkouts, and
-   `ensure_git_commit_available`'s single `git fetch` hits the *public* origin
-   and dies. So the flagship private invocation needs `DEPLOY_FLAKE` plus two
-   checkout overrides — three env vars where the Goal advertises zero — and
-   the plan simultaneously deletes the registry indirection that exists to map
-   repo aliases to real checkout paths on the host. Is the failure loud and
-   correctly attributed ("git fetch failed" does not tell the operator the fix
-   is pointing `SECRETS_CHECKOUT` at their private checkout)? Should checkout
-   defaults be validated against the lock's pinned URL (cheap: compare
-   `origin` to `locked.url` and die with a pointed message), resolved via the
-   registry, or is convention-plus-env genuinely the simplest thing that
-   works? Where does the operator learn the private invocation?
+2. **The reworded refusal contract (652f4fa).** `flake_lock` rides the asserts
+   as message-only context and `die_vm_host_key_material_not_pinned` became
+   pure message composition `(vm, material, secrets_rev, flake_lock)`. Check
+   that no plan text or test expectation still has the assert deriving the rev
+   or fetching in the failure path; that the reworded message retains every
+   load-bearing grep (vm, observed material, lock path, `secrets@<rev>`,
+   remediation sentence) across the rotation-common, rebuild, and provision
+   suites; and that dropping `ensure_git_commit_available` from the *die* path
+   does not remove it from the *success* path
+   (`machine_host_key_materials_at_secrets_pin` still needs it).
 
-4. **`DEPLOY_FLAKE` default and the build-target swap.** Old: rebuild `cd`s
-   into the registry-resolved `MACHINE_PROFILES` and builds `.#vm`; provision
-   builds `${MACHINE_PROFILES}#vm`. New: `--flake "${DEPLOY_FLAKE}#${VM_NAME}"`
-   with `DEPLOY_FLAKE` hardcoded to `$HOME/work/allod/profiles`. The flake-ref
-   shape is equivalent, but the default changed from registry-resolved to
-   convention — on a host whose `repositories.json` maps `profiles` elsewhere,
-   the same command now silently builds a different flake than yesterday. Does
-   the profiles flake define a `nixosConfigurations` entry for every name in
-   `vm-specs.json` so `${DEPLOY_FLAKE}#<vm>` resolves for all of them? For
-   each machine the operator can name, does the default produce the same build
-   as the old path — and if not, is the difference loud?
+3. **The username cut (3b239c8, 9213eda).** Rebuild now does an inline
+   `nix eval --raw "path:${SECRETS_CHECKOUT}#lib.vmUsernames.<vm>"` instead of
+   any `_at_pin` resolver. Confirm no surviving plan text claims the username
+   is pinned; judge the altitude call (inline eval versus reusing
+   `resolve_target_user` with a locally assigned `IDENTITY_CONFIG` — either is
+   acceptable, the plan should not read as forbidding the helper); and confirm
+   the rebuild suite's `lib.vmUsernames.<vm>`-keyed nix stub still matches the
+   new reference shape.
 
-5. **The pinned age-secret read.** `git -C "$SECRETS_CHECKOUT" show
-   "${SECRETS_REV}:secrets/vm-host-keys/${VM_NAME}-ssh.age" | age --decrypt`.
-   `git show` of a blob is byte-exact absent textconv/eol attributes — confirm
-   nothing in the secrets repo's `.gitattributes` can munge `.age` blobs, and
-   that the decrypted key still lands in a file via redirect (piping preserved
-   per the memory warning; command substitution strips the trailing newline
-   and bricks first boot). Sharp edges: with `pipefail`, a path absent at the
-   pin fails on the git side — does the wiring preserve the "No SSH host key
-   secret for <vm>" message class or dump a raw git error, and does the test
-   matrix cover absent-at-pin (the current missing-ciphertext test deletes the
-   working-tree file, which stops mattering)? Reading at the pin means a
-   just-init'd machine whose key is committed but not yet locked fails loud —
-   the plan calls that correct; check it against `vm-ssh-host-key init`'s
-   printed runbook (commit secrets, bump *profiles* lock, provision), which
-   under a private deploy flake bumps the wrong lock. Is the end-to-end
-   new-machine workflow still coherent, and is ciphertext working-tree-vs-pin
-   skew (pinned bytes win) actually asserted by a test?
+4. **New fixture surface fit (bfe07f7, 03f36e8, and the matrix half of
+   c9d85e0).** The added cases — absent-at-pin, garbage-at-pin, ciphertext
+   skew, DHCP-mismatch refusal, forge_key anti-drift, zero-env planting under
+   the fixture `$HOME` — assume the existing `setup_fixture`/`pin_mode`
+   pattern extends cleanly. Walk each against
+   `tests/provision-vm-from-host.sh` and `tests/rebuild-vm-from-host.sh` as
+   they exist: every pinned-state case needs a rev where the bad state is
+   committed and a lock pinning it. Flag any case the harness shape cannot
+   express without a rewrite the plan does not budget.
 
-6. **The dropped implicit `git pull`.** Rebuild pulls profiles; provision
-   pulls profiles and secrets — today, before anything else. The plan deletes
-   all three pulls as contradicting lock authority. But the workspace's host
-   workflow is "agent edits, commits, pushes; human pulls and runs host
-   commands" — the auto-pull was quietly doing the pull half for the two
-   most-used host commands. After the change, a stale deploy-flake checkout
-   silently builds an old config with old pins: self-consistent, but the
-   operator who just merged a profiles PR from a VM gets yesterday's system
-   with no warning. Is silent-stale acceptable under fail-loud (principle 11),
-   or should the scripts warn when the deploy-flake checkout is behind its
-   upstream? If deliberate staleness is the intended semantics (deploy exactly
-   what is pinned, update deliberately), the plan should state the
-   operator-visible consequence, not just the rationale.
+5. **Cold-operator sufficiency of the fork-mismatch attribution (29fed12).**
+   Pass 1 chose message-level attribution (origin URL plus a
+   may-track-a-different-fork hint in `ensure_git_commit_available`'s
+   fetch-miss deaths) over a hard origin/lock-URL comparison, because ssh
+   checkout remotes versus https lock URLs make an equality gate
+   false-positive on healthy hosts. Judge whether that message plus the
+   env-block comments is enough for an operator running cold against a
+   private deploy flake, or whether the plan should carry one worked private
+   invocation example. Do not reintroduce the equality check.
 
-7. **The refusal message now points at the wrong repo.** The plan preserves
-   the stale-pin refusal "verbatim", including "Update the secrets input in
-   profiles, commit, push, then retry" and the `flake.lock` context. Two
-   problems. First, under the deploy-flake model the pin lives in
-   `${DEPLOY_FLAKE}/flake.lock` — for a private deploy flake, "in profiles"
-   sends the operator to a repo whose lock the script no longer reads; the
-   real fix is `nix flake update secrets` in the deploy flake. A security
-   refusal that misdirects remediation is a defect, not a nicety. Second,
-   literally: `die_vm_host_key_material_not_pinned` interpolates
-   `${flake_lock}` and re-derives the rev from `profiles_checkout`; the new
-   `(vm, material, secrets_checkout, secrets_rev)` signature has no lock path
-   to print, so "preserved verbatim" is impossible without passing the lock
-   path through or rewording — and the existing tests grep for the profiles
-   lock path in refusal output. What should the message say under the
-   deploy-flake model, and which test pins the new wording?
+Run an explicit SIMPLIFY sweep every pass. Pass 1 cut the username `_at_pin`
+resolver (the prior standing candidate) and recorded the decision in the plan;
+do not re-litigate it without new facts. Remaining candidates to weigh
+honestly: whether the DHCP-seam preflight and `INVENTORY` export can be
+expressed more cheaply than specified; whether
+`INVENTORY_CHECKOUT`/`SECRETS_CHECKOUT` should collapse into one convention
+root (pass 1 kept two knobs — the repos are independently forkable and the
+vars mirror the lock's two inputs — but the decision is recorded nowhere in
+the plan; record it or collapse them); and whether any pass-1 addition
+(fetch-miss message enrichment, the preflight, the pinned forge_key read) grew
+mechanism beyond its one-line job.
 
-8. **Does the test matrix pin the properties it claims?** Trace each claimed
-   property to a concrete asserted test: (a) fail-closed on the derived path —
-   stale/mismatched/absent-entry cases under the new signature must assert the
-   refusal text *and* that no `nixos-rebuild`/`new-vm` ran (the harness's
-   `assert_*_not_called` pattern), not merely a nonzero exit; (b) anti-drift —
-   inventory working tree at a different commit than the pin still yields the
-   pinned IP is real (git-backed), but the username "anti-drift" case is a
-   stub keyed on the `?rev=` string and proves only that the script builds the
-   reference, not that it evaluates (see Focus Area 2 — do not let a green
-   stub masquerade as coverage); (c) the genuine no-env invocation — only
-   `DEPLOY_FLAKE` set means the fixture must plant repos under the fixture
-   `$HOME/work/allod/{inventory,secrets}`; a test that exports
-   `INVENTORY_CHECKOUT`/`SECRETS_CHECKOUT` proves nothing about the zero-env
-   Goal; (d) suite coverage — the plan's acceptance loop runs five of the ten
-   test files, but `nix flake check` runs all ten and the changed lib is
-   sourced by scripts covered in the other five; the acceptance command should
-   be `nix flake check` or the full set, else a signature regression in an
-   out-of-scope script's suite is discovered after "done"; (e)
-   missing-`machine-host-keys.json`-at-pin stays an infra failure, never a
-   "not pinned" refusal.
+Fix stability: pass 1 (claude-fable-5) commits `c36b9d2..9213eda` have not yet
+been tested by a later pass; record how they held up here in pass 2.
 
-Run an explicit SIMPLIFY sweep every pass. Standing candidates to weigh
-honestly rather than wave through: the parallel `_at_pin` username resolver —
-the username is not the security boundary (a wrong user fails SSH login
-against an already-pin-verified host), so evaluating the *working tree* of
-`SECRETS_CHECKOUT` with the existing `resolve_target_user` would keep zero-env
-and delete the plan's heaviest, least-testable mechanism; is rev-consistency
-for a non-security fact worth a `git+file` eval that fixtures cannot exercise?
-Also: whether `INVENTORY_CHECKOUT`/`SECRETS_CHECKOUT` need to be two knobs or
-one convention root, and whether folding the inline existence checks into
-`resolve_target_ip_at_pin` (good — deletes duplicated inline `jq` guards)
-should also fold the null-IP check the same way in both scripts. Cutting the
-username pin would be a real scope deletion; record the decision either way.
+Next pass: scoped diff review of `c36b9d2..9213eda`, not a full re-review, on
+an Opus-family model per the owner's choice — the pass-1 author was
+claude-fable-5, and pass 1 landed structural fixes (two blockers, a signature
+change, a scope cut), which is where new blockers enter.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
@@ -368,9 +298,8 @@ action or decision exists.
 
 Use `[SIMPLIFY]` for unnecessary scope, ceremony, or abstraction. Commit
 SIMPLIFY fixes when they remove implementation work, delete unnecessary scope,
-or prevent an unnecessary abstraction (the username `_at_pin` resolver is the
-standing candidate). Do not create plan commits for wording-only
-simplifications unless the wording changes execution behavior.
+or prevent an unnecessary abstraction. Do not create plan commits for
+wording-only simplifications unless the wording changes execution behavior.
 
 Use `[QUESTION]` only when the plan cannot be corrected from repo context
 (host-side `nix` behavior on the real Nexus box may be one — the fixture
