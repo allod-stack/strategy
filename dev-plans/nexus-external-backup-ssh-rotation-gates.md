@@ -349,8 +349,10 @@ Cases the suite must add:
   typed confirmation → phase proceeds and records the abandoned `name` +
   `user@host`; a missing/mismatched confirmation or an unknown name → die.
 - **fail-closed resolution** → a gate whose `sshHost` alias is absent from
-  `sshHosts`, and an `externalSshTrustTargets` eval error → die (never silently
-  skipped).
+  `sshHosts`, an `externalSshTrustTargets` eval error, and an unknown
+  `recovery` value → die (never silently skipped). Run at `stage`, the die
+  lands before any mutation: secrets checkout still clean, no staged backup
+  written (the resolve-before-mutation observable).
 
 ## Rollback Plan
 
