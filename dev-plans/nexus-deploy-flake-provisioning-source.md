@@ -317,12 +317,23 @@ Test matrix (new or adapted cases):
     name the checkout's `origin` URL and the may-track-a-different-fork hint (existing
     assertions extended to grep both).
 - `tests/rebuild-vm-from-host.sh`: fixture provides a deploy-flake `flake.lock` pinning
-  both inventory and secrets. With **no** `INVENTORY`/`MACHINE_PROFILES`/`IDENTITY_CONFIG`
-  set (only `DEPLOY_FLAKE` + default checkout locations), rebuild derives IP + username +
-  pin, preserves the strict SSH options and `--flake "${DEPLOY_FLAKE}#<vm>"` target, honors
-  the positional IP override, and refuses before `nixos-rebuild` on stale/empty/failed/
-  malformed/multiple-no-match keyscans (existing cases ported to the deploy-flake fixture).
-- `tests/provision-vm-from-host.sh`: with only `DEPLOY_FLAKE` set, provision resolves the
+  both inventory and secrets, and plants the deploy-flake, inventory, and secrets repos
+  under the fixture `$HOME/work/allod/{profiles,inventory,secrets}` so the convention
+  defaults resolve for real — the current runner exports
+  `INVENTORY`/`MACHINE_PROFILES`/`IDENTITY_CONFIG` explicitly, and a runner that swaps
+  those for `INVENTORY_CHECKOUT`/`SECRETS_CHECKOUT` exports would prove nothing about the
+  zero-env Goal. At least one case sets **none** of
+  `DEPLOY_FLAKE`/`INVENTORY_CHECKOUT`/`SECRETS_CHECKOUT` (tool-stub vars like
+  `SSH_KEYSCAN`/`NIXOS_REBUILD` are fine). Rebuild derives IP + username + pin, preserves
+  the strict SSH options and `--flake "${DEPLOY_FLAKE}#<vm>"` target, honors the
+  positional IP override, resolves the pinned IP when the inventory working tree is
+  checked out at a different commit with a different IP (script-level anti-drift:
+  keyscan.log records the pinned IP), and refuses before `nixos-rebuild` on stale/empty/
+  failed/malformed/multiple-no-match keyscans — ported cases keep their
+  `assert_nixos_rebuild_not_called` assertions and re-grep refusals against the
+  deploy-flake lock path and reworded remediation.
+- `tests/provision-vm-from-host.sh`: same fixture-home planting; with only `DEPLOY_FLAKE`
+  set (or nothing, for the zero-env case), provision resolves the
   IP at the inventory pin, reads and decrypts the age host-key secret at the secrets pin,
   fails closed via `assert_vm_host_key_material_pinned` before `nixos-anywhere` on a
   mismatched derived key, and builds `--flake "${DEPLOY_FLAKE}#<vm>"`. The bootstrap gate
