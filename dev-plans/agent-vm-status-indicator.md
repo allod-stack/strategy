@@ -106,13 +106,16 @@ These four decisions are resolved, not left open.
    exits non-zero. The merge pipeline also owns its own failure
    (`jq ... > tmp || { rm -f tmp; exit 1; }`) so `mv` can never run after a failed
    `jq` regardless of shell options (the merge script runs its own `set -eu`).
-   The activation entry invokes the script NON-FATALLY (`${claudeStatusMerge} ||
-   true`), so a refusal is loud (the ERROR surfaces in the rebuild output and
-   `journalctl -u home-manager-<user>.service`) and the file is left byte-unchanged,
-   but it never aborts activation or rewrites the file to `{}`. Non-fatal, not
-   unit-failure, is the containment mechanism - see the Activation contract for why
-   entry ordering cannot be relied on. The `.statusLine` key is re-asserted
-   idempotently every rebuild; all other keys are preserved verbatim.
+   The activation entry invokes the script NON-FATALLY and follows refusal with
+   Home Manager's `warnEcho`, so the helper's ERROR plus an activation warning
+   surface in direct activation output and in
+   `journalctl -u home-manager-<user>.service`; a successful `nixos-rebuild
+   switch` is not assumed to stream successful unit logs. The file is left
+   byte-unchanged, but the refusal never aborts activation or rewrites the file
+   to `{}`. Non-fatal, not unit-failure, is the containment mechanism - see the
+   Activation contract for why entry ordering cannot be relied on. The
+   `.statusLine` key is re-asserted idempotently every rebuild; all other keys
+   are preserved verbatim.
 
 2. **Hostname source - baked from `osConfig.networking.hostName` at generation,
    for both harnesses.** Not `os.hostname()` / `hostname` at runtime. The feature
@@ -350,21 +353,22 @@ home.activation.agentVmStatus = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
   # Pi: install auto-discovered extension (immutable store source). Refusals on
   # operator-authored target collisions print a loud ERROR and leave the path
   # byte-unchanged, but must not abort the shared activation script.
-  ${piStatusInstall} || true
+  ${piStatusInstall} || warnEcho "Pi VM status extension was not installed; see ERROR above. Fix or remove $HOME/.pi/agent/extensions/vm-status.ts, then rebuild."
 
   # Claude: merge ONLY .statusLine. A refusal on a malformed/empty operator
-  # settings.json prints a loud ERROR to stderr (visible in the rebuild output and
-  # `journalctl -u home-manager-<user>.service`) and leaves the file byte-unchanged.
-  # It is invoked NON-FATALLY so that, under the shared `set -eu` activation script,
-  # a refusal cannot abort activation or skip any entry the DAG sorts after this one.
-  ${claudeStatusMerge} || true
+  # settings.json prints a loud ERROR plus a Home Manager warning and leaves the
+  # file byte-unchanged. It is invoked NON-FATALLY so that, under the shared
+  # `set -eu` activation script, a refusal cannot abort activation or skip any
+  # entry the DAG sorts after this one.
+  ${claudeStatusMerge} || warnEcho "Claude VM statusLine was not installed; see ERROR above. Fix or remove $HOME/.claude/settings.json, then rebuild."
 '';
 ```
 
-(The helper scripts still own their own preflight and atomicity; `|| true` only
-stops the *shared* activation script from aborting - the loud ERROR and the
-byte-unchanged file come from the helper itself. The flake check asserts both
-non-fatal invocations - see Acceptance Tests.)
+(The helper scripts still own their own preflight and atomicity; `|| warnEcho`
+only stops the *shared* activation script from aborting and adds a Home Manager
+warning - the loud ERROR and the byte-unchanged file come from the helper itself.
+The flake check asserts both non-fatal warning invocations - see Acceptance
+Tests.)
 
 **Flake check.** Add `agent-vm-status` to `checks.<system>` mirroring the existing
 `pi-integration` structure: embed `home.activation.agentVmStatus.data` via
@@ -425,13 +429,14 @@ merge="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-claude-vm-status-mer
 piext="$(grep -oE '/nix/store/[^" ]+-pi-vm-status\.ts' "$install"                     | head -1)"
 claudesh="$(grep -oE '/nix/store/[^" ]+-claude-vm-statusline' "$merge"                 | head -1)"
 
-# The mutable-state helpers MUST be invoked non-fatally: under the shared `set
-# -eu` activation script a refusal must not abort activation and skip a later
-# entry. In the real allod-dev DAG, installPackages and syncPrBranchProtection
-# sort AFTER this entry, so a fatal refusal would skip a package install and the
+# The mutable-state helpers MUST be invoked non-fatally and route refusals
+# through Home Manager warnings: under the shared `set -eu` activation script a
+# refusal must not abort activation and skip a later entry. In the real
+# allod-dev DAG, installPackages and syncPrBranchProtection sort AFTER this
+# entry, so a fatal refusal would skip a package install and the
 # branch-protection sync.
-printf '%s\n' "$act" | grep -E 'pi-vm-status-install[^|]*\|\| *(true|:)'
-printf '%s\n' "$act" | grep -E 'claude-vm-status-merge[^|]*\|\| *(true|:)'
+printf '%s\n' "$act" | grep -E 'pi-vm-status-install[^|]*\|\| *warnEcho'
+printf '%s\n' "$act" | grep -E 'claude-vm-status-merge[^|]*\|\| *warnEcho'
 
 # Pi extension bakes the hostname and the required API calls:
 grep -F "VM: ${host}" "$piext"
@@ -526,7 +531,9 @@ Not automatable (human, after rebuild): launch `pi` and `claude` on a live
 `allod-dev` in a real terminal and confirm the footer/status row persistently
 shows `VM: allod-dev` across turns and after `/new` (pi) / new messages (claude).
 The literal footer glyph render needs a real PTY/TUI and, for Claude, an accepted
-workspace-trust prompt (otherwise the row is suppressed - not a failure).
+workspace-trust prompt (otherwise the row is suppressed - not a failure). If a
+row is absent after rebuild, check `journalctl -u home-manager-allod.service` for
+the helper ERROR/warning before debugging the harness.
 
 ## Rollback Plan
 
