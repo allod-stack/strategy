@@ -38,8 +38,8 @@ Key repos in play:
   `scripts/nexus-host-key` (the stage/activate/retire rotation state machine),
   `scripts/lib/rotation-common.sh` (shared resolvers: `resolve_target_ip`,
   `resolve_target_user`, `resolve_forge_connection`), `tests/nexus-host-key.sh`
-  (the fixture harness), and `README.md` (the rotation runbook). This PR carries
-  `Closes allod/nexus#4`.
+  (the fixture harness), and `docs/host-key-rotation.md` linked from
+  `README.md`'s Documentation list. This PR carries `Closes allod/nexus#4`.
 - `allod/secrets` — the identity-bearing repo. Owns `identity.nix` (the
   `sshHosts` registry and everything under `lib.identity`, exposed by
   `flake.nix`). The new `externalSshTrustTargets` attrset lands here. Public
