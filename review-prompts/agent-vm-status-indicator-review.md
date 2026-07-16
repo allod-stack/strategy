@@ -107,83 +107,77 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **Home Manager module boundary and hostname source.** The plan adds
-   `osConfig` to the inner `ai-agents.nix` module and reads
-   `osConfig.networking.hostName`. Verify this argument is available in the
-   current `home-manager.nixosModules.home-manager` integration, or that the
-   implementation explicitly passes a hostname from `mkDevVm`. A missing module
-   arg is a build-time blocker; a fallback to runtime `hostname`, identity data,
-   or duplicated profile data violates the plan's one-source-of-truth premise.
-   Also confirm the module still imports only for dev VMs and does not leak this
-   behavior into privacy or hypervisor profiles.
+Pass 1 (claude-opus-4-8) committed structural fixes; pass 2 is primarily a scoped
+diff review of those, plus the carried live/VM-side items below.
 
-2. **Activation failure semantics and mutable Claude settings.** The plan relies
-   on an activation-time `jq` merge that owns only `.statusLine`, rejects empty,
-   scalar, array, multi-document, and malformed settings, and leaves the file
-   byte-unchanged on refusal. Trace that through the generated Home Manager
-   activation script, not only the Nix source. Does a refusal fail the right unit
-   loudly, with a repairable error, and without half-writing a temp file? Does
-   `entryAfter ["writeBoundary"]` interact correctly with existing activation
-   entries? Challenge the R2 risk claim here: blocking Home Manager activation
-   on a user-authored settings file may be R3 unless the tests and rollback story
-   really contain the blast radius.
+1. **[SCOPED DIFF - highest priority] Activation ordering fix (commit 7ab6771).**
+   Pass 1 found that a bare `entryAfter ["writeBoundary"]` sorts `agentVmStatus`
+   to the FRONT of the post-`writeBoundary` group (lexicographic `attrValues`
+   tie-break, confirmed against the generated `activate`, which runs `set -eu -o
+   pipefail`), so a merge refusal on a malformed operator `settings.json` would
+   abort activation and skip `installPackages`, `linkGeneration`, `llmMemoryLinks`,
+   `reloadSystemd`, and `setupTrackedHooks`. The fix anchors the entry
+   `entryAfter [ "writeBoundary" "llmMemoryLinks" "onFilesChange" "reloadSystemd"
+   "setupTrackedHooks" ]`. Verify it actually lands LAST: build the allod-dev home
+   generation (or eval the activation package) and read the `_iNote "Activating"`
+   order; simulate a refusal and confirm no earlier entry is skipped. Critically,
+   the flake check does NOT yet assert this ordering - the containment is
+   currently untested. Decide whether the check must assert `agentVmStatus` sorts
+   after those entries, and whether anchoring by hard-coded home-manager entry
+   names (silently ignored if renamed) is robust enough, or whether the merge
+   should instead be non-fatal (warn, do not abort) so ordering cannot matter.
 
-3. **Generated artifact closure and check mechanics.** The new flake check plans
-   to extract store paths from `home.activation.agentVmStatus.data` and execute
-   them in the build sandbox. Verify the activation text preserves Nix string
-   context so `piStatusExtension`, `claudeStatusLine`, and `claudeStatusMerge`
-   are realized in the check closure, and that the grep/regex extraction cannot
-   silently grab the wrong path. The check must execute the actual generated
-   merge/status scripts with `jq` available, prove idempotence and refusal
-   behavior, and include sabotage cases that can fail for the intended reason.
+2. **[SCOPED DIFF] Claude statusline extraction fix (commit 2efe090).** Pass 1
+   found the statusline store path is never in `agentVmStatus.data` (only the Pi
+   extension and merge-script paths are; the statusline is referenced only inside
+   the merge script), so the old grep of `$act` returned empty and the render (#2)
+   and sabotage (#3) tests were broken/vacuous. The fix greps `$merge` for the
+   statusline path and adds a `.statusLine.command==$claudesh` linkage assertion.
+   Confirm the extracted script is realized and executable in the build sandbox,
+   both Claude tests pass, and the check declares `nativeBuildInputs = [ pkgs.jq ]`.
+   Watch for the sabotage test passing vacuously again if extraction ever empties.
 
-4. **Pi runtime proof, discovery, and sabotage.** The plan's sharpest runtime
-   risk is a malformed Pi extension preventing `pi` from starting. Verify the
-   implementation tests the real generated `.ts` artifact under the installed
-   Pi runtime, ideally `pi --mode rpc --offline -e "$piext"` with an isolated
-   `HOME`, and asserts a `setStatus` event carrying the baked hostname. Also
-   verify the broken-extension sabotage genuinely fails before emitting
-   `setStatus`, does not depend on an API key, and would catch a load/parse
-   regression. If the build sandbox cannot run Pi, the VM-side step must remain
-   explicit and non-optional.
+3. **Pi `--offline` flag and RPC event schema (carry, VM-side).** Confirm `pi
+   --mode rpc --offline -e <file>` is a valid invocation on the installed pi
+   0.80.3 (pass 1 added `--offline` per this prompt's own recommendation but could
+   not run pi), and that the asserted `"method":"setStatus"` / `"statusKey":
+   "vm-status"` field names match real observed RPC output; re-pin if not. If
+   `--offline` is not real, find another way to guarantee no network/API-key
+   dependency in the probe.
 
-5. **Claude `statusLine` contract and settings overwrite policy.** Confirm the
-   generated settings shape is exactly what Claude Code 2.1.204 expects:
-   camel-case `statusLine`, `{ "type": "command", "command": "<store path>" }`,
-   command stdout rendering, stdin ignored safely, and workspace-trust caveats
-   correctly classified as live-TUI verification notes rather than defects.
-   The merge overwrites any existing `.statusLine`; decide whether that is the
-   right ownership boundary and make sure the plan says so plainly. Verify
-   rollback behavior when the configured command points to a missing store path,
-   because `claude -p` and interactive Claude can differ in how they handle bad
-   settings.
+4. **Claude behavior with a missing/GC'd command path (carry, live-TUI,
+   human-gated).** The rollback story claims a `statusLine.command` pointing at a
+   garbage-collected store path makes Claude silently blank the row. Verify that
+   against Claude Code 2.1.204 - both `claude -p` and interactive - rather than
+   erroring or refusing to start. This is the one rollback claim with no
+   agent-runnable test.
 
-6. **Codex exclusion and scope discipline.** Codex is out of scope only if the
-   installed `codex` really cannot render custom text or an external command in
-   the persistent TUI footer. Verify the full local config surface rather than
-   trusting a partial identifier list. If Codex still lacks the hook, keep the
-   exclusion and do not accept wrapper hacks, prompt text, shell aliases, or
-   one-time startup banners as substitutes for a persistent in-harness status
-   surface.
+5. **Codex exclusion (carry, one-glance confirm at implementation).** Before
+   blessing the exclusion, confirm the installed codex 0.142.5 `tui.status_line`
+   item list has no custom-text or external-command item. Do not accept wrapper
+   hacks, aliases, prompt text, or one-time startup banners as substitutes for a
+   persistent in-harness status surface.
 
-7. **Rollback residue and partial states.** The rollback plan says a reverted PR
-   plus human rebuild leaves Claude blank and Pi with an inert dangling symlink.
-   Test or inspect the actual failure modes: status script missing, merge script
-   never ran, Pi symlink created but Claude merge failed, Claude merge succeeded
-   but Pi link failed, and store path garbage-collected later. Rollback should
-   preserve non-`statusLine` Claude settings, remove only the generated Pi
-   symlink when requested, and never require host-side commands beyond the human
-   rebuild.
+6. **SIMPLIFY sweep (standing).** Re-examine whether every artifact still earns
+   its keep after the pass-1 fixes. The `claudeStatusMerge` / `claudeStatusLine`
+   split is currently justified because Test #1b exercises the merge behaviorally
+   and the render test executes the statusline directly - do not inline them
+   unless that coverage is dropped. Hunt for any new ceremony the fixes
+   introduced (e.g. the ordering-anchor list, the extra linkage assertions).
 
-8. **SIMPLIFY sweep.** Reconsider whether every planned artifact earns its
-   keep. A factored Claude merge script is justified only if the check executes
-   it behaviorally; otherwise it is ceremony. Likewise, do not let the Pi tests
-   grow into a package-manager harness if a direct `pi --mode rpc -e` probe proves
-   the contract. Delete optional extras, alternative status text, or future
-   harness hooks that do not move `VM: <hostname>` into Pi and Claude now.
+Do not re-open focus areas fully resolved this pass unless the current plan
+contradicts itself. RESOLVED in pass 1 (do not re-litigate): the `osConfig`
+module argument IS available in this home-manager-as-NixOS-module integration
+(home-manager passes `osConfig = <the NixOS config>` as a specialArg;
+`networking.hostName` is set to the machine name in `sharedModules`), and
+`ai-agents.nix` is imported only by the dev-VM builder - so the one-source-of-truth
+hostname and dev-only scoping are sound and need no `mkDevVm` change.
 
-Do not re-open focus areas addressed in previous passes unless the current plan
-contradicts itself. This is the first pass; the areas above are the seed.
+Next pass: scoped diff review of commits 2efe090 (statusline extraction) and
+7ab6771 (activation ordering + risk recalibration) - the two structural fixes.
+They were authored by claude-opus-4-8; per the `dev-plans.md` rotation guidance,
+prefer a different model (e.g. gpt-5 or claude-sonnet) for the verification pass
+and record here how the ordering fix held up.
 
 ## Review Guidelines
 
