@@ -61,13 +61,18 @@ In scope:
 
 Out of scope:
 
-- **Codex**: codex 0.142.5 does expose a `tui.status_line` footer config, but it
-  accepts only a fixed set of predefined item identifiers (`spinner`, `project`,
-  and model / token-usage / context-usage / branch / approval / current-dir /
-  rate-limit items) - there is no custom-text or external-command item, so a
+- **Codex**: codex 0.142.5 does expose a `tui.status_line` footer config, but
+  the installed 0.142.5 source defines it as an ordered list of built-in
+  `StatusLineItem` identifiers (`model`, `model-with-reasoning`, `reasoning`,
+  `current-dir`, `project-name`/`project`/`project-root`, `git-branch`,
+  `pull-request-number`, `branch-changes`, `run-state`/`status`, `permissions`,
+  `approval-mode`/`approval`, `context-remaining`, `context-used` /
+  `context-usage`, `five-hour-limit`, `weekly-limit`, `codex-version`,
+  `context-window-size`, `used-tokens`, `total-input-tokens`,
+  `total-output-tokens`, `thread-id`/`session-id`, `fast-mode`, `raw-output`,
+  `thread-title`, `workspace-headline`, `task-progress`). Unknown strings are
+  warned and ignored. There is no custom-text or external-command item, so a
   `VM: <hostname>` string cannot be injected. Excluded until such a hook exists.
-  (Assumption: the identifier list contains no custom/command item; the
-  implementer should confirm against the full list in one glance.)
 - Privacy and hypervisor profiles: `ai-agents.nix` is imported only by the dev-VM
   builder, so those archetypes are untouched by construction.
 - Optional extras (cwd / git branch / model / context %): Claude and Pi already
