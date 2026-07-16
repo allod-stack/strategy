@@ -382,17 +382,21 @@ if printf '%s' "$STDIN" | bash "$sab" | grep -qF "VM: ${host}"; then
   echo "SABOTAGE FAILED: mutated script still emitted real hostname" >&2; exit 1; fi
 rm -f "$sab"
 
-# --- 4. Pi RENDER proof (real runtime, headless, no API key): pi --mode rpc loads
-#        the real extension, fires session_start, and emits the setStatus UI event
-#        carrying the hostname. (Verified on allod-dev: exit 0, event on stdout.) ---
-ev="$(timeout 30 pi --mode rpc -e "$piext" </dev/null 2>/dev/null)"
+# --- 4. Pi RENDER proof (real runtime, headless, offline, no API key): pi --mode
+#        rpc --offline loads the real extension, fires session_start, and emits the
+#        setStatus UI event carrying the hostname. --offline guarantees no network
+#        or provider-key dependency (matches the no-API-key claim). The "method"/
+#        "statusKey" field names below are pinned to the installed pi's observed RPC
+#        output; re-pin from a real run if the assertion fails. (Verified on
+#        allod-dev: exit 0, event on stdout.) ---
+ev="$(timeout 30 pi --mode rpc --offline -e "$piext" </dev/null 2>/dev/null)"
 printf '%s\n' "$ev" | grep -F '"method":"setStatus"' | grep -F '"statusKey":"vm-status"' | grep -F "VM: ${host}"
 
 # --- 5. Pi NEGATIVE/sabotage: a broken extension must fail closed - non-zero exit,
 #        no setStatus event - proving the Pi load check can actually fail (#11).
 #        (Verified: broken ext -> exit 1, "Failed to load extension: ParseError".) ---
 sab="$(mktemp --suffix=.ts)"; printf 'export default function( {\n' > "$sab"
-if timeout 30 pi --mode rpc -e "$sab" </dev/null >"$sab.out" 2>/dev/null; then
+if timeout 30 pi --mode rpc --offline -e "$sab" </dev/null >"$sab.out" 2>/dev/null; then
   echo "SABOTAGE FAILED: broken extension loaded cleanly" >&2; exit 1; fi
 grep -qF 'setStatus' "$sab.out" && { echo "SABOTAGE FAILED: setStatus emitted from broken ext" >&2; exit 1; }
 rm -f "$sab" "$sab.out"
