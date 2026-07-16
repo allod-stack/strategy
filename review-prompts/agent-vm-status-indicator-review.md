@@ -107,77 +107,82 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-Pass 1 (claude-opus-4-8) committed structural fixes; pass 2 is primarily a scoped
-diff review of those, plus the carried live/VM-side items below.
+Pass 2 (claude-opus-4-8) refuted the pass-1 ordering fix and replaced it with a
+non-fatal merge (commit ba7d476); pass 3 is primarily a scoped diff review of that
+fix, plus the carried live/VM-side items below.
 
-1. **[SCOPED DIFF - highest priority] Activation ordering fix (commit 7ab6771).**
-   Pass 1 found that a bare `entryAfter ["writeBoundary"]` sorts `agentVmStatus`
-   to the FRONT of the post-`writeBoundary` group (lexicographic `attrValues`
-   tie-break, confirmed against the generated `activate`, which runs `set -eu -o
-   pipefail`), so a merge refusal on a malformed operator `settings.json` would
-   abort activation and skip `installPackages`, `linkGeneration`, `llmMemoryLinks`,
-   `reloadSystemd`, and `setupTrackedHooks`. The fix anchors the entry
-   `entryAfter [ "writeBoundary" "llmMemoryLinks" "onFilesChange" "reloadSystemd"
-   "setupTrackedHooks" ]`. Verify it actually lands LAST: build the allod-dev home
-   generation (or eval the activation package) and read the `_iNote "Activating"`
-   order; simulate a refusal and confirm no earlier entry is skipped. Critically,
-   the flake check does NOT yet assert this ordering - the containment is
-   currently untested. Decide whether the check must assert `agentVmStatus` sorts
-   after those entries, and whether anchoring by hard-coded home-manager entry
-   names (silently ignored if renamed) is robust enough, or whether the merge
-   should instead be non-fatal (warn, do not abort) so ordering cannot matter.
+1. **[SCOPED DIFF - highest priority] Non-fatal merge fix (commit ba7d476).**
+   Pass 2 proved the pass-1 ordering anchor (7ab6771) does NOT place
+   `agentVmStatus` last: evaluating the real allod-dev DAG through home-manager's
+   own `lib.hm.dag.topoSort` (home-environment.nix:753) sorts it 10th of 12, with
+   `installPackages` and `syncPrBranchProtection` AFTER it - so under the shared
+   `set -eu -o pipefail` activation a fatal merge would still skip a package
+   install and the branch-protection sync. The fix invokes the merge non-fatally
+   (`${claudeStatusMerge} || true`), drops the ordering anchor (bare
+   `entryAfter ["writeBoundary"]`), rewrites Design Decisions 1/4 and the Risk
+   Assessment, and adds an acceptance-test grep that the merge is invoked
+   non-fatally. Verify: (a) does `|| true` truly satisfy principle 11 - is the
+   merge script's stderr ERROR actually surfaced to the operator during
+   `nixos-rebuild switch` and in `journalctl -u home-manager-<user>.service`, or
+   should the entry also call home-manager's `warnEcho`/`errorEcho` so the failure
+   is unmissable? (b) The Pi `mkdir`/`ln` steps stay FATAL - confirm that is
+   acceptable (deterministic store ops, no operator input) or make the whole entry
+   non-fatal. (c) Does the new grep assertion
+   (`claude-vm-status-merge[^|]*\|\| *(true|:)`) actually fail if someone reverts
+   to a fatal invocation? (d) With a merge refusal no longer failing the unit, is
+   R2 (vs R1) still right - the mutation of operator-authored `settings.json` is
+   the remaining justification.
 
-2. **[SCOPED DIFF] Claude statusline extraction fix (commit 2efe090).** Pass 1
-   found the statusline store path is never in `agentVmStatus.data` (only the Pi
-   extension and merge-script paths are; the statusline is referenced only inside
-   the merge script), so the old grep of `$act` returned empty and the render (#2)
-   and sabotage (#3) tests were broken/vacuous. The fix greps `$merge` for the
-   statusline path and adds a `.statusLine.command==$claudesh` linkage assertion.
-   Confirm the extracted script is realized and executable in the build sandbox,
-   both Claude tests pass, and the check declares `nativeBuildInputs = [ pkgs.jq ]`.
-   Watch for the sabotage test passing vacuously again if extraction ever empties.
-
-3. **Pi `--offline` flag and RPC event schema (carry, VM-side).** Confirm `pi
-   --mode rpc --offline -e <file>` is a valid invocation on the installed pi
-   0.80.3 (pass 1 added `--offline` per this prompt's own recommendation but could
-   not run pi), and that the asserted `"method":"setStatus"` / `"statusKey":
-   "vm-status"` field names match real observed RPC output; re-pin if not. If
-   `--offline` is not real, find another way to guarantee no network/API-key
-   dependency in the probe.
-
-4. **Claude behavior with a missing/GC'd command path (carry, live-TUI,
+2. **Claude behavior with a missing/GC'd command path (carry, live-TUI,
    human-gated).** The rollback story claims a `statusLine.command` pointing at a
    garbage-collected store path makes Claude silently blank the row. Verify that
    against Claude Code 2.1.204 - both `claude -p` and interactive - rather than
    erroring or refusing to start. This is the one rollback claim with no
    agent-runnable test.
 
-5. **Codex exclusion (carry, one-glance confirm at implementation).** Before
-   blessing the exclusion, confirm the installed codex 0.142.5 `tui.status_line`
-   item list has no custom-text or external-command item. Do not accept wrapper
-   hacks, aliases, prompt text, or one-time startup banners as substitutes for a
-   persistent in-harness status surface.
+3. **Codex exclusion (carry, one-glance confirm at implementation).** Pass 2 could
+   not settle this from the installed binary: codex 0.142.5 does expose a
+   `status_line` config and its bare item tokens (`spinner`, `model`, `project`,
+   `token_usage`, `current_dir`, `rate_limit`, `approval_mode`, `context_window`)
+   match the plan's documented predefined set, but the giant stripped Rust binary
+   also contains generic `custom`/`command`/`text` strings that could NOT be
+   confirmed as status-line item variants (they appear for countless unrelated
+   reasons). Confirm against the codex 0.142.5 config reference/docs - NOT the
+   binary - that `tui.status_line` has no custom-text or external-command item. Do
+   not accept wrapper hacks, aliases, prompt text, or one-time startup banners as
+   substitutes for a persistent in-harness status surface.
 
-6. **SIMPLIFY sweep (standing).** Re-examine whether every artifact still earns
-   its keep after the pass-1 fixes. The `claudeStatusMerge` / `claudeStatusLine`
-   split is currently justified because Test #1b exercises the merge behaviorally
-   and the render test executes the statusline directly - do not inline them
-   unless that coverage is dropped. Hunt for any new ceremony the fixes
-   introduced (e.g. the ordering-anchor list, the extra linkage assertions).
+4. **SIMPLIFY sweep (standing).** The `claudeStatusMerge` / `claudeStatusLine`
+   split stays justified: Test #1b exercises the merge behaviorally and the render
+   test executes the statusline directly - do not inline unless that coverage is
+   dropped. The `.statusLine.command==$claudesh` linkage assertion earns its keep
+   (proves one-source-of-truth). Pass 2 deleted the ordering-anchor list (dead
+   after the non-fatal fix). Hunt for any residual ceremony.
 
-Do not re-open focus areas fully resolved this pass unless the current plan
-contradicts itself. RESOLVED in pass 1 (do not re-litigate): the `osConfig`
-module argument IS available in this home-manager-as-NixOS-module integration
-(home-manager passes `osConfig = <the NixOS config>` as a specialArg;
-`networking.hostName` is set to the machine name in `sharedModules`), and
-`ai-agents.nix` is imported only by the dev-VM builder - so the one-source-of-truth
-hostname and dev-only scoping are sound and need no `mkDevVm` change.
+Do not re-open focus areas fully resolved unless the current plan contradicts
+itself. RESOLVED (do not re-litigate):
+- Pass 1: `osConfig` IS available in this home-manager-as-NixOS-module integration
+  (home-manager passes `osConfig = <the NixOS config>` as a specialArg;
+  `networking.hostName` = machine name in `sharedModules`), and `ai-agents.nix` is
+  imported only by the dev-VM builder - one-source hostname and dev-only scoping
+  are sound, no `mkDevVm` change needed.
+- Pass 2, statusline extraction (2efe090): HELD UP. Built the real artifacts - the
+  statusline path is absent from `agentVmStatus.data`, is realized+executable via
+  the merge closure (Nix string context), prints `VM: allod-dev`, and
+  `.statusLine.command==$claudesh` holds. The extraction fix is correct.
+- Pass 2, Pi `--offline`+RPC schema (2efe090/ca4f9cb): CONFIRMED by a real run on
+  allod-dev. `pi --mode rpc --offline -e <ext>` exits 0 and emits
+  `{"type":"extension_ui_request",...,"method":"setStatus","statusKey":"vm-status","statusText":"VM: allod-dev"}`;
+  the sabotage variant exits non-zero with a `ParseError` and no `setStatus`. The
+  plan's Test 4/5 assertions match observed output.
 
-Next pass: scoped diff review of commits 2efe090 (statusline extraction) and
-7ab6771 (activation ordering + risk recalibration) - the two structural fixes.
-They were authored by claude-opus-4-8; per the `dev-plans.md` rotation guidance,
-prefer a different model (e.g. gpt-5 or claude-sonnet) for the verification pass
-and record here how the ordering fix held up.
+Next pass: scoped diff review of commit ba7d476 (non-fatal merge + risk
+recalibration + anchor removal). Per `dev-plans.md` rotation guidance, prefer a
+different model (e.g. gpt-5 or claude-sonnet) for the verification pass. Fix
+stability so far: 2efe090 (statusline extraction, claude-opus-4-8) held up under
+pass-2 scrutiny; 7ab6771 (ordering, claude-opus-4-8) did NOT - refuted and
+replaced in the next pass, so DAG-ordering fixes from any model warrant a
+generated-artifact topoSort check, not prose.
 
 ## Review Guidelines
 
