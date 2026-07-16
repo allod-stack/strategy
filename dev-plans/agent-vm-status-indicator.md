@@ -98,11 +98,13 @@ These four decisions are resolved, not left open.
    rejection the script prints a clear error naming the file, touches nothing, and
    exits non-zero. The merge pipeline also owns its own failure
    (`jq ... > tmp || { rm -f tmp; exit 1; }`) so `mv` can never run after a failed
-   `jq` regardless of shell options; it additionally runs under home-manager
-   activation's `set -eu -o pipefail`. A preflight/merge failure fails
-   `home-manager-<user>.service` (the system switch still completes with a
-   failed-unit warning, and later activation entries in that run are skipped) -
-   loud, and never a silent rewrite to `{}`. The `.statusLine` key is re-asserted
+   `jq` regardless of shell options (the merge script runs its own `set -eu`).
+   The activation entry invokes the script NON-FATALLY (`${claudeStatusMerge} ||
+   true`), so a refusal is loud (the ERROR surfaces in the rebuild output and
+   `journalctl -u home-manager-<user>.service`) and the file is left byte-unchanged,
+   but it never aborts activation or rewrites the file to `{}`. Non-fatal, not
+   unit-failure, is the containment mechanism - see the Activation contract for why
+   entry ordering cannot be relied on. The `.statusLine` key is re-asserted
    idempotently every rebuild; all other keys are preserved verbatim.
 
 2. **Hostname source - baked from `osConfig.networking.hostName` at generation,
@@ -123,11 +125,14 @@ These four decisions are resolved, not left open.
    status script and the settings-merge script are Nix store artifacts (immutable,
    content-addressed, directly executable in tests). Generation lives in
    `modules/ai-agents.nix` in a new `home.activation.agentVmStatus` entry (not
-   folded into `llmMemoryLinks`) that is ordered last (see Interface Contracts) so
-   its fail-loud merge cannot cascade into the other activation entries. A separate
-   entry alone does not isolate the blast radius under `set -eu` - only the
-   ordering does. That gives the new behavior a contained blast radius, a targeted
-   flake check, and an independent rollback.
+   folded into `llmMemoryLinks`) whose Claude merge is invoked non-fatally (see
+   Interface Contracts) so a refusal on a malformed operator `settings.json` cannot
+   cascade into the other activation entries. A separate entry does not isolate the
+   blast radius on its own: home-manager runs every entry in one `set -eu` script,
+   so any non-zero exit aborts whatever the DAG sorts after it, and that ordering
+   is not controllable (see Interface Contracts). Invoking the merge non-fatally is
+   what contains the blast radius. That gives the new behavior a contained blast
+   radius, a targeted flake check, and an independent rollback.
 
 ## Risk Assessment
 
@@ -137,13 +142,17 @@ Why:
 
 - Blast radius is dev VMs only (`ai-agents.nix` is imported solely by the dev-VM
   builder). No secret, provisioning phase, privacy VM, host authority, or
-  cross-repo sequencing is touched. The one lifecycle coupling: the activation
-  merge runs inside `home-manager-<user>.service` under `set -eu -o pipefail`, so
-  a refusal fails that unit. The entry is ordered last (Interface Contracts) so a
-  refusal cannot skip any other activation entry (package install, generation
-  link, `llmMemoryLinks`, systemd reload, hooks) - the failure is loud but
-  contained. Without that ordering the honest score is R3, because a malformed
-  operator `settings.json` would abort essentially the whole home activation.
+  cross-repo sequencing is touched. The one lifecycle coupling: home-manager runs
+  every activation entry in one `set -eu -o pipefail` script, so a non-zero exit
+  from any entry aborts every entry the DAG sorts after it. The Claude merge is
+  therefore invoked non-fatally (Interface Contracts): a refusal on a malformed
+  operator `settings.json` prints a loud error and leaves the file untouched, but
+  returns success, so it cannot skip any other activation entry (package install,
+  generation link, `llmMemoryLinks`, systemd reload, hooks, branch-protection
+  sync). Ordering is deliberately not relied on - the nixpkgs DAG `toposort` does
+  not place this entry last (verified against the real allod-dev DAG:
+  `installPackages` and `syncPrBranchProtection` sort after it), so containment
+  comes from non-fatality, not from ordering.
 - The one piece of persistent, mutable, operator-authoritative state involved is
   `~/.claude/settings.json`. The change preserves it (merge, not own) and guards
   it with the single-object preflight plus a failure-owning merge pipeline, both
@@ -162,8 +171,9 @@ Why:
   fixed template with only the NixOS hostname interpolated (neutralized via
   `builtins.toJSON` / `lib.escapeShellArg`), so the failure surface is small and
   fully exercised in fixtures/generated artifacts (principle 13). The R2 score
-  rests on that fixture coverage plus home-manager activation running under
-  `set -eu -o pipefail`; without them the honest score would drift to R3.
+  rests on that fixture coverage plus the non-fatal merge invocation, which keeps
+  a refusal from touching operator state or skipping any other activation entry;
+  without the fixtures the honest score would drift to R3.
 - Rollback is a straight revert plus a human rebuild; the only persistent runtime
   residue is the Pi extension symlink and the `.statusLine` key, both trivially
   removable, and both inert if left (see Rollback Plan).
@@ -264,33 +274,44 @@ claudeStatusMerge = pkgs.writeShellScript "claude-vm-status-merge" ''
   '';
   ```
 
-**Activation contract (`home.activation.agentVmStatus`).** Ordered LAST, not with
-a bare `entryAfter ["writeBoundary"]`. Home-manager activation runs under `set -eu
--o pipefail` (verified in the generated `activate`; the NixOS unit launches it via
-`bash -el`), and the DAG breaks `entryAfter ["writeBoundary"]` ties in
-lexicographic entry-name order (`builtins.attrValues`). A bare `agentVmStatus`
-therefore sorts to the FRONT of the post-`writeBoundary` group - ahead of
-`installPackages`, `linkGeneration`, `llmMemoryLinks`, `onFilesChange`,
-`reloadSystemd`, and `setupTrackedHooks` - so a merge refusal would abort
-activation and skip every one of them (no package install, no generation link, no
-memory pointers, no hook setup). Anchor it after those entries so a fail-loud
-refusal still fails `home-manager-<user>.service` but cannot skip any other entry:
+**Activation contract (`home.activation.agentVmStatus`).** The Claude merge is
+invoked NON-FATALLY; entry ordering is deliberately not relied on. Home-manager
+runs every activation entry in one script under `set -eu -o pipefail` (verified in
+the generated `activate`; the NixOS unit launches it via `bash -el`), so any entry
+that exits non-zero aborts every entry the DAG sorts *after* it. That ordering is
+not controllable. Home-manager sorts the activation DAG with
+`lib.hm.dag.topoSort cfg.activation` (`modules/lib/dag.nix` /
+`modules/home-environment.nix`), which feeds `builtins.attrValues` (lexicographic
+by entry name) into the nixpkgs `toposort`. A bare `entryAfter ["writeBoundary"]`
+sorts `agentVmStatus` to the FRONT of the post-`writeBoundary` group, and even
+anchoring it `entryAfter [ "writeBoundary" "llmMemoryLinks" "onFilesChange"
+"reloadSystemd" "setupTrackedHooks" ]` does NOT make it last: evaluating the real
+allod-dev activation DAG through that same `topoSort` still sorts `installPackages`
+and `syncPrBranchProtection` after `agentVmStatus` (the DFS-based `toposort` does
+not honor a name-anchor as "last"), so a fatal merge would still skip a package
+install and the branch-protection sync. Name-anchoring is also fragile - any
+future post-`writeBoundary` entry re-breaks it. So the merge is invoked
+non-fatally and ordering is irrelevant:
 
 ```nix
-home.activation.agentVmStatus = lib.hm.dag.entryAfter
-  [ "writeBoundary" "llmMemoryLinks" "onFilesChange" "reloadSystemd" "setupTrackedHooks" ] ''
-  # Pi: install auto-discovered extension (immutable store source)
+home.activation.agentVmStatus = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+  # Pi: install auto-discovered extension (immutable store source).
   mkdir -p "$HOME/.pi/agent/extensions"
   ln -sfn ${piStatusExtension} "$HOME/.pi/agent/extensions/vm-status.ts"
 
-  # Claude: merge ONLY .statusLine via the factored script (fail-loud, atomic)
-  ${claudeStatusMerge}
+  # Claude: merge ONLY .statusLine. A refusal on a malformed/empty operator
+  # settings.json prints a loud ERROR to stderr (visible in the rebuild output and
+  # `journalctl -u home-manager-<user>.service`) and leaves the file byte-unchanged.
+  # It is invoked NON-FATALLY so that, under the shared `set -eu` activation script,
+  # a refusal cannot abort activation or skip any entry the DAG sorts after this one.
+  ${claudeStatusMerge} || true
 '';
 ```
 
-(Unknown anchor names are silently ignored by the DAG, so this stays robust if a
-home-manager entry is renamed. The check must assert this ordering - see the new
-Focus Areas.)
+(The merge script still owns its own preflight and atomicity; `|| true` only stops
+the *shared* activation script from aborting - the loud ERROR and the
+byte-unchanged file come from the script itself. The flake check asserts this
+non-fatal invocation - see Acceptance Tests.)
 
 **Flake check.** Add `agent-vm-status` to `checks.<system>` mirroring the existing
 `pi-integration` structure: embed `home.activation.agentVmStatus.data` via
@@ -346,6 +367,12 @@ printf '%s\n' "$act" | grep -F '.pi/agent/extensions/vm-status.ts'
 piext="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-pi-vm-status\.ts'       | head -1)"
 merge="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-claude-vm-status-merge' | head -1)"
 claudesh="$(grep -oE '/nix/store/[^" ]+-claude-vm-statusline' "$merge"              | head -1)"
+
+# The merge MUST be invoked non-fatally: under the shared `set -eu` activation
+# script a refusal must not abort activation and skip a later entry. In the real
+# allod-dev DAG, installPackages and syncPrBranchProtection sort AFTER this entry,
+# so a fatal merge would skip a package install and the branch-protection sync.
+printf '%s\n' "$act" | grep -E 'claude-vm-status-merge[^|]*\|\| *(true|:)'
 
 # Pi extension bakes the hostname and the required API calls:
 grep -F "VM: ${host}" "$piext"
