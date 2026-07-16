@@ -266,10 +266,17 @@ ${claudeStatusMerge}
 
 **Flake check.** Add `agent-vm-status` to `checks.<system>` mirroring the existing
 `pi-integration` structure: embed `home.activation.agentVmStatus.data` via
-`pkgs.writeText` (as `pi-integration` does) so the three referenced store
-artifacts - `piStatusExtension`, `claudeStatusLine`, `claudeStatusMerge` - are
-realized as build inputs and are executable in-sandbox, then run the artifact
-assertions and the merge fixtures below. The Pi RPC render/sabotage pair moves
+`pkgs.writeText` (as `pi-integration` does). The activation text references
+`piStatusExtension` and `claudeStatusMerge` directly; `claudeStatusLine` is
+referenced only transitively (the merge script bakes its path). Nix string
+context on `.data` carries all three into the `writeText` output's closure, so
+building the check realizes all three into the store and makes them executable
+in-sandbox - but extract the statusline path from the merge script, not the
+activation text (see Acceptance Tests). The check's fixtures shell out to bare
+`jq`, so it must set `nativeBuildInputs = [ pkgs.jq ]` (the merge script itself
+calls `${pkgs.jq}/bin/jq` by absolute path and needs nothing on PATH; `cmp`,
+`mktemp`, `grep`, `sed` come from stdenv). Then run the artifact assertions and
+the merge fixtures below. The Pi RPC render/sabotage pair moves
 into this check too if `pkgs-unstable.pi-coding-agent` runs under the build
 sandbox with `HOME=$(mktemp -d)` and `--offline` (no TTY, no network); until that
 is confirmed it stays a VM-side step (Acceptance Tests 4-5).
@@ -299,14 +306,18 @@ user="$(nix eval --raw .#vmFacts.allod-dev.username)"                           
 nix build --no-link .#checks.x86_64-linux.agent-vm-status
 
 # The check (mirrored inline here) reads the activation script and extracts the
-# three realized store artifacts it references:
+# two store artifacts it references DIRECTLY - the Pi extension and the merge
+# script. The statusline script is NOT named in the activation text (only the
+# merge script invokes it), so extract it from the merge script's contents. It is
+# still realized in the check closure because the merge script references it, and
+# the `nix build` above already realized all three into the store.
 act="$(nix eval --raw \
   ".#nixosConfigurations.allod-dev.config.home-manager.users.${user}.home.activation.agentVmStatus.data")"
 printf '%s\n' "$act" | grep -F 'mkdir -p "$HOME/.pi/agent/extensions"'
 printf '%s\n' "$act" | grep -F '.pi/agent/extensions/vm-status.ts'
-piext="$(printf '%s\n' "$act"  | grep -oE '/nix/store/[^" ]+-pi-vm-status\.ts'        | head -1)"
-merge="$(printf '%s\n' "$act"  | grep -oE '/nix/store/[^" ]+-claude-vm-status-merge'  | head -1)"
-claudesh="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-claude-vm-statusline'  | head -1)"
+piext="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-pi-vm-status\.ts'       | head -1)"
+merge="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-claude-vm-status-merge' | head -1)"
+claudesh="$(grep -oE '/nix/store/[^" ]+-claude-vm-statusline' "$merge"              | head -1)"
 
 # Pi extension bakes the hostname and the required API calls:
 grep -F "VM: ${host}" "$piext"
@@ -320,6 +331,9 @@ work="$(mktemp -d)"
 printf '{"model":"opus","theme":"dark"}' > "$work/s.json"
 "$merge" "$work/s.json"
 jq -e '.model=="opus" and .theme=="dark" and .statusLine.type=="command"' "$work/s.json" >/dev/null
+# the merged command must point at the realized statusline script (one source, fanned out):
+jq -e --arg c "$claudesh" '.statusLine.command==$c' "$work/s.json" >/dev/null
+test -x "$claudesh"
 cp "$work/s.json" "$work/s1.json"; "$merge" "$work/s.json"; cmp "$work/s1.json" "$work/s.json"  # idempotent (byte-identical)
 # every malformed shape refused, file byte-unchanged (a real for-loop, not a
 # pipe-to-while, so a failing case exits the script rather than a subshell):
