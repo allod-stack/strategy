@@ -123,8 +123,11 @@ These four decisions are resolved, not left open.
    status script and the settings-merge script are Nix store artifacts (immutable,
    content-addressed, directly executable in tests). Generation lives in
    `modules/ai-agents.nix` in a new `home.activation.agentVmStatus` entry (not
-   folded into `llmMemoryLinks`), so the new behavior has an isolated blast
-   radius, a targeted flake check, and an independent rollback.
+   folded into `llmMemoryLinks`) that is ordered last (see Interface Contracts) so
+   its fail-loud merge cannot cascade into the other activation entries. A separate
+   entry alone does not isolate the blast radius under `set -eu` - only the
+   ordering does. That gives the new behavior a contained blast radius, a targeted
+   flake check, and an independent rollback.
 
 ## Risk Assessment
 
@@ -133,8 +136,14 @@ Residual risk: R2 Medium.
 Why:
 
 - Blast radius is dev VMs only (`ai-agents.nix` is imported solely by the dev-VM
-  builder). No secret, provisioning phase, systemd unit, privacy VM, host
-  authority, or cross-repo sequencing is touched.
+  builder). No secret, provisioning phase, privacy VM, host authority, or
+  cross-repo sequencing is touched. The one lifecycle coupling: the activation
+  merge runs inside `home-manager-<user>.service` under `set -eu -o pipefail`, so
+  a refusal fails that unit. The entry is ordered last (Interface Contracts) so a
+  refusal cannot skip any other activation entry (package install, generation
+  link, `llmMemoryLinks`, systemd reload, hooks) - the failure is loud but
+  contained. Without that ordering the honest score is R3, because a malformed
+  operator `settings.json` would abort essentially the whole home activation.
 - The one piece of persistent, mutable, operator-authoritative state involved is
   `~/.claude/settings.json`. The change preserves it (merge, not own) and guards
   it with the single-object preflight plus a failure-owning merge pipeline, both
@@ -252,17 +261,33 @@ claudeStatusMerge = pkgs.writeShellScript "claude-vm-status-merge" ''
   '';
   ```
 
-**Activation contract (`home.activation.agentVmStatus`, `entryAfter
-["writeBoundary"]`).**
+**Activation contract (`home.activation.agentVmStatus`).** Ordered LAST, not with
+a bare `entryAfter ["writeBoundary"]`. Home-manager activation runs under `set -eu
+-o pipefail` (verified in the generated `activate`; the NixOS unit launches it via
+`bash -el`), and the DAG breaks `entryAfter ["writeBoundary"]` ties in
+lexicographic entry-name order (`builtins.attrValues`). A bare `agentVmStatus`
+therefore sorts to the FRONT of the post-`writeBoundary` group - ahead of
+`installPackages`, `linkGeneration`, `llmMemoryLinks`, `onFilesChange`,
+`reloadSystemd`, and `setupTrackedHooks` - so a merge refusal would abort
+activation and skip every one of them (no package install, no generation link, no
+memory pointers, no hook setup). Anchor it after those entries so a fail-loud
+refusal still fails `home-manager-<user>.service` but cannot skip any other entry:
 
-```sh
-# Pi: install auto-discovered extension (immutable store source)
-mkdir -p "$HOME/.pi/agent/extensions"
-ln -sfn ${piStatusExtension} "$HOME/.pi/agent/extensions/vm-status.ts"
+```nix
+home.activation.agentVmStatus = lib.hm.dag.entryAfter
+  [ "writeBoundary" "llmMemoryLinks" "onFilesChange" "reloadSystemd" "setupTrackedHooks" ] ''
+  # Pi: install auto-discovered extension (immutable store source)
+  mkdir -p "$HOME/.pi/agent/extensions"
+  ln -sfn ${piStatusExtension} "$HOME/.pi/agent/extensions/vm-status.ts"
 
-# Claude: merge ONLY .statusLine via the factored script (fail-loud, atomic)
-${claudeStatusMerge}
+  # Claude: merge ONLY .statusLine via the factored script (fail-loud, atomic)
+  ${claudeStatusMerge}
+'';
 ```
+
+(Unknown anchor names are silently ignored by the DAG, so this stays robust if a
+home-manager entry is renamed. The check must assert this ordering - see the new
+Focus Areas.)
 
 **Flake check.** Add `agent-vm-status` to `checks.<system>` mirroring the existing
 `pi-integration` structure: embed `home.activation.agentVmStatus.data` via
