@@ -107,49 +107,37 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-Pass 3 (gpt-5.5) found three plan issues and committed fixes:
-`07a1b7c` protects the Pi extension target from clobber, `3aa8011` settles the
-Codex exclusion from the installed 0.142.5 source, and `6cea6b0` replaces
-`|| true` with `|| warnEcho` plus corrected operator-visibility wording. Pass 4
-is primarily a scoped diff review of those fixes, plus the carried live/VM-side
-item below.
+Pass 3 (gpt-5.5) committed three fixes: `07a1b7c` protects the Pi extension
+target from clobber (new `piStatusInstall` helper + collision fixtures),
+`3aa8011` settles the Codex exclusion from the installed 0.142.5 source, and
+`6cea6b0` replaces `|| true` with `|| warnEcho` plus corrected
+operator-visibility wording. Pass 4 (claude-opus-4-8) adversarially verified all
+three against generated artifacts, the realized codex source, the installed
+home-manager generation, and a faithful `topoSort` replay; all three HELD UP and
+pass 4 found no new plan issues (details under RESOLVED). Two light focus areas
+remain.
 
-1. **[SCOPED DIFF - highest priority] Pass-3 mutable-state fixes
-   (`07a1b7c`, `6cea6b0`).** Verify the new `piStatusInstall` helper is worth the
-   extra store artifact: it must create only the managed symlink, replace only an
-   old managed `/nix/store/*-pi-vm-status.ts` symlink, refuse regular files,
-   directories, and custom symlinks without touching them, and stay non-fatal
-   under the shared Home Manager activation script. Confirm the helper extraction
-   path in the check is correct (`piStatusExtension` is transitive through the
-   installer), the fixture tests would fail against the old `ln -sfn` plan, and
-   `ln -sfnT` cannot accidentally write inside an operator directory. Also verify
-   Home Manager activation snippets can call `warnEcho` in this NixOS integration
-   and that the grep assertions fail if either mutable-state helper is made fatal.
+1. **SIMPLIFY sweep (standing).** The `claudeStatusMerge` / `claudeStatusLine`
+   split stays justified: Test #1b exercises the merge behaviorally and the render
+   test executes the statusline directly - do not inline unless that coverage is
+   dropped. The `.statusLine.command==$claudesh` linkage assertion earns its keep
+   (proves one-source-of-truth). The `piStatusInstall` helper was weighed for
+   over-build this pass and kept: its collision fixtures are load-bearing (they
+   fail against the old inline `ln -sfn` on the regular-file, directory-footgun,
+   and custom-symlink cases - principle 11), a bare `ln -sfnT` would still silently
+   clobber an operator-authored regular file or foreign symlink at the target
+   (violating the never-clobber charter), and factoring it into a store script is
+   exactly what makes Test #1a runnable - the same justification as
+   `claudeStatusMerge`. Do not drop or inline any of the three helpers unless its
+   behavioral coverage is dropped first. The current artifact set is minimal; keep
+   hunting for residual ceremony anyway.
 
-2. **[SCOPED DIFF] Codex exclusion source check (`3aa8011`).** Pass 3 realized the
-   Nix package source for codex 0.142.5 and found `StatusLineItem` in
-   `codex-rs/tui/src/bottom_pane/status_line_setup.rs`; unknown IDs are parsed as
-   invalid by `status_surfaces.rs` and warned/ignored. Verify the plan's item list
-   matches that source and that no custom-text or external-command status-line
-   variant exists. Do not accept wrapper hacks, aliases, prompt text, terminal
-   title, or one-time startup banners as substitutes for a persistent in-harness
-   status surface.
-
-3. **Claude behavior with a missing/GC'd command path (carry, live-TUI,
+2. **Claude behavior with a missing/GC'd command path (carry, live-TUI,
    human-gated).** The rollback story claims a `statusLine.command` pointing at a
    garbage-collected store path makes Claude silently blank the row. Verify that
    against Claude Code 2.1.204 - both `claude -p` and interactive - rather than
    erroring or refusing to start. This is the one rollback claim with no
-   agent-runnable test.
-
-4. **SIMPLIFY sweep (standing).** The `claudeStatusMerge` / `claudeStatusLine`
-   split stays justified: Test #1b exercises the merge behaviorally and the render
-   test executes the statusline directly - do not inline unless that coverage is
-   dropped. The `.statusLine.command==$claudesh` linkage assertion earns its keep
-   (proves one-source-of-truth). The new `piStatusInstall` helper is justified only
-   if the collision fixtures stay; otherwise prefer the simpler activation entry.
-   Pass 2 deleted the ordering-anchor list (dead after the non-fatal fix). Hunt
-   for any residual ceremony.
+   agent-runnable test; it stays a human-gated live-TUI carry.
 
 Do not re-open focus areas fully resolved unless the current plan contradicts
 itself. RESOLVED (do not re-litigate):
@@ -167,15 +155,54 @@ itself. RESOLVED (do not re-litigate):
   `{"type":"extension_ui_request",...,"method":"setStatus","statusKey":"vm-status","statusText":"VM: allod-dev"}`;
   the sabotage variant exits non-zero with a `ParseError` and no `setStatus`. The
   plan's Test 4/5 assertions match observed output.
+- Pass 3, Pi installer clobber-protection (07a1b7c): VERIFIED pass 4. Materialized
+  the helper and ran Test #1a: it creates the managed symlink, replaces an old
+  (even dangling) `/nix/store/*-pi-vm-status.ts` symlink, and refuses a regular
+  file / directory / foreign symlink byte-unchanged. `ln -sfnT` empirically
+  refuses to overwrite a real directory (`cannot overwrite directory`), so it
+  cannot write inside one; the fixtures fail against the old inline `ln -sfn`
+  (principle 11 satisfied). A synthetic writeText/closure eval confirmed the
+  pass-1 subtlety did NOT reappear: `.data` names only the two helpers, yet the
+  full closure realizes all four artifacts and `piext`/`claudesh` extracted from
+  the helper files exist on disk. Correct and proportionate (see SIMPLIFY #1).
+- Pass 3, Codex exclusion (3aa8011): VERIFIED pass 4 against the realized codex
+  0.142.5 source (from `codex-0.142.5.drv`). All 26 `StatusLineItem` variants in
+  `bottom_pane/status_line_setup.rs` are built-in and `EnumString`-parsed - no
+  `Custom(String)` / `Text` / `Command` / `Exec` / `Script` variant exists;
+  `tui_status_line: Option<Vec<String>>` (`config/mod.rs`) is parsed by
+  `parse_items_with_invalids`, and unknown ids are collected and warned once
+  (`Ignored invalid status line ...`) in `chatwidget/status_surfaces.rs`. The
+  plan's item list matches. No custom-text/external-command hook: exclusion holds.
+- Pass 3, warnEcho non-fatal visibility (6cea6b0): VERIFIED pass 4. `warnEcho` is
+  defined (a trivial `echo`) in the sourced `home-manager.sh`, and that source
+  runs at the top of `activate` before any DAG entry, so the `agentVmStatus`
+  snippet can call it. With real external helper scripts, `${helper} || warnEcho`
+  under the shared `set -eu -o pipefail` swallows a refusal (exit 1 stays in the
+  child), warns, and continues to later entries (parent exit 0). The check's
+  `grep '...\|\| *warnEcho'` asserts non-fatal+warn and fails if regressed to
+  fatal or to `|| true`. The corrected wording (a successful `nixos-rebuild
+  switch` is not assumed to stream unit stdout; journal/live-TUI is the real
+  check) is accurate.
+- Non-fatal ordering rationale: RE-VERIFIED pass 4 against the CURRENT allod-dev
+  DAG (now including `syncPrBranchProtection` from `agent-hooks.nix`). Replaying
+  `lib.hm.dag.topoSort` faithfully, a bare `entryAfter ["writeBoundary"]`
+  `agentVmStatus` sorts to position 3 (front of the post-`writeBoundary` group);
+  both `installPackages` and `syncPrBranchProtection` sort AFTER it, so a fatal
+  refusal would skip a package install and the branch-protection sync. Non-fatal
+  containment is required, not ordering - the plan's claim is exact.
 
-Next pass: scoped diff review of `07a1b7c`, `3aa8011`, and `6cea6b0`, run by a
-different model than gpt-5.5 (prefer claude-sonnet or claude-opus); the earlier
-ba7d476-only review target is superseded by pass 3's structural changes. Fix
-stability so far: 2efe090 (statusline extraction, claude-opus-4-8) held up under
-pass-2 scrutiny; 7ab6771 (ordering, claude-opus-4-8) did NOT - refuted and
-replaced in the next pass; ba7d476's non-fatal containment held, but its
-`|| true` visibility wording needed immediate pass-3 repair. The pass-3 fixes
-have not yet been verified.
+Next pass: pass 4 made no plan-file changes, so there is no new fix to scope-diff.
+Pass 5 is a fresh full convergence-confirmation pass - prefer a model not yet in
+this rotation (claude-sonnet; gpt-5.5 acceptable), not claude-opus-4-8. If pass 5
+is also clean (no BLOCKER and no original-plan GAP), stop condition 2 is met (two
+consecutive clean passes) and the plan text has converged - hand the remaining
+SIMPLIFY and live-TUI carry to implementation review. Fix stability: gpt-5.5's
+`07a1b7c`, `3aa8011`, and `6cea6b0` ALL held up under pass-4 adversarial
+verification (3/3) - gpt-5.5 has the strongest fix-stability record on this plan.
+claude-opus-4-8: `2efe090` held (2+ passes); `7ab6771` (ordering) was refuted and
+replaced by pass 2; `ba7d476` non-fatal containment held but its `|| true`
+visibility wording needed pass-3 repair. Pass 4 (claude-opus-4-8) introduced no
+fixes.
 
 ## Review Guidelines
 
