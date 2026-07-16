@@ -48,11 +48,13 @@ In scope:
 
 - `allod/profiles/modules/ai-agents.nix`: read the host name from
   `osConfig.networking.hostName`; generate a Claude `statusLine` script (Nix
-  store artifact), a Claude settings-merge script (Nix store artifact), and a Pi
-  status extension (Nix store `.ts`), all with the hostname baked in; add a
-  dedicated `home.activation.agentVmStatus` entry that installs the Pi extension
-  into `~/.pi/agent/extensions/` and invokes the merge script to set only the
-  `.statusLine` key of `~/.claude/settings.json`.
+  store artifact), a Claude settings-merge script (Nix store artifact), a Pi
+  status extension (Nix store `.ts`), and a Pi installer script (Nix store
+  artifact) that refuses to replace non-managed extension state, all with the
+  hostname baked in where relevant; add a dedicated
+  `home.activation.agentVmStatus` entry that invokes the Pi installer for
+  `~/.pi/agent/extensions/vm-status.ts` and invokes the merge script to set only
+  the `.statusLine` key of `~/.claude/settings.json`.
 - `allod/profiles/flake.nix`: add an `agent-vm-status` check (sibling to the
   existing `pi-integration` check) that inspects and exercises the generated
   artifacts, including negative/sabotage paths.
@@ -121,18 +123,26 @@ These four decisions are resolved, not left open.
 4. **File placement.** The Pi extension is installed at
    `~/.pi/agent/extensions/vm-status.ts` (the global auto-discovery directory) as
    a symlink to an immutable Nix store `.ts`. It coexists cleanly with the
-   existing `~/.pi/agent/AGENTS.md` (different subpath, same module). The Claude
-   status script and the settings-merge script are Nix store artifacts (immutable,
-   content-addressed, directly executable in tests). Generation lives in
-   `modules/ai-agents.nix` in a new `home.activation.agentVmStatus` entry (not
-   folded into `llmMemoryLinks`) whose Claude merge is invoked non-fatally (see
-   Interface Contracts) so a refusal on a malformed operator `settings.json` cannot
-   cascade into the other activation entries. A separate entry does not isolate the
-   blast radius on its own: home-manager runs every entry in one `set -eu` script,
-   so any non-zero exit aborts whatever the DAG sorts after it, and that ordering
-   is not controllable (see Interface Contracts). Invoking the merge non-fatally is
-   what contains the blast radius. That gives the new behavior a contained blast
-   radius, a targeted flake check, and an independent rollback.
+   existing `~/.pi/agent/AGENTS.md` (different subpath, same module), but the
+   installer must also protect the exact `vm-status.ts` path: if that path exists
+   and is not a symlink already pointing at a managed `/nix/store/*-pi-vm-status.ts`
+   artifact, it prints an ERROR and refuses to replace it. `ln -sfn` alone is not
+   acceptable because it overwrites a regular file and, when the destination is a
+   directory, succeeds by creating a link inside that directory instead of
+   installing the auto-discovered extension path. The Claude status script,
+   settings-merge script, Pi extension, and Pi installer script are Nix store
+   artifacts (immutable, content-addressed, directly executable in tests).
+   Generation lives in `modules/ai-agents.nix` in a new
+   `home.activation.agentVmStatus` entry (not folded into `llmMemoryLinks`) whose
+   Pi installer and Claude merge are invoked non-fatally (see Interface Contracts)
+   so a refusal on operator-authored `vm-status.ts` or malformed operator
+   `settings.json` cannot cascade into the other activation entries. A separate
+   entry does not isolate the blast radius on its own: home-manager runs every
+   entry in one `set -eu` script, so any non-zero exit aborts whatever the DAG
+   sorts after it, and that ordering is not controllable (see Interface
+   Contracts). Invoking the mutable-state helpers non-fatally is what contains the
+   blast radius. That gives the new behavior a contained blast radius, a targeted
+   flake check, and an independent rollback.
 
 ## Risk Assessment
 
@@ -144,20 +154,23 @@ Why:
   builder). No secret, provisioning phase, privacy VM, host authority, or
   cross-repo sequencing is touched. The one lifecycle coupling: home-manager runs
   every activation entry in one `set -eu -o pipefail` script, so a non-zero exit
-  from any entry aborts every entry the DAG sorts after it. The Claude merge is
-  therefore invoked non-fatally (Interface Contracts): a refusal on a malformed
-  operator `settings.json` prints a loud error and leaves the file untouched, but
-  returns success, so it cannot skip any other activation entry (package install,
-  generation link, `llmMemoryLinks`, systemd reload, hooks, branch-protection
-  sync). Ordering is deliberately not relied on - the nixpkgs DAG `toposort` does
+  from any entry aborts every entry the DAG sorts after it. The Pi installer and
+  Claude merge are therefore invoked non-fatally (Interface Contracts): a refusal
+  on a target collision or malformed operator `settings.json` prints a loud error
+  and leaves the file untouched, but returns success, so it cannot skip any other
+  activation entry (package install, generation link, `llmMemoryLinks`, systemd
+  reload, hooks, branch-protection sync). Ordering is deliberately not relied on -
+  the nixpkgs DAG `toposort` does
   not place this entry last (verified against the real allod-dev DAG:
   `installPackages` and `syncPrBranchProtection` sort after it), so containment
   comes from non-fatality, not from ordering.
-- The one piece of persistent, mutable, operator-authoritative state involved is
-  `~/.claude/settings.json`. The change preserves it (merge, not own) and guards
-  it with the single-object preflight plus a failure-owning merge pipeline, both
-  exercised by behavioral fixture tests (below). This nudges the change above
-  pure R1.
+- Persistent, mutable, operator-authoritative state is limited to
+  `~/.claude/settings.json` plus the exact Pi extension target
+  `~/.pi/agent/extensions/vm-status.ts`. The Claude change preserves settings
+  (merge, not own) and guards them with the single-object preflight plus a
+  failure-owning merge pipeline; the Pi change refuses to replace a non-managed
+  file, directory, or symlink at the target path. Both refusal paths are exercised
+  by behavioral fixture tests (below). This nudges the change above pure R1.
 - Worst credible failure after planned validation passes: a broken generated
   `statusLine` script or Pi extension degrades or breaks harness startup on a dev
   VM. A non-zero/empty `statusLine` script only blanks Claude's status row (Claude
@@ -167,12 +180,15 @@ Why:
   `setStatus` event; a good one emits the event carrying the hostname). The
   settings.json risk is covered by the merge-script fixture tests (operator keys
   preserved and idempotent on valid input; every malformed shape refused with the
-  file byte-unchanged). Both artifacts are generated deterministically from a
-  fixed template with only the NixOS hostname interpolated (neutralized via
-  `builtins.toJSON` / `lib.escapeShellArg`), so the failure surface is small and
-  fully exercised in fixtures/generated artifacts (principle 13). The R2 score
-  rests on that fixture coverage plus the non-fatal merge invocation, which keeps
-  a refusal from touching operator state or skipping any other activation entry;
+  file byte-unchanged). The Pi target-collision risk is covered by installer
+  fixtures (missing path creates the managed symlink; an old managed store symlink
+  is replaced; regular files, directories, and non-managed symlinks are refused
+  byte-unchanged). The generated artifacts are deterministic templates with only
+  the NixOS hostname interpolated where needed (neutralized via `builtins.toJSON`
+  / `lib.escapeShellArg`), so the failure surface is small and fully exercised in
+  fixtures/generated artifacts (principle 13). The R2 score rests on that fixture
+  coverage plus the non-fatal mutable-state helper invocations, which keep a
+  refusal from touching operator state or skipping any other activation entry;
   without the fixtures the honest score would drift to R3.
 - Rollback is a straight revert plus a human rebuild; the only persistent runtime
   residue is the Pi extension symlink and the `.statusLine` key, both trivially
@@ -183,10 +199,13 @@ Human scrutiny (look here first):
 - The `settings.json` merge script's fixture tests: confirm they preserve every
   non-`statusLine` key, are idempotent, and refuse empty/scalar/multi-doc/malformed
   input with the file untouched.
+- The Pi installer fixture tests: confirm they create only the managed symlink,
+  replace only an old managed store symlink, and refuse a file/directory/custom
+  symlink without touching it.
 - The Pi RPC render test: confirm the real generated extension emits a `setStatus`
   event carrying `VM: <hostname>`, and that the sabotage variant fails closed.
-- Both artifacts bake the same `osConfig.networking.hostName` value (one source,
-  fanned out).
+- The Pi extension and Claude statusline script bake the same
+  `osConfig.networking.hostName` value (one source, fanned out).
 
 ## Interface Contracts
 
@@ -274,12 +293,40 @@ claudeStatusMerge = pkgs.writeShellScript "claude-vm-status-merge" ''
   '';
   ```
 
-**Activation contract (`home.activation.agentVmStatus`).** The Claude merge is
-invoked NON-FATALLY; entry ordering is deliberately not relied on. Home-manager
-runs every activation entry in one script under `set -eu -o pipefail` (verified in
-the generated `activate`; the NixOS unit launches it via `bash -el`), so any entry
-that exits non-zero aborts every entry the DAG sorts *after* it. That ordering is
-not controllable. Home-manager sorts the activation DAG with
+**Pi installer script (factored out so collision handling is directly testable).**
+
+```nix
+piStatusInstall = pkgs.writeShellScript "pi-vm-status-install" ''
+  set -eu
+  target="''${1:-$HOME/.pi/agent/extensions/vm-status.ts}"
+  mkdir -p "$(dirname "$target")"
+
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    if [ ! -L "$target" ]; then
+      echo "ERROR: $target already exists and is not the managed VM status symlink; refusing to replace it." >&2
+      exit 1
+    fi
+    current="$(readlink "$target")"
+    case "$current" in
+      /nix/store/*-pi-vm-status.ts) ;;
+      *)
+        echo "ERROR: $target points to $current, not the managed VM status extension; refusing to replace it." >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  ln -sfnT ${piStatusExtension} "$target"
+'';
+```
+
+**Activation contract (`home.activation.agentVmStatus`).** The Pi installer and
+Claude merge are invoked NON-FATALLY; entry ordering is deliberately not relied
+on. Home-manager runs every activation entry in one script under
+`set -eu -o pipefail` (verified in the generated `activate`; the NixOS unit
+launches it via `bash -el`), so any entry that exits non-zero aborts every entry
+the DAG sorts *after* it. That ordering is not controllable. Home-manager sorts
+the activation DAG with
 `lib.hm.dag.topoSort cfg.activation` (`modules/lib/dag.nix` /
 `modules/home-environment.nix`), which feeds `builtins.attrValues` (lexicographic
 by entry name) into the nixpkgs `toposort`. A bare `entryAfter ["writeBoundary"]`
@@ -290,14 +337,15 @@ allod-dev activation DAG through that same `topoSort` still sorts `installPackag
 and `syncPrBranchProtection` after `agentVmStatus` (the DFS-based `toposort` does
 not honor a name-anchor as "last"), so a fatal merge would still skip a package
 install and the branch-protection sync. Name-anchoring is also fragile - any
-future post-`writeBoundary` entry re-breaks it. So the merge is invoked
-non-fatally and ordering is irrelevant:
+future post-`writeBoundary` entry re-breaks it. So both mutable-state helpers are
+invoked non-fatally and ordering is irrelevant:
 
 ```nix
 home.activation.agentVmStatus = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-  # Pi: install auto-discovered extension (immutable store source).
-  mkdir -p "$HOME/.pi/agent/extensions"
-  ln -sfn ${piStatusExtension} "$HOME/.pi/agent/extensions/vm-status.ts"
+  # Pi: install auto-discovered extension (immutable store source). Refusals on
+  # operator-authored target collisions print a loud ERROR and leave the path
+  # byte-unchanged, but must not abort the shared activation script.
+  ${piStatusInstall} || true
 
   # Claude: merge ONLY .statusLine. A refusal on a malformed/empty operator
   # settings.json prints a loud ERROR to stderr (visible in the rebuild output and
@@ -308,24 +356,27 @@ home.activation.agentVmStatus = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
 '';
 ```
 
-(The merge script still owns its own preflight and atomicity; `|| true` only stops
-the *shared* activation script from aborting - the loud ERROR and the
-byte-unchanged file come from the script itself. The flake check asserts this
-non-fatal invocation - see Acceptance Tests.)
+(The helper scripts still own their own preflight and atomicity; `|| true` only
+stops the *shared* activation script from aborting - the loud ERROR and the
+byte-unchanged file come from the helper itself. The flake check asserts both
+non-fatal invocations - see Acceptance Tests.)
 
 **Flake check.** Add `agent-vm-status` to `checks.<system>` mirroring the existing
 `pi-integration` structure: embed `home.activation.agentVmStatus.data` via
 `pkgs.writeText` (as `pi-integration` does). The activation text references
-`piStatusExtension` and `claudeStatusMerge` directly; `claudeStatusLine` is
-referenced only transitively (the merge script bakes its path). Nix string
-context on `.data` carries all three into the `writeText` output's closure, so
-building the check realizes all three into the store and makes them executable
-in-sandbox - but extract the statusline path from the merge script, not the
-activation text (see Acceptance Tests). The check's fixtures shell out to bare
-`jq`, so it must set `nativeBuildInputs = [ pkgs.jq ]` (the merge script itself
-calls `${pkgs.jq}/bin/jq` by absolute path and needs nothing on PATH; `cmp`,
-`mktemp`, `grep`, `sed` come from stdenv). Then run the artifact assertions and
-the merge fixtures below. The Pi RPC render/sabotage pair moves
+`piStatusInstall` and `claudeStatusMerge` directly; `piStatusExtension` is
+referenced transitively from the installer and `claudeStatusLine` is referenced
+transitively from the merge script. Nix string context on `.data` carries all
+four into the `writeText` output's closure, so building the check realizes all
+four into the store and makes the shell scripts executable in-sandbox - but
+extract the Pi extension path from the installer script and the statusline path
+from the merge script, not from the activation text (see Acceptance Tests). The
+check's fixtures shell out to bare `jq`, so it must set
+`nativeBuildInputs = [ pkgs.jq ]` (the merge script itself calls
+`${pkgs.jq}/bin/jq` by absolute path and needs nothing on PATH; `cmp`, `mktemp`,
+`grep`, `sed`, `readlink`, and `test` come from stdenv/coreutils). Then run the
+artifact assertions and the installer/merge fixtures below. The Pi RPC
+render/sabotage pair moves
 into this check too if `pkgs-unstable.pi-coding-agent` runs under the build
 sandbox with `HOME=$(mktemp -d)` and `--offline` (no TTY, no network); until that
 is confirmed it stays a VM-side step (Acceptance Tests 4-5).
@@ -355,29 +406,61 @@ user="$(nix eval --raw .#vmFacts.allod-dev.username)"                           
 nix build --no-link .#checks.x86_64-linux.agent-vm-status
 
 # The check (mirrored inline here) reads the activation script and extracts the
-# two store artifacts it references DIRECTLY - the Pi extension and the merge
-# script. The statusline script is NOT named in the activation text (only the
-# merge script invokes it), so extract it from the merge script's contents. It is
-# still realized in the check closure because the merge script references it, and
-# the `nix build` above already realized all three into the store.
+# two store artifacts it references DIRECTLY - the Pi installer and the Claude
+# merge script. The Pi extension and Claude statusline scripts are NOT named in
+# the activation text (their helper scripts invoke them), so extract those paths
+# from the helper scripts. All four are realized in the check closure because
+# the helpers reference them, and the `nix build` above already realized them.
 act="$(nix eval --raw \
   ".#nixosConfigurations.allod-dev.config.home-manager.users.${user}.home.activation.agentVmStatus.data")"
-printf '%s\n' "$act" | grep -F 'mkdir -p "$HOME/.pi/agent/extensions"'
-printf '%s\n' "$act" | grep -F '.pi/agent/extensions/vm-status.ts'
-piext="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-pi-vm-status\.ts'       | head -1)"
-merge="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-claude-vm-status-merge' | head -1)"
-claudesh="$(grep -oE '/nix/store/[^" ]+-claude-vm-statusline' "$merge"              | head -1)"
+printf '%s\n' "$act" | grep -F 'pi-vm-status-install'
+printf '%s\n' "$act" | grep -F 'claude-vm-status-merge'
+install="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-pi-vm-status-install'    | head -1)"
+merge="$(printf '%s\n' "$act" | grep -oE '/nix/store/[^" ]+-claude-vm-status-merge'    | head -1)"
+piext="$(grep -oE '/nix/store/[^" ]+-pi-vm-status\.ts' "$install"                     | head -1)"
+claudesh="$(grep -oE '/nix/store/[^" ]+-claude-vm-statusline' "$merge"                 | head -1)"
 
-# The merge MUST be invoked non-fatally: under the shared `set -eu` activation
-# script a refusal must not abort activation and skip a later entry. In the real
-# allod-dev DAG, installPackages and syncPrBranchProtection sort AFTER this entry,
-# so a fatal merge would skip a package install and the branch-protection sync.
+# The mutable-state helpers MUST be invoked non-fatally: under the shared `set
+# -eu` activation script a refusal must not abort activation and skip a later
+# entry. In the real allod-dev DAG, installPackages and syncPrBranchProtection
+# sort AFTER this entry, so a fatal refusal would skip a package install and the
+# branch-protection sync.
+printf '%s\n' "$act" | grep -E 'pi-vm-status-install[^|]*\|\| *(true|:)'
 printf '%s\n' "$act" | grep -E 'claude-vm-status-merge[^|]*\|\| *(true|:)'
 
 # Pi extension bakes the hostname and the required API calls:
 grep -F "VM: ${host}" "$piext"
 grep -F 'ctx.ui.setStatus("vm-status"' "$piext"
 grep -F 'session_start' "$piext"
+
+# --- 1a. Pi installer BEHAVIORAL fixtures (collision-safe symlink ownership) ---
+work="$(mktemp -d)"
+target="$work/home/.pi/agent/extensions/vm-status.ts"
+"$install" "$target"
+test -L "$target"
+test "$(readlink "$target")" = "$piext"
+
+# An old managed store symlink is replaceable, even if dangling after GC:
+rm -f "$target"
+ln -s /nix/store/old-pi-vm-status.ts "$target"
+"$install" "$target"
+test "$(readlink "$target")" = "$piext"
+
+# Operator-authored regular files, directories, and custom symlinks are refused
+# without being touched.
+rm -f "$target"; printf 'operator extension' > "$target"; cp "$target" "$work/file.orig"
+if "$install" "$target" 2>/dev/null; then echo "PI INSTALL REFUSAL FAILED for file" >&2; exit 1; fi
+cmp "$target" "$work/file.orig" || { echo "PI INSTALL TOUCHED OPERATOR FILE" >&2; exit 1; }
+
+rm -f "$target"; mkdir "$target"; before="$(find "$target" -maxdepth 1 -mindepth 1 | wc -l)"
+if "$install" "$target" 2>/dev/null; then echo "PI INSTALL REFUSAL FAILED for directory" >&2; exit 1; fi
+after="$(find "$target" -maxdepth 1 -mindepth 1 | wc -l)"
+test "$before" = "$after" || { echo "PI INSTALL WROTE INSIDE OPERATOR DIRECTORY" >&2; exit 1; }
+
+rmdir "$target"; ln -s "$work/custom.ts" "$target"; before="$(readlink "$target")"
+if "$install" "$target" 2>/dev/null; then echo "PI INSTALL REFUSAL FAILED for custom symlink" >&2; exit 1; fi
+test "$(readlink "$target")" = "$before" || { echo "PI INSTALL REPLACED CUSTOM SYMLINK" >&2; exit 1; }
+rm -rf "$work"
 
 # --- 1b. Claude merge script BEHAVIORAL fixtures (the real R2 coverage) ---
 work="$(mktemp -d)"
