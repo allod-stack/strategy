@@ -248,14 +248,17 @@ claudeStatusMerge = pkgs.writeShellScript "claude-vm-status-merge" ''
   `session_start` (as the shipped example does) is required for the indicator to
   persist across `/new`, `/resume`, `/fork`.
 - Uses only `import type` (erased at runtime), so the symlinked store `.ts` loads
-  under jiti with no `node_modules` resolution against the read-only store.
+  under jiti with no `node_modules` resolution against the read-only store. The
+  status text is passed to `setStatus` as a plain string - no `theme.fg` dim
+  styling. Hostname-only is the MVP (Design Decision 3), and every extra UI call
+  is runtime surface on the one artifact whose failure can stop `pi` from starting.
 
   ```nix
   piStatusExtension = pkgs.writeText "pi-vm-status.ts" ''
     import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
     export default function (pi: ExtensionAPI) {
       pi.on("session_start", async (_event, ctx) => {
-        ctx.ui.setStatus("vm-status", ctx.ui.theme.fg("dim", ${builtins.toJSON "VM: ${hostName}"}));
+        ctx.ui.setStatus("vm-status", ${builtins.toJSON "VM: ${hostName}"});
       });
     }
   '';
@@ -347,7 +350,6 @@ claudesh="$(grep -oE '/nix/store/[^" ]+-claude-vm-statusline' "$merge"          
 # Pi extension bakes the hostname and the required API calls:
 grep -F "VM: ${host}" "$piext"
 grep -F 'ctx.ui.setStatus("vm-status"' "$piext"
-grep -F 'ctx.ui.theme.fg("dim"' "$piext"
 grep -F 'session_start' "$piext"
 
 # --- 1b. Claude merge script BEHAVIORAL fixtures (the real R2 coverage) ---
