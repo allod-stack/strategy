@@ -141,8 +141,19 @@ below.
    combined-stdin retire ordering is pinned in both Interface Contract 4 and
    the Acceptance Tests: override confirmations happen in sorted-name order
    before the `OLD_BACKUP` branch and before `confirm_missing_old_key_retire`.
-   Do not launch another plan-text pass unless the implementation changes the
-   plan contract.
+   Pass 4 ground-truthed the converged text against fresh clones with no
+   implementation in existence (nexus `8e483f9`, secrets `906dd3e`, profiles
+   `d7b9e1e`): the activate/retire insertion points, the `vm_ssh_unreachable`
+   predicate-vs-disposition seam, the three known-hosts trust roots, every
+   stub behavior the Acceptance Tests lean on, the `home-shared.nix`
+   sole-consumer claim, and the single-eval resolver contract (re-verified
+   empirically on nix 2.31.5: absent → `{}` at exit 0; bad alias, missing
+   field, or throw → nonzero; portless → 22 as a JSON number; `identityFile`
+   string-or-null; per-attribute absent ≡ eval error) all hold with zero
+   drift, and the 13-case fixture suite passes as-is. Implementation review
+   can diff against those baselines rather than re-deriving them. Do not
+   launch another plan-text pass unless the implementation changes the plan
+   contract.
 
 2. **The client-key premise (operator validation, carried to implementation).** The plan
    states the premise (Risk Assessment), gates it on per-target operator
@@ -170,7 +181,13 @@ below.
    same fake-`nix` arm as populated ones, that the emitted `identityFile` field
    does not perturb the stub's `<user>@<host>` keying, and that the external
    gate actually runs before the activate swap and before retire's
-   `OLD_BACKUP` handling.
+   `OLD_BACKUP` handling. One concrete trap (pass 4): the fake `nix`
+   dispatches on substring matches in case-statement order, and the registry
+   query's `#lib.identity` is a substring of the existing
+   `#lib.identity.forgeHost` / `#lib.identity.forgePort` arms — a new arm
+   keyed on bare `#lib.identity` placed above them swallows the forge queries
+   (it fails loudly at the verify-repo-URL assertion, not silently, but check
+   the arm keys on the `--apply` join or sits below the per-attribute arms).
 
 Run the template's SIMPLIFY sweep during implementation review. Standing
 candidates: the `recovery` enum (kept — three genuinely different remediation
@@ -188,9 +205,10 @@ contradicts itself. Pass 1 resolved the original seven seed areas (fail-closed
 resolution mechanics, probe classification, known-hosts posture, override
 binding, template blast radius, fixture realism); pass 2 resolved the pass-1
 diff-review area (verified the nine pass-1 fixes against the tree — see the
-fix-stability record below); pass 3 verified the two pass-2 fixes. The plan text
-has converged under the stopping rules; carry remaining questions into
-implementation review.
+fix-stability record below); pass 3 verified the two pass-2 fixes; pass 4
+grounded the full converged text against a fresh checkout with no
+implementation present and found zero drift. The plan text has converged under
+the stopping rules; carry remaining questions into implementation review.
 
 Fix-stability record:
 - claude-fable-5 (pass 1, `b5a9569..55f8c3f`): eight of nine fixes held up under
@@ -209,12 +227,22 @@ Fix-stability record:
   pass 3 verified them.
 - gpt-5 (pass 3, `2777072`, `551671c` verification): both pass-2 fixes held up
   against the tree. No new findings; no plan-file commit needed.
+- claude-fable-5 (pass 4, grounding, no plan commits): with no implementation
+  branches in existence, re-derived every current-tree claim from fresh clones
+  (nexus `8e483f9`, secrets `906dd3e`, profiles `d7b9e1e`), re-ran the
+  resolver-contract evals on nix 2.31.5, and ran the 13-case fixture suite.
+  All pass-1/pass-2 fixes remain stable against the real tree; no new
+  findings.
 
 Next pass: implementation review of the actual `allod/secrets` and
 `allod/nexus` PRs, not another plan-text pass, unless implementation changes
-the plan contract. Prefer a model other than the implementation author; use the
-focus areas above to review the real resolver, phase ordering, SSH probe shape,
-fixture harness, secrets flake check, and operator-only client-key premise.
+the plan contract. The tree facts in Focus Areas 1 and 3 are verified as of
+nexus `8e483f9` / secrets `906dd3e` / profiles `d7b9e1e`; diff the
+implementation against them instead of re-deriving. Prefer a model other than
+the implementation author (fix-stability record: claude-opus-4-8 2/2,
+claude-fable-5 8/9); use the focus areas above to review the real resolver,
+phase ordering, SSH probe shape, fixture harness, secrets flake check, and
+operator-only client-key premise.
 
 ## Review Guidelines
 
