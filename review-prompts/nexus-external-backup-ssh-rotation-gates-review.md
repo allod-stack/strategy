@@ -150,8 +150,11 @@ below.
    empirically on nix 2.31.5: absent → `{}` at exit 0; bad alias, missing
    field, or throw → nonzero; portless → 22 as a JSON number; `identityFile`
    string-or-null; per-attribute absent ≡ eval error) all hold with zero
-   drift, and the 13-case fixture suite passes as-is. Implementation review
-   can diff against those baselines rather than re-deriving them. Do not
+   drift, and the 13-case fixture suite passes as-is. Pass 5 (gpt-5.5,
+   metadata-only) rechecked the current tree at the same baseline commits,
+   found no implementation branches to review and no new plan defects, and
+   reran `bash tests/nexus-host-key.sh` successfully (13 cases). Implementation
+   review can diff against those baselines rather than re-deriving them. Do not
    launch another plan-text pass unless the implementation changes the plan
    contract.
 
@@ -233,6 +236,14 @@ Fix-stability record:
   resolver-contract evals on nix 2.31.5, and ran the 13-case fixture suite.
   All pass-1/pass-2 fixes remain stable against the real tree; no new
   findings.
+- gpt-5.5 (pass 5, no plan commits): verified the current tree is still at the
+  pass-4 baseline commits (nexus `8e483f9`, secrets `906dd3e`, profiles
+  `d7b9e1e`), found no matching implementation branches in the local/remote
+  branch lists, confirmed the plan still has all required sections and no
+  plan-text defects, and reran the 13-case `nexus-host-key` fixture suite.
+  Pass-1/pass-2 fixes remain stable; this was the second consecutive no-defect
+  plan-text pass after convergence, so the next useful review is still
+  implementation review.
 
 Next pass: implementation review of the actual `allod/secrets` and
 `allod/nexus` PRs, not another plan-text pass, unless implementation changes
