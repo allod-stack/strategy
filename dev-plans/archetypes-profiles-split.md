@@ -247,13 +247,20 @@ Rename costs, recorded up front (reference hygiene):
 
    `profileDefinitions` and `profileData` carry today's semantics unchanged,
    re-homed: definitions normalize through the framework's existing
-   `normalizeDefinition` (unknown extra keys tolerated, as today). M2 must fix
-   the current framework assertion before relying on it for the new input: the
-   existing `unknownProfileDefinitionArchetypes` calculation subtracts in the
-   wrong direction, so unknown archetype names such as `service` are not
-   rejected. The post-fix check is
-   `declaredProfileDefinitionArchetypes - profileArchetypes`; a machine
-   selecting a missing definition remains an eval-time throw, and
+   `normalizeDefinition` (unknown extra keys tolerated, as today). The
+   framework's existing unknown-archetype assertion is already correct and must
+   be left in its current direction:
+   `unknownProfileDefinitionArchetypes = subtractLists profileArchetypes
+   allProfileDefinitionArchetypes` evaluates to
+   `declaredProfileDefinitionArchetypes - profileArchetypes` (nixpkgs
+   `subtractLists e list` removes `e`'s elements from `list`), so an unknown
+   archetype such as `service` is flagged and the `machineConfigurations`
+   assert throws. M2's job is to add regression coverage, not to change the
+   subtraction — reversing it would silently stop rejecting unknown archetypes,
+   inverting a fail-loud guard. Because that binding runs only over the real
+   `profileDefinitionLayers`, M2 must lift the unknown-archetype computation
+   into a helper that accepts injected layers so the M2 sabotage case can drive
+   it. A machine selecting a missing definition remains an eval-time throw, and
    `profileData.<machine>` merges into builder args exactly as
    `secrets.lib.profileData.<machine>` does today.
    `homeModules.preferences` is the module today exported by the secrets
@@ -464,9 +471,14 @@ git grep -n 'inventory.lib.profileDefinitions'                 # empty
 git grep -n 'publicProfileDefinitions'                         # empty
 test ! -e hosts            # examples moved out, home-shared relocated to modules/
 
-# The profile-definition contract check includes a sabotage case with an
-# unsupported archetype key (for example `service`) and must fail it. This
-# specifically guards the pre-split reversed unknown-archetype subtraction.
+# The profile-definition contract check includes a sabotage case that feeds an
+# unsupported archetype key (for example `service`) through the unknown-archetype
+# assertion and must fail with its "unknown profile definition archetype(s)"
+# message. It must fail *there*, NOT via the existing missing-selected-definition
+# throw and NOT via a bare "attribute 'service' missing" from
+# mergeProfileDefinitionLayers (which genAttrs-es only the known archetypes and
+# silently drops unknown keys — a false green). This confirms the existing
+# subtraction direction stays correct after the layers are made injectable.
 nix build .#checks.x86_64-linux.profile-definition-contracts
 ```
 
