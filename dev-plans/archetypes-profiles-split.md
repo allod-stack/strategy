@@ -350,11 +350,17 @@ Rename costs, recorded up front (reference hygiene):
    registry and machine repo lists stop using `allod/profiles` to mean the
    framework: the framework checkout is the full alias `allod/archetypes`, and
    the deploy composition root remains the full checkout `allod/deploy` for VM
-   repo lists. Script defaults use bare aliases, so the registry also needs
-   bare `deploy`, `secrets`, and `inventory` entries. The registry check's
-   required-alias list becomes `deploy secrets inventory` in that pre-cliff
-   inventory PR because the scripts that motivated requiring `profiles` now
-   resolve the composition root instead. After M1/M3, M5 may add/keep
+   repo lists. This full-name re-point is the load-bearing G1b change: it is
+   what stops cold clones from resolving the framework through the dying
+   `allod/profiles` redirect. No new bare registry entries are needed — the
+   nexus scripts resolve bare aliases via
+   `resolve_checkout <alias> <registry> allod/<alias>`, which already falls back
+   to the identical `allod/<x>` checkout, and the `repository-registry` check
+   requires no bare keys. Leave that check's self-rebuild required-alias list
+   (`profiles secrets inventory`) alone: it tests repos-array membership with
+   bare names against repo lists that use full `allod/...` names, and no example
+   VM sets `self_rebuild = true`, so it is inert — swapping `profiles`→`deploy`
+   there changes nothing. After M1/M3, M5 may add/keep
    `allod/profiles` as the new definitions repo checkout for humans who edit
    examples, but no provisioning default may rely on it for framework or
    deploy-flake behavior.
@@ -421,9 +427,9 @@ nix flake check
 jq -e '."allod-dev".repos | index("allod/archetypes")' scripts/vm-specs.json
 jq -e '."allod-dev".repos | index("allod/profiles") | not' scripts/vm-specs.json
 jq -e '.repositories["allod/archetypes"].remote == "allod/archetypes"' scripts/repositories.json
-jq -e '.repositories.deploy.remote == "allod/deploy"' scripts/repositories.json
-jq -e '.repositories.secrets.remote == "allod/secrets"' scripts/repositories.json
-jq -e '.repositories.inventory.remote == "allod/inventory"' scripts/repositories.json
+# The existing full allod/deploy, allod/secrets, allod/inventory registry
+# entries are unchanged; the nexus scripts' resolve_checkout fallbacks cover
+# their bare aliases, so no bare registry entries are added.
 
 # nexus: deploy-flake defaults and rotation lock-bump steps use deploy before
 # the profiles checkout can become definitions-only. These patterns match only
