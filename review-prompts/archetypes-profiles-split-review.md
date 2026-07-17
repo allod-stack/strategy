@@ -101,18 +101,37 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **The redirect cliff.** G1 gates M1 on "every known deploy flake and
-   checkout re-pointed", split into a public `allod/deploy` re-point PR plus
-   an operator confirmation for private consumers. Walk the public tree for
-   anything else that fetches `allod/profiles` by URL or alias at runtime —
-   registry entries, script fallbacks, flake inputs in other repos, docs a
-   cold operator would paste from. Is anything reachable between M0 and M5
-   that the redirect's death breaks and the plan's sequencing does not
-   cover? Is the G1 PR's URL-only claim actually verifiable from its diff
-   and drvPaths? Is the M0/M1 separate-sessions rule enforced by anything
-   beyond prose?
+Pass metadata:
 
-2. **Canary validity.** The composed-layer check compares
+- Fix stability: first pass on this plan; no prior fixes to score.
+- Next pass: scoped diff review of commits `5b38d9f` and `02043b5`, not a full
+  re-review. Use a model other than `gpt-5.0`. Verify the new G1 split does not
+  overreach or leave a redirect-cliff consumer behind, and verify the
+  unknown-archetype check is implementable against the current framework code.
+
+1. **Scoped diff: G1 redirect-cliff split.** Commit `5b38d9f` moved
+   redirect-sensitive public runtime pointers from M5 into G1. Verify this is
+   operationally correct before M1: `allod/inventory` should stop cold clones
+   from fetching the framework through `allod/profiles`, `allod/nexus` should
+   use `allod/deploy` for deploy-flake defaults before the replacement
+   profiles repo exists, and the bare-vs-full registry aliases should match the
+   actual resolver and VM repo-list semantics.
+
+2. **Scoped diff: nexus checkout semantics.** The same commit split deploy
+   lock-bump checkouts from optional profile hook lookup. Verify every script
+   that prints or enforces a secrets-lock bump is covered (`forge-ssh-key`,
+   `vm-ssh-host-key`, `nexus-host-key`, `rotate-token`), `assert_clean` guards
+   the checkout the operator edits, and `bootstrap-vm-from-host.sh` does not
+   silently look for profile hooks under the deploy template.
+
+3. **Scoped diff: unknown archetype validation.** Commit `02043b5` records that
+   the current `unknownProfileDefinitionArchetypes` subtraction is reversed.
+   Verify the plan's replacement contract is the right one
+   (`declaredProfileDefinitionArchetypes - profileArchetypes`) and that the M2
+   acceptance check really fails an unsupported archetype key instead of merely
+   failing a missing selected definition.
+
+4. **Canary validity.** The composed-layer check compares
    `archetypes.profilesSource` against the deploy's `profiles.outPath`. Trace
    the actual failure modes: follows line deleted, follows line pointing at
    the wrong input, deploy's direct `profiles` input removed entirely,
@@ -122,38 +141,13 @@ areas below.
    the wrong layer? Does `profilesSource` reliably reflect the post-override
    input in current Nix?
 
-3. **The parity claim.** M2 asserts identical toplevel drvPaths for the whole
-   example fleet while moving every definition module and the preferences
-   module to different store paths and relocating `home-shared.nix`. Is
-   drvPath really insensitive to those path moves in this codebase — no
-   `toString`, no path interpolation, no `imports` shape that bakes source
-   paths into generated files? If parity legitimately breaks, does the plan's
-   "every delta explained exactly" escape hatch have teeth, or is it a blank
-   check?
-
-4. **Contract completeness.** The plan enumerates the behavior reads that move
-   (`profileDefinitions`, `profileData`, `preferences`) and asserts everything
-   else on the `secrets` input is charter (identity, credentials, git policy).
-   Grep the framework flake for every `secrets.` and `inventory.` dereference
-   and check the classification — is `gitPolicySource ? secrets` really
-   charter? `memoryCheckouts`? Anything in the checks? A missed behavior read
-   makes M4 a breaking change and falsifies the M4 acceptance grep.
-
-5. **Sweep semantics, not just spelling.** M5 re-points
-   `MACHINE_PROFILES`/`PROFILES_CHECKOUT` at the deploy checkout and swaps the
-   registry's required aliases to `deploy secrets inventory`. Verify against
-   the scripts: is the deploy checkout actually the right target everywhere
-   those variables are used (lock bumps, `assert_clean`, printed runbook
-   steps), or does any use genuinely mean the framework checkout
-   (`archetypes`)? Does anything else resolve the bare `profiles` alias and
-   silently change meaning when it re-points to the definitions repo?
-
-6. **New-repo shape.** The profiles repo exports a literal attrset, carries a
-   structural shape check but deliberately not archetype-name validation, and
-   must never grow `secrets`/`inventory` inputs. Is the shape-check scope
-   right — early feedback for a hand-editing fork operator versus duplicating
-   the framework's own assertions? Is fresh history actually achievable with
-   the file moves as described (copy, not `git mv` across repos)?
+5. **Do not reopen without new evidence.** This pass found the parity claim
+   credible for the current moved modules: the example modules and
+   `preferences.nix` do not stringify their own source paths into generated
+   config. Reopen parity only if the scoped diff changes the moved files or
+   weakens the parity acceptance test. This pass also found the remaining
+   `secrets.` reads in the framework consistent with the stated identity,
+   credential, and git-policy charter.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
