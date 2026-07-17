@@ -105,19 +105,19 @@ Pass metadata:
 
 - Fix stability: gpt-5.0's pass-1 fixes held up poorly. `02043b5`
   (unknown-archetype) introduced a BLOCKER — it recast a correct framework
-  assertion as "reversed" and told M2 to break it; corrected in `4c6a31c`.
+  assertion as "reversed" and told M2 to break it; corrected in `f15a566`.
   `5b38d9f` (G1 split) had the right redirect-cliff instinct — the pointer moves
   themselves are sound — but shipped a false-green acceptance grep (fixed
-  `6052ce2`) and redundant registry-alias scope (fixed `40cda01`). Score gpt-5.0
+  `f2f54e2`) and redundant registry-alias scope (fixed `5f4f277`). Score gpt-5.0
   low on this plan: sound structural intent, unsound details, one fix that
   regressed correct text.
-- Next pass: scoped diff review of `4c6a31c`, `6052ce2`, and `40cda01` — not a
+- Next pass: scoped diff review of `f15a566`, `f2f54e2`, and `5f4f277` — not a
   full re-review — by a model other than the pass-2 author (`claude-fable-5`).
   These are a blocker-level correction plus two scope/test fixes; verify each in
   items 1–3. Also finally close **Canary validity** (item 4), untouched since
   pass 1.
 
-1. **Verify the unknown-archetype correction (`4c6a31c`).** The plan now states
+1. **Verify the unknown-archetype correction (`f15a566`).** The plan now states
    the existing `unknownProfileDefinitionArchetypes = subtractLists
    profileArchetypes allProfileDefinitionArchetypes` is already correct
    (`declared - supported`) and must not be reversed, and that M2 adds a sabotage
@@ -129,7 +129,7 @@ Pass metadata:
    assert, rather than a `.service`-attribute-missing false green? Is the
    direction left unchanged?
 
-2. **Verify the registry simplification (`40cda01`).** The plan now drops bare
+2. **Verify the registry simplification (`5f4f277`).** The plan now drops bare
    `deploy`/`secrets`/`inventory` registry entries and relies on
    `resolve_checkout`'s `allod/<x>` fallbacks. Confirm every post-split
    bare-alias resolution (`forge-ssh-key`, `vm-ssh-host-key`, `nexus-host-key`,
@@ -138,7 +138,7 @@ Pass metadata:
    check stays green with only the full `allod/archetypes` key added. If any
    consumer genuinely needs a bare entry, this simplification is wrong — say so.
 
-3. **Verify the nexus grep fix (`6052ce2`) still catches regressions.** The
+3. **Verify the nexus grep fix (`f2f54e2`) still catches regressions.** The
    acceptance grep now omits the `cd ${MACHINE_PROFILES}` / `${PROFILES_CHECKOUT}`
    alternatives (double-escaped, and they conflated a variable name with its
    target). Confirm the diff + `nix flake check` path actually verifies that
