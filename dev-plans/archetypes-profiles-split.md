@@ -247,11 +247,15 @@ Rename costs, recorded up front (reference hygiene):
 
    `profileDefinitions` and `profileData` carry today's semantics unchanged,
    re-homed: definitions normalize through the framework's existing
-   `normalizeDefinition` (unknown extra keys tolerated, as today), archetype
-   names are validated by the framework's existing unknown-archetype
-   assertion at consumption, a machine selecting a missing definition remains
-   an eval-time throw, and `profileData.<machine>` merges into builder args
-   exactly as `secrets.lib.profileData.<machine>` does today.
+   `normalizeDefinition` (unknown extra keys tolerated, as today). M2 must fix
+   the current framework assertion before relying on it for the new input: the
+   existing `unknownProfileDefinitionArchetypes` calculation subtracts in the
+   wrong direction, so unknown archetype names such as `service` are not
+   rejected. The post-fix check is
+   `declaredProfileDefinitionArchetypes - profileArchetypes`; a machine
+   selecting a missing definition remains an eval-time throw, and
+   `profileData.<machine>` merges into builder args exactly as
+   `secrets.lib.profileData.<machine>` does today.
    `homeModules.preferences` is the module today exported by the secrets
    template.
 
@@ -459,6 +463,11 @@ git grep -nE 'secrets\.(lib\.profile|homeModules)' flake.nix   # empty
 git grep -n 'inventory.lib.profileDefinitions'                 # empty
 git grep -n 'publicProfileDefinitions'                         # empty
 test ! -e hosts            # examples moved out, home-shared relocated to modules/
+
+# The profile-definition contract check includes a sabotage case with an
+# unsupported archetype key (for example `service`) and must fail it. This
+# specifically guards the pre-split reversed unknown-archetype subtraction.
+nix build .#checks.x86_64-linux.profile-definition-contracts
 ```
 
 M3 (`allod/deploy`):
