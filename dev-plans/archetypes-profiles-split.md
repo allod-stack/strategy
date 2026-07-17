@@ -51,6 +51,10 @@ Current state, all visible in the public tree:
   `vmFacts`. Its lock pins the framework at the `allod/profiles` URL — which
   makes the template itself the one public consumer the rename cliff can
   break, handled in-plan at G1.
+- Public provisioning entry points are redirect-cliff consumers too:
+  inventory-driven cold clones, `DEPLOY_FLAKE` defaults, and rotation runbook
+  lock-bump steps must stop using the old `allod/profiles` framework checkout
+  before M1 claims that name for the definitions repo.
 
 Target shape:
 
@@ -89,6 +93,13 @@ In scope:
   the compose helper, `profilesSource`, and the composed-layer check builder
   (Interface Contracts 2); rewrite `README.md` (name, ownership, history
   note).
+- G1 public redirect-cliff re-points before M1: the `allod/deploy` URL-only
+  re-point, plus the `inventory`/`nexus` runtime pointers that are already
+  valid pre-split — `DEPLOY_FLAKE` defaults and lock-bump runbook steps point
+  at `allod/deploy`, and inventory's framework checkout points at
+  `allod/archetypes` instead of relying on the soon-dead `allod/profiles`
+  redirect. Optional post-provision hook lookup remains a profiles-definitions
+  concern, not a deploy-flake concern.
 - `allod/deploy` adaptation (M3): rename the framework input `profiles` ->
   `archetypes`, add the `profiles` definitions input with its
   follows-redirect, add the composed-layer canary as a flake check plus a
@@ -97,10 +108,11 @@ In scope:
 - `secrets` template cleanup (M4): remove `lib.profileDefinitions`,
   `lib.profileData`, `homeModules.preferences`, and `modules/preferences.nix`;
   README ownership touch-up.
-- Sweep (M5): `inventory` registry aliases, machine `repos` lists,
-  `vm-specs.json` regen; `nexus` provisioning pointer defaults and runbook
-  prose; `memory` topic files; grep-driven cleanup of remaining `allod/profiles`
-  references across public repos.
+- Sweep (M5): add the new definitions repo checkout where useful, finish
+  `inventory` registry alias cleanup and `vm-specs.json` regen, update `memory`
+  topic files, and do the grep-driven cleanup of remaining `allod/profiles`
+  references across public repos. Redirect-sensitive provisioning defaults and
+  framework checkouts are not deferred here; G1 owns them.
 
 Out of scope:
 
@@ -132,18 +144,26 @@ the old name, which kills the redirect permanently. Sequence around that cliff:
    Do not create the replacement repo in the same session. Everything keeps
    working through the redirect: existing locks, existing checkouts, hardcoded
    URLs.
-2. **G1 (one public PR + operator gate)**: every known deploy flake whose
+2. **G1 (public pre-cliff PRs + operator gate)**: every known deploy flake whose
    lock pins `git+https://forge.anarch.diy/allod/profiles.git` re-points that
    input URL to `allod/archetypes` at the same revision — a URL-only
    flake.nix + lock rewrite; the rename preserves refs and objects, so the
    pinned rev stays reachable from the locked ref. The public template
    `allod/deploy` is itself such a consumer: a dedicated PR re-points its
    `profiles.url`, keeping the input *name* `profiles` until M3 renames it
-   properly. Operator deploy forks re-point likewise, existing local
-   checkouts of the renamed repo re-point their remotes
-   (`git remote set-url`) or get recloned, and the operator confirms no live
-   consumer still fetches through the redirect. This gate exists because
-   step 3 is the point of no return for the redirect.
+   properly. Two other public PRs land in the same gate because they are
+   runtime-reachable old-name consumers, not cosmetic sweep work:
+   `allod/inventory` changes cold-clone repo lists and registry aliases so the
+   framework checkout is `allod/archetypes` before the old URL dies, and
+   `allod/nexus` moves deploy-flake defaults and rotation lock-bump/runbook
+   steps to `allod/deploy` before a fresh `$HOME/work/allod/profiles` checkout
+   can become the definitions-only repo. These changes are valid pre-split:
+   the existing deploy template already re-exports `nixosConfigurations` and
+   `vmFacts`. Operator deploy forks re-point likewise, existing local
+   checkouts of the renamed repo re-point their remotes (`git remote set-url`)
+   or get recloned at the `allod/archetypes` checkout path, and the operator
+   confirms no live consumer still fetches through the redirect. This gate
+   exists because step 3 is the point of no return for the redirect.
 3. **M1 (human creates, agent populates)**: create the empty `allod/profiles`
    repo — this permanently ends the redirect; old-URL cold fetches now resolve
    to the new repo, whose fresh history contains none of the framework's revs.
@@ -157,18 +177,24 @@ the old name, which kills the redirect permanently. Sequence around that cliff:
 6. **M4**: the `secrets` template cleanup PR. Depends on M2 being merged (the
    framework no longer reads the removed exports). Order relative to M3 is
    free.
-7. **M5**: sweep PRs — `inventory`, `nexus`, then `memory` last, carrying the
-   closing keyword.
+7. **M5**: final sweep PRs — add the new definitions repo checkout where useful,
+   clean up remaining aliases/docs, regenerate generated files, then `memory`
+   last, carrying the closing keyword. No cold-fetch or provisioning default
+   may still depend on the old `allod/profiles` framework meaning at this point;
+   those were G1 blockers.
 
 Transitional states are harmless by construction: between M1 and M2 the example
 definitions exist both in the framework's `hosts/` tree and in the new repo,
 but nothing consumes the new repo until M2 locks it. Between M2 and M4 the
 secrets template exports attrs nobody reads.
 
-PR map: G1 `allod/deploy` (URL re-point), M1 `allod/profiles`, M2
-`allod/archetypes`, M3 `allod/deploy`, M4 `allod/secrets`, M5a
-`allod/inventory`, M5b `allod/nexus`, M5c `allod/memory`. Eight PRs, two
-human forge operations (M0, M1 creation), one operator gate (G1).
+PR map: G1a `allod/deploy` (URL re-point), G1b `allod/inventory`
+(framework checkout re-point), G1c `allod/nexus` (deploy-flake defaults and
+rotation runbook re-point), M1 `allod/profiles`, M2 `allod/archetypes`, M3
+`allod/deploy`, M4 `allod/secrets`, M5a `allod/inventory` (new definitions
+checkout + final registry cleanup), M5b `allod/nexus` (remaining non-cliff
+prose/tests only if needed), M5c `allod/memory`. Ten PRs, two human forge
+operations (M0, M1 creation), one operator gate (G1).
 
 ## Risk Assessment
 
@@ -179,12 +205,13 @@ changes. Per milestone:
 | Milestone | Risk | Reason | Human scrutiny |
 |---|---|---|---|
 | M0 rename | R2 Medium | Forge-level and reversible until M1; the redirect keeps every consumer working. Blast radius is anything hardcoding the old URL, bridged by the redirect until G1/M1 complete. | Confirm the redirect serves: `git ls-remote` the old URL after renaming. Confirm M1 is *not* done in the same sitting. |
-| G1 re-point (`allod/deploy`) | R1 Low | URL-only input rewrite at the same locked rev; composed content identical by construction, proven by drvPath comparison. | The diff touches only the input URL and lock metadata; drvPaths byte-identical before/after. |
+| G1a deploy URL re-point (`allod/deploy`) | R1 Low | URL-only input rewrite at the same locked rev; composed content identical by construction, proven by drvPath comparison. | The diff touches only the input URL and lock metadata; drvPaths byte-identical before/after. |
+| G1b/G1c public runtime re-points (`inventory`, `nexus`) | R2 Medium | These are mechanical but provisioning-adjacent: they prevent M1 from turning cold clones, `DEPLOY_FLAKE` defaults, and rotation lock-bump instructions toward the new definitions-only repo. The deploy template already works pre-split, so rollback is straight revert before M1. | The inventory registry/spec diff and `nix flake check`; the nexus defaults/runbook/test diff and `nix flake check`; a grep showing no provisioning default or framework checkout still depends on the old `allod/profiles` meaning. |
 | M1 new `allod/profiles` | R2 Medium | Additive fresh repo nobody consumes yet. The risk is entirely in the sequencing: creating it kills the redirect, so G1 must actually be complete, and the fresh history must carry no framework commits. | Verify G1 confirmations happened. Verify `git log` in the new repo shows only new commits. |
 | M2 seam flip | R3 High | The composition path for every machine changes; wrong merge or default re-homing silently changes composed systems. Mitigated by drvPath parity on the whole example fleet plus the existing check suite. | The parity output; the diff hunks deleting `or {}` fallbacks (removed reads must be gone entirely, not defaulted); the re-homed `preferencesModule` and `profileData` reads. |
 | M3 deploy template | R2 Medium | Adapts an existing template nothing operational builds from directly — but it pins the pattern operators fork, so a wrong follows shape here propagates into every future fork. | The three `follows` lines; the canary sabotage runs actually failing. |
 | M4 secrets cleanup | R1 Low | Removes exports the framework no longer reads; straight revert. | The grep proving zero readers at M2's merged rev. |
-| M5 sweep | R2 Medium | Mechanical pointers, but they touch provisioning defaults (`DEPLOY_FLAKE`, registry aliases, rotation-runbook checkout resolution); a wrong default strands provisioning on a host without env injection. | The `nexus` defaults diff; the inventory registry check and `vm-specs.json` regen. |
+| M5 sweep | R2 Medium | Mostly mechanical, but it still changes checkout inventory and public docs after the new definitions repo exists. The redirect-cliff defaults already moved in G1; M5 must not be the first time provisioning stops using the old framework path. | The inventory registry check and `vm-specs.json` regen; grep review of remaining `allod/profiles` hits as either the new definitions repo or the recorded History note. |
 
 Rename costs, recorded up front (reference hygiene):
 
@@ -308,24 +335,38 @@ Rename costs, recorded up front (reference hygiene):
    magic. It needs no inputs beyond `nixpkgs` for its shape check; it must
    never grow inputs on `secrets` or `inventory`.
 
-5. **Registry and pointer contract after the sweep (M5)**: the inventory
-   registry gains `archetypes` and `deploy` entries; the bare `profiles`
-   alias re-points to the new definitions repo; the registry check's
-   required-alias list becomes `deploy secrets inventory` (the scripts that
-   motivated requiring `profiles` now resolve the composition root instead).
-   `nexus` script defaults move accordingly: `DEPLOY_FLAKE` defaults and the
+5. **Registry and pointer contract after G1/M5**: before M1, the inventory
+   registry and machine repo lists stop using `allod/profiles` to mean the
+   framework: the framework checkout is the full alias `allod/archetypes`, and
+   the deploy composition root remains the full checkout `allod/deploy` for VM
+   repo lists. Script defaults use bare aliases, so the registry also needs
+   bare `deploy`, `secrets`, and `inventory` entries. The registry check's
+   required-alias list becomes `deploy secrets inventory` in that pre-cliff
+   inventory PR because the scripts that motivated requiring `profiles` now
+   resolve the composition root instead. After M1/M3, M5 may add/keep
+   `allod/profiles` as the new definitions repo checkout for humans who edit
+   examples, but no provisioning default may rely on it for framework or
+   deploy-flake behavior.
+
+   `nexus` deploy defaults move in G1: `DEPLOY_FLAKE` defaults and the
    `/template/profiles` sentinel reference the deploy checkout
-   (`$HOME/work/allod/deploy`, `/template/deploy`); `MACHINE_PROFILES` /
-   `PROFILES_CHECKOUT` in `bootstrap-vm-from-host.sh`, `forge-ssh-key`, and
-   `nexus-host-key` resolve the `deploy` alias — post-split, the checkout
-   whose lock pins `secrets` (which is what those scripts bump and
-   `assert_clean`) is the deploy composition root, not the definitions repo.
-   Keeping the variable names while re-pointing their targets is the default;
-   renaming them for honesty is reviewer's latitude. `allod-dev`'s machine
-   `repos` list adds `allod/archetypes` and keeps `allod/profiles` (now the
-   examples repo); `vm-specs.json` is regenerated (`nix eval
-   .#lib.vmSpecsJson --raw | jq -S .`) in the same PR so its check stays
-   green.
+   (`$HOME/work/allod/deploy`, `/template/deploy`). Rotation commands that tell
+   the operator to bump a flake lock (`forge-ssh-key`, `vm-ssh-host-key`,
+   `nexus-host-key`, and `rotate-token`) must point at the deploy checkout too,
+   with variable names renamed if keeping `MACHINE_PROFILES` /
+   `PROFILES_CHECKOUT` would obscure the meaning. `assert_clean` should guard
+   the checkout the command actually asks the operator to edit.
+
+   Do not repoint optional profile hook lookup to deploy: in
+   `bootstrap-vm-from-host.sh`, `${...}/scripts/hooks/<vm>.sh` is a
+   definitions-profile concern. It should either keep resolving the
+   profiles-definitions checkout (possibly under a clearer variable such as
+   `PROFILE_HOOKS_CHECKOUT`) or be deleted if no public/private hook contract is
+   intended; it must not silently look under the deploy template. `allod-dev`'s
+   machine `repos` list has `allod/archetypes` before M1 and may add
+   `allod/profiles` after the examples repo exists; `vm-specs.json` is
+   regenerated (`nix eval .#lib.vmSpecsJson --raw | jq -S .`) in the same PR
+   that changes the repo list so its check stays green.
 
 ## Agent Gates
 
@@ -333,10 +374,10 @@ Rename costs, recorded up front (reference hygiene):
   creation, new-repo settings (description, branch protection), and all PR
   merges. Blocks every milestone start; each PR waits on its human merge.
 - **G1's private half is an operator confirmation.** The public half — the
-  `allod/deploy` URL re-point PR — is agent work, but the agent cannot
-  enumerate deploy flakes or checkouts outside the public org, so it cannot
-  verify that all old-URL consumers have re-pointed. The human confirms G1
-  before creating the new repo. Blocks M1.
+  `allod/deploy`, `allod/inventory`, and `allod/nexus` pre-cliff PRs — is
+  agent work, but the agent cannot enumerate deploy flakes or checkouts outside
+  the public org, so it cannot verify that all old-URL consumers have
+  re-pointed. The human confirms G1 before creating the new repo. Blocks M1.
 - **Full-fleet parity is operator-side.** This plan's parity evidence covers
   the public example fleet only; parity for an operator's real fleet belongs
   to the companion operator-side plan.
@@ -350,7 +391,7 @@ M0/G1 (human-observable, recorded in the tracking issue):
 git ls-remote https://forge.anarch.diy/allod/profiles.git   # same heads as allod/archetypes
 ```
 
-G1 re-point PR (`allod/deploy`):
+G1a re-point PR (`allod/deploy`):
 
 ```sh
 # URL-only: the composed content is provably unchanged
@@ -359,6 +400,31 @@ for m in allod-dev privacy-1 nexus installer; do
   nix eval .#nixosConfigurations.$m.config.system.build.toplevel.drvPath
 done   # identical to the pre-re-point values
 git diff master -- flake.nix   # touches only the profiles input URL
+```
+
+G1 runtime re-point PRs (`allod/inventory`, `allod/nexus`) — before M1:
+
+```sh
+# inventory: cold clones no longer fetch the framework through allod/profiles
+nix flake check
+jq -e '."allod-dev".repos | index("allod/archetypes")' scripts/vm-specs.json
+jq -e '."allod-dev".repos | index("allod/profiles") | not' scripts/vm-specs.json
+jq -e '.repositories["allod/archetypes"].remote == "allod/archetypes"' scripts/repositories.json
+jq -e '.repositories.deploy.remote == "allod/deploy"' scripts/repositories.json
+jq -e '.repositories.secrets.remote == "allod/secrets"' scripts/repositories.json
+jq -e '.repositories.inventory.remote == "allod/inventory"' scripts/repositories.json
+
+# nexus: deploy-flake defaults and rotation lock-bump steps use deploy before
+# the profiles checkout can become definitions-only.
+nix flake check
+if git grep -nE 'DEPLOY_FLAKE=.*allod/profiles|--flake ~/work/allod/profiles|cd ~/work/allod/profiles|Update profiles flake lock|cd \\$\\{MACHINE_PROFILES\\}|cd \\$\\{PROFILES_CHECKOUT\\}' scripts nix docs tests; then
+  echo "old deploy-flake/lock-bump target still present"
+  exit 1
+fi
+
+# Remaining allod/profiles hits in nexus before M1 must be either optional
+# profile hook lookup or explicit historical/new-definitions prose; review each.
+git grep -n 'allod/profiles' scripts nix docs tests || true
 ```
 
 M1 (new `allod/profiles`):
@@ -436,13 +502,13 @@ M5 (sweep):
 
 ```sh
 # inventory: registry + specs stay consistent
-nix flake check          # repository-registry (new required list) + vm-specs-json
+nix flake check          # repository-registry + vm-specs-json
 
 # nexus: script suite still green after pointer updates
 nix flake check
 
-# Nothing left pointing at the old name anywhere public, except the recorded
-# History note and intentional references to the NEW profiles repo:
+# Nothing left pointing at the old framework name anywhere public, except the
+# recorded History note and intentional references to the NEW profiles repo:
 for r in archetypes profiles deploy secrets inventory nexus vm tools memory strategy; do
   git -C <checkout-of-$r> grep -n 'allod/profiles' || true
 done   # review every hit; each is either the History note or means the new repo
@@ -454,8 +520,13 @@ done   # review every hit; each is either the History note or means the new repo
   repo; after M1, rolling back the rename first requires deleting or renaming
   away the new repo (destroying its fresh history) — which is why M0 and M1
   are separate human sessions separated by G1.
-- **G1 re-point**: revert the PR; the redirect still serves until M1, so the
-  old URL keeps resolving.
+- **G1a deploy URL re-point**: revert the PR; the redirect still serves until
+  M1, so the old URL keeps resolving.
+- **G1b/G1c public runtime re-points**: before M1, straight revert. After M1,
+  do not roll these back unless the replacement `allod/profiles` repo is also
+  removed or all old-name consumers are otherwise proven unreachable; reverting
+  them after redirect death makes cold clones and deploy defaults target the
+  definitions-only repo.
 - **M1**: delete the new repo. Clean until M2 locks it; after M2, revert M2
   first.
 - **M2**: `git revert` of the seam PR restores the in-tree definitions and the
