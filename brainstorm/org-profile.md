@@ -16,9 +16,9 @@ The code is the architecture. Fork it, audit it, run it on your own hardware, an
 
 ## Why
 
-Coding agents are powerful because they touch everything: repos, shells, tokens, build systems, notes, and private context. Allod gives that power a stronger security fence than containers while keeping performance high with direct KVM/QEMU hardware acceleration.
+Coding agents are powerful because they touch everything: repos, shells, tokens, build systems, notes, and private context. Unlike container-based approaches, Allod treats the VM as the primary security boundary while keeping performance high with direct KVM/QEMU hardware acceleration. This design removes the host kernel from the agent's attack surface, eliminating entire classes of security exploits.
 
-- Reproducible development VMs
+- Reproducible development environments
 - Project-scoped agent cages
 - Secrets and identity encrypted and stored in your own repo fork
 - Git-tracked memory and planning docs form the basis of the software factory
