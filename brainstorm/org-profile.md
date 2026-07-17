@@ -8,7 +8,7 @@ Target: `allod/.profile/README.md` (rendered as Forgejo org landing page)
 
 > An allod is land held in absolute ownership — no rent, no fealty, no master.
 
-Allod is a self-sovereign NixOS stack: one human owner, a bare-metal host that provisions disposable VMs, a self-hosted forge, and AI agents working as first-class citizens inside those VMs.
+Allod is a self-sovereign NixOS stack: one human owner, a bare-metal host that provisions disposable virtual machines, a self-hosted forge, and AI agents working as first-class citizens inside those VMs.
 
 The key architectural choice is the VM isolation model. Each project type gets its own VM that serves as a declarative development environment and a cage to contain your agents. VMs are accessed using ssh keys encrypted to the root of trust: a single key on the hypervisor, stored outside of the code repository. Version controlled agent memory, and focused CLI tools make a multi-repo workspace feel like one system.
 
