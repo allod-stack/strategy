@@ -6,11 +6,11 @@ Target: `allod/.profile/README.md` (rendered as Forgejo org landing page)
 
 # Allod
 
-Allod is a medieval term for a sovereign territorial claim that recognizes no higher authority. No rent, no fealty, no master. In modern times almost every aspect of our lives operates in some way on the internet: communication, payments, entertainment, and if you are a software developer, your livelihood. All of it happens on permissioned systems. On today's internet you are not free, you are a serf. Your code is hosted on someone else's server and the "free and open" license you put on it is under legal threat. The agents and models you use belong to a company and your access to those tools can (and will) be turned off with the flip of a switch. It's time to reverse this trend.
+> An allod is land held in absolute ownership — no rent, no fealty, no master.
 
-Allod is a self-sovereign NixOS stack for agentic development. : isolated VMs, encrypted secrets, version controlled agent memory, and focused CLI tools that make a multi-repo workspace feel like one system.
+Allod is a self-sovereign NixOS stack: one human owner, a bare-metal host that provisions disposable VMs, a self-hosted forge, and AI agents working as first-class citizens inside those VMs.
 
-The key architectural choice is the VM isolation model. Each project type gets its own VM that serves as a declarative development environment and a cage to contain your agents.
+The key architectural choice is the VM isolation model. Each project type gets its own VM that serves as a declarative development environment and a cage to contain your agents. VMs are accessed using ssh keys encrypted to the root of trust: a single key on the hypervisor, stored outside of the code repository. Version controlled agent memory, and focused CLI tools make a multi-repo workspace feel like one system.
 
 The code is the architecture. Fork it, audit it, run it on your own hardware, and choose your forge, agents, and model routers.
 
@@ -18,10 +18,10 @@ The code is the architecture. Fork it, audit it, run it on your own hardware, an
 
 Coding agents are powerful because they touch everything: repos, shells, tokens, build systems, notes, and private context. Allod gives that power a stronger security fence than containers while keeping performance high with direct KVM/QEMU hardware acceleration.
 
-- Reproducible development VMs instead of fragile laptops and cloud workspaces.
-- Project-scoped agent cages instead of one giant trusted shell.
-- Explicit secrets and identity data instead of credentials scattered across machines.
-- Git-tracked memory and planning docs instead of context trapped in chat history.
+- Reproducible development VMs
+- Project-scoped agent cages
+- Secrets and identity encrypted and stored in your own repo fork
+- Git-tracked memory and planning docs form the basis of the software factory
 - Interchangeable integrations: GitHub or Forgejo, local or remote models, one agent harness or another.
 
 ## Architecture
