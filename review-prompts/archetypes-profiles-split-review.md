@@ -103,75 +103,73 @@ areas below.
 
 Pass metadata:
 
-- Fix stability: gpt-5.0's pass-1 fixes held up poorly. `02043b5`
-  (unknown-archetype) introduced a BLOCKER — it recast a correct framework
-  assertion as "reversed" and told M2 to break it; corrected in `f15a566`.
-  `5b38d9f` (G1 split) had the right redirect-cliff instinct — the pointer moves
-  themselves are sound — but shipped a false-green acceptance grep (fixed
-  `f2f54e2`) and redundant registry-alias scope (fixed `5f4f277`). Score gpt-5.0
-  low on this plan: sound structural intent, unsound details, one fix that
-  regressed correct text.
-- Next pass: scoped diff review of `f15a566`, `f2f54e2`, and `5f4f277` — not a
-  full re-review — by a model other than the pass-2 author (`claude-fable-5`).
-  These are a blocker-level correction plus two scope/test fixes; verify each in
-  items 1–3. Also finally close **Canary validity** (item 4), untouched since
-  pass 1.
+- Fix stability by model:
+  - gpt-5.0 (pass 1): low. `02043b5` (unknown-archetype) shipped a BLOCKER —
+    recast a correct framework assertion as "reversed" and told M2 to break it.
+  - claude-fable-5 (pass 2): strong. `f15a566` (undo the unknown-archetype
+    blocker), `5f4f277` (drop redundant registry-alias scope), and the core of
+    `f2f54e2` (drop the double-escaped false-green grep) all verified sound in
+    pass 3. One blemish: `f2f54e2` also claimed the three per-VM lock-bump
+    scripts' repoint was "verified by … nix flake check," which is false (item 3).
+  - claude-opus-4-8 (pass 3): scoped diff of `f15a566`/`f2f54e2`/`5f4f277` plus
+    Canary validity. Confirmed items 1, 2, 4 clean; found and fixed one GAP
+    (item 3) in `8d98a7a`.
 
-1. **Verify the unknown-archetype correction (`f15a566`).** The plan now states
-   the existing `unknownProfileDefinitionArchetypes = subtractLists
-   profileArchetypes allProfileDefinitionArchetypes` is already correct
-   (`declared - supported`) and must not be reversed, and that M2 adds a sabotage
-   case by lifting the computation into an injectable helper. Confirm this is
-   implementable: `mergeProfileDefinitionLayers` genAttrs-es only the known
-   archetypes and silently drops unknown keys, and the unknown-archetype binding
-   runs over the real `profileDefinitionLayers`. Does the prescribed helper
-   actually let the check drive the "unknown profile definition archetype(s)"
-   assert, rather than a `.service`-attribute-missing false green? Is the
-   direction left unchanged?
+- Items 1–4 resolved this pass — do not reopen absent a contradicting change:
+  1. **Unknown-archetype (`f15a566`): CONFIRMED.** `subtractLists profileArchetypes
+     allProfileDefinitionArchetypes` is `declared − supported` (nixpkgs
+     `subtractLists e list` keeps `list` elements not in `e`); a declared
+     `service` yields `[ "service" ]` and fires the `machineConfigurations`
+     assert. Reversing it silently passes. `mergeProfileDefinitionLayers`
+     genAttrs-es only `profileArchetypes`, so the unknown-archetype computation
+     is separate from the merge and lifts cleanly into an injectable helper the
+     M2 sabotage can drive. Direction correct and unchanged.
+  2. **Registry simplification (`5f4f277`): CONFIRMED.** `resolve_checkout` falls
+     back to `allod/<x>` when the bare alias is absent (`resolve-repos.sh:38`);
+     the registry has no bare keys and `repository-registry` requires none.
+     Adding only full `allod/archetypes` keeps it green; the self-rebuild
+     required-alias list is inert (no `self_rebuild = true` VM). No bare entry
+     is needed.
+  3. **Nexus lock-bump grep (`f2f54e2`): GAP fixed in `8d98a7a`.** Dropping the
+     double-escaped `cd ${…}` alternatives was right, and rotate-token +
+     DEPLOY_FLAKE defaults are caught (literal grep; `tests/rotate-token.sh`
+     also pins the path). But nix flake check does NOT verify the
+     forge-ssh-key/vm-ssh-host-key/nexus-host-key default repoint — their tests
+     override the checkout var with a fixture and assert none of the printed step
+     text. Added a targeted `resolve_checkout profiles` hard-fail grep over the
+     three scripts; recorded that `verify-vm-from-host`'s `MACHINE_PROFILES` is
+     dead (assigned, never read) and should be dropped, not repointed.
+  4. **Canary validity: CONFIRMED, closed.** `profilesSource` reads the
+     post-override `profiles` input — the same follows propagation the current
+     deploy flake already relies on for secrets/inventory — so green ⟺
+     composed-with-expected. Failure modes: follows deleted/wrong-target → store
+     paths differ → check FAILS; deploy's `profiles` input removed → eval throws
+     on the missing output arg; same-content-different-URL → same narHash → green
+     and correct; `path:`-vs-`git+` divergence bites only if `expectedProfiles`
+     and the follows target are different inputs, which the sanctioned template
+     forbids. No mode stays silently green while composing the wrong layer.
 
-2. **Verify the registry simplification (`5f4f277`).** The plan now drops bare
-   `deploy`/`secrets`/`inventory` registry entries and relies on
-   `resolve_checkout`'s `allod/<x>` fallbacks. Confirm every post-split
-   bare-alias resolution (`forge-ssh-key`, `vm-ssh-host-key`, `nexus-host-key`,
-   bootstrap hooks, `provision`/`rebuild` `DEPLOY_FLAKE`) resolves correctly by
-   fallback with no bare entry, and that the inventory `repository-registry`
-   check stays green with only the full `allod/archetypes` key added. If any
-   consumer genuinely needs a bare entry, this simplification is wrong — say so.
+- Verified in earlier passes, do not reopen absent an implementation divergence:
+  parity (moved example modules and `preferences.nix` do not stringify their own
+  source paths into generated config); the framework's `secrets.` charter reads;
+  the four lock-bump scripts are the complete secrets-lock-bump set and
+  `bootstrap-vm-from-host.sh`'s `MACHINE_PROFILES` is the optional-hook concern;
+  the `assert_clean` directive implies *adding* a guard to
+  `vm-ssh-host-key`/`nexus-host-key`/`rotate-token`, since only `forge-ssh-key`
+  guards its lock-bump checkout today.
 
-3. **Verify the nexus grep fix (`f2f54e2`) still catches regressions.** The
-   acceptance grep now omits the `cd ${MACHINE_PROFILES}` / `${PROFILES_CHECKOUT}`
-   alternatives (double-escaped, and they conflated a variable name with its
-   target). Confirm the diff + `nix flake check` path actually verifies that
-   `forge-ssh-key`/`vm-ssh-host-key`/`nexus-host-key` repoint their
-   `MACHINE_PROFILES`/`PROFILES_CHECKOUT` default to the deploy checkout (the grep
-   no longer does), that `rotate-token`'s literal `~/work/allod/profiles` steps
-   are still caught, and that the `DEPLOY_FLAKE`-default docs
-   (`docs/provisioning-scripts.md`) and the `~/work/allod/profiles` smoke-test
-   line are handled via the catch-all.
+- **Convergence: criterion (a) is met.** Passes 2 and 3 both produced only
+  review-introduced findings and zero original-plan findings; pass 3 found zero
+  blockers. The plan text has converged.
 
-4. **Canary validity.** The composed-layer check compares
-   `archetypes.profilesSource` against the deploy's `profiles.outPath`. Trace
-   the actual failure modes: follows line deleted, follows line pointing at
-   the wrong input, deploy's direct `profiles` input removed entirely,
-   same-rev-different-URL fetches, `path:`-vs-`git+` store-path divergence for
-   identical content. Which modes fail the check, which fail eval loudly
-   elsewhere, and is there any mode that stays silently green while composing
-   the wrong layer? Does `profilesSource` reliably reflect the post-override
-   input in current Nix?
-
-5. **Do not reopen without new evidence.** Parity (pass 1) and the framework's
-   `secrets.` charter reads (pass 1) remain credible — the moved example modules
-   and `preferences.nix` do not stringify their own source paths into generated
-   config; reopen only if the scoped diff changes the moved files or weakens the
-   parity acceptance test. Nexus checkout semantics (pass 2) are verified: the
-   four lock-bump scripts (`forge-ssh-key`, `vm-ssh-host-key`, `nexus-host-key`,
-   `rotate-token`) are the complete set that prints a secrets-lock bump,
-   `bootstrap-vm-from-host.sh`'s `MACHINE_PROFILES` is used only for the optional
-   hook lookup (correctly a definitions concern, not a lock-bump target), and the
-   plan's `assert_clean` directive is sound — note it implies *adding* a guard to
-   `vm-ssh-host-key`/`nexus-host-key`/`rotate-token`, since only `forge-ssh-key`
-   guards the lock-bump checkout today. Do not reopen unless the implementation
-   diverges.
+Next pass: OPTIONAL final scoped-diff verification of `8d98a7a` (the added
+`resolve_checkout profiles` hard-fail grep in the G1 nexus acceptance block and
+the §5 `verify-vm-from-host` dead-line note) by a model other than the fix author
+(`claude-opus-4-8`); `claude-fable-5` has the best fix-stability record. This is
+a GAP-level acceptance-test hardening, not a structural change, so it may instead
+be folded into implementation review. If it verifies clean, plan-text review is
+done — hand remaining focus areas to implementation and resolve the SIMPLIFY
+(dropping `verify-vm-from-host`'s dead `MACHINE_PROFILES`) during implementation.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
