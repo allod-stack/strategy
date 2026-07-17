@@ -426,15 +426,25 @@ jq -e '.repositories.secrets.remote == "allod/secrets"' scripts/repositories.jso
 jq -e '.repositories.inventory.remote == "allod/inventory"' scripts/repositories.json
 
 # nexus: deploy-flake defaults and rotation lock-bump steps use deploy before
-# the profiles checkout can become definitions-only.
+# the profiles checkout can become definitions-only. These patterns match only
+# literal old-name targets. Do NOT grep for `cd ${MACHINE_PROFILES}` /
+# `cd ${PROFILES_CHECKOUT}`: §5 permits keeping those variable names while
+# repointing their default to the deploy checkout, so their presence is not a
+# failure — the resolved default is verified by the diff and `nix flake check`,
+# not by a variable name. (The earlier `cd \$\{MACHINE_PROFILES\}` alternative
+# was also double-escaped and never matched.)
 nix flake check
-if git grep -nE 'DEPLOY_FLAKE=.*allod/profiles|--flake ~/work/allod/profiles|cd ~/work/allod/profiles|Update profiles flake lock|cd \\$\\{MACHINE_PROFILES\\}|cd \\$\\{PROFILES_CHECKOUT\\}' scripts nix docs tests; then
-  echo "old deploy-flake/lock-bump target still present"
+if git grep -nE 'DEPLOY_FLAKE=.*allod/profiles|--flake ~/work/allod/profiles|cd ~/work/allod/profiles|Update profiles flake lock' scripts nix docs tests; then
+  echo "old deploy-flake/lock-bump literal target still present"
   exit 1
 fi
 
-# Remaining allod/profiles hits in nexus before M1 must be either optional
-# profile hook lookup or explicit historical/new-definitions prose; review each.
+# Catch-all: every remaining allod/profiles hit in nexus before M1 must be
+# optional profile hook lookup, a deploy-flake default doc now reading
+# allod/deploy (docs/provisioning-scripts.md's DEPLOY_FLAKE / deployFlake
+# defaults and the ~/work/allod/profiles smoke-test line are here, missed by the
+# literal patterns above), or explicit historical/new-definitions prose. Review
+# each.
 git grep -n 'allod/profiles' scripts nix docs tests || true
 ```
 
