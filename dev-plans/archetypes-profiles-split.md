@@ -2,9 +2,9 @@
 
 ## Tracking Issue
 
-To be created on `allod/strategy` before the first implementation PR opens —
-filing it is the first agent action of this plan. Open the issue body with this
-user story, then update this section with the issue URL:
+`allod/strategy#18` — https://forge.anarch.diy/allod/strategy/issues/18
+
+The issue body opens with this user story:
 
 > So that every piece of configuration lives in the one repo meant to own it —
 > and nothing operator-private can end up in the public framework — I want the
@@ -12,8 +12,8 @@ user story, then update this section with the issue URL:
 > that reusable behavior, machine definitions, and identity data each have
 > exactly one owning repo.
 
-Multi-PR work. Every PR carries `Refs allod/strategy#<N>`; the final sweep PR
-(M5, `allod/memory`) carries `Closes allod/strategy#<N>`.
+Multi-PR work. Every PR carries `Refs allod/strategy#18`; the final sweep PR
+(M5, `allod/memory`) carries `Closes allod/strategy#18`.
 
 ## Goal
 
