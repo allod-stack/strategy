@@ -51,8 +51,11 @@ Key repos in play:
   checkouts through the registry (`resolve_checkout`), defaults
   `DEPLOY_FLAKE` to the profiles checkout path, and reads
   `<flake>#vmFacts` (allod/nexus#6).
-- `allod/deploy` — today LICENSE-only; the plan populates it as the thin
-  composition-root template.
+- `allod/deploy` — the pre-split thin adapter (pins
+  `profiles`/`secrets`/`inventory`, follows-redirects the two data inputs at
+  the synthetic templates, re-exports `nixosConfigurations` and `vmFacts`);
+  the plan re-points its framework URL at G1 and adapts it to the split at
+  M3.
 - `allod/memory` — workspace policy (`dev-plans.md` risk levels and standing
   review lenses) and the repo-inventory topic files the sweep updates.
 
@@ -74,6 +77,9 @@ file layout drift):
 - Deploy flakes consume the framework by overriding its inputs
   (`inputs.<framework>.inputs.<x>.follows`), and provisioning consumes
   `<deploy-flake>#vmFacts`.
+- The public template's own lock pins the framework at the `allod/profiles`
+  URL — it is itself a consumer of the rename redirect until its G1 re-point
+  PR lands.
 
 ## Structural Conformance
 
@@ -96,12 +102,15 @@ generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
 1. **The redirect cliff.** G1 gates M1 on "every known deploy flake and
-   checkout re-pointed". Walk the public tree for anything else that fetches
-   `allod/profiles` by URL or alias at runtime — registry entries, script
-   fallbacks, flake inputs in other repos, docs a cold operator would paste
-   from. Is anything reachable between M0 and M5 that the redirect's death
-   breaks and the plan's sequencing does not cover? Is the M0/M1
-   separate-sessions rule enforced by anything beyond prose?
+   checkout re-pointed", split into a public `allod/deploy` re-point PR plus
+   an operator confirmation for private consumers. Walk the public tree for
+   anything else that fetches `allod/profiles` by URL or alias at runtime —
+   registry entries, script fallbacks, flake inputs in other repos, docs a
+   cold operator would paste from. Is anything reachable between M0 and M5
+   that the redirect's death breaks and the plan's sequencing does not
+   cover? Is the G1 PR's URL-only claim actually verifiable from its diff
+   and drvPaths? Is the M0/M1 separate-sessions rule enforced by anything
+   beyond prose?
 
 2. **Canary validity.** The composed-layer check compares
    `archetypes.profilesSource` against the deploy's `profiles.outPath`. Trace

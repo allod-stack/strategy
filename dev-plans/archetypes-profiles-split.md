@@ -21,8 +21,8 @@ Rename the framework repo `allod/profiles` to `allod/archetypes`, move machine
 profile definitions into a single dedicated `profiles` flake input (public
 example repo `allod/profiles`, redirectable by a deploy flake to an operator's
 own definitions repo), return the `secrets` template to identity-only exports,
-and pin the thin deploy-adapter shape publicly in `allod/deploy` — with a
-generic composed-layer canary so a deploy flake fails loudly when its profiles
+and adapt the public `allod/deploy` template to the split — with a generic
+composed-layer canary so a deploy flake fails loudly when its profiles
 redirect is lost.
 
 ## Context
@@ -45,9 +45,12 @@ Current state, all visible in the public tree:
   (`profileArchetypes = [ "dev" "privacy" "hypervisor" ]`; one concrete machine
   per archetype). The name `profiles` describes machine configuration — which
   the repo should not own. The rename gives each name to the repo it describes.
-- `allod/deploy` exists but contains only a LICENSE. The thin-adapter deploy
-  shape that the `profiles` and `secrets` READMEs describe in prose was never
-  pinned as code anyone can fork.
+- `allod/deploy` holds the pre-split thin adapter (allod/deploy#1): it pins
+  `profiles`, `secrets`, and `inventory`, follows-redirects the two data
+  inputs at the synthetic templates, and re-exports `nixosConfigurations` and
+  `vmFacts`. Its lock pins the framework at the `allod/profiles` URL — which
+  makes the template itself the one public consumer the rename cliff can
+  break, handled in-plan at G1.
 
 Target shape:
 
@@ -55,7 +58,7 @@ Target shape:
 |------|------------------------|--------------------------|
 | `archetypes` | framework: archetype merge, builders, shared modules, `vmFacts`, checks — renamed from `allod/profiles` | consumed as an input; no fork needed |
 | `profiles` | synthetic example machine definitions, one per archetype — new repo, fresh history | operator's real machine definitions, same export contract |
-| `deploy` | thin composition root template — populated | operator's composition root: pins + input redirects |
+| `deploy` | thin composition root template — adapted to the split | operator's composition root: pins + input redirects |
 | `secrets` | synthetic identity template — behavior exports removed | operator's real identity data |
 | `inventory` | synthetic machine facts — pointer/registry updates only | operator's real facts |
 
@@ -86,11 +89,11 @@ In scope:
   the compose helper, `profilesSource`, and the composed-layer check builder
   (Interface Contracts 2); rewrite `README.md` (name, ownership, history
   note).
-- `allod/deploy` population (M3): the thin adapter re-exporting
-  `nixosConfigurations` and `vmFacts` with follows-redirects for
-  `profiles`/`secrets`/`inventory`, the composed-layer canary as a flake
-  check, a sabotage fixture, and a README documenting the fork-and-redirect
-  pattern.
+- `allod/deploy` adaptation (M3): rename the framework input `profiles` ->
+  `archetypes`, add the `profiles` definitions input with its
+  follows-redirect, add the composed-layer canary as a flake check plus a
+  sabotage fixture, and update the README. (The G1-time URL-only re-point is
+  a separate, earlier PR — see Sequencing.)
 - `secrets` template cleanup (M4): remove `lib.profileDefinitions`,
   `lib.profileData`, `homeModules.preferences`, and `modules/preferences.nix`;
   README ownership touch-up.
@@ -129,13 +132,17 @@ the old name, which kills the redirect permanently. Sequence around that cliff:
    Do not create the replacement repo in the same session. Everything keeps
    working through the redirect: existing locks, existing checkouts, hardcoded
    URLs.
-2. **G1 (operator gate)**: every known deploy flake whose lock pins
-   `git+https://forge.anarch.diy/allod/profiles.git` re-points that input URL
-   to `allod/archetypes` at the same revision — a URL-only lock rewrite; the
-   rename preserves refs and objects, so the pinned rev stays reachable from
-   the locked ref. Existing local checkouts of the renamed repo re-point their
-   remotes (`git remote set-url`) or get recloned. The operator confirms no
-   live consumer still fetches through the redirect. This gate exists because
+2. **G1 (one public PR + operator gate)**: every known deploy flake whose
+   lock pins `git+https://forge.anarch.diy/allod/profiles.git` re-points that
+   input URL to `allod/archetypes` at the same revision — a URL-only
+   flake.nix + lock rewrite; the rename preserves refs and objects, so the
+   pinned rev stays reachable from the locked ref. The public template
+   `allod/deploy` is itself such a consumer: a dedicated PR re-points its
+   `profiles.url`, keeping the input *name* `profiles` until M3 renames it
+   properly. Operator deploy forks re-point likewise, existing local
+   checkouts of the renamed repo re-point their remotes
+   (`git remote set-url`) or get recloned, and the operator confirms no live
+   consumer still fetches through the redirect. This gate exists because
    step 3 is the point of no return for the redirect.
 3. **M1 (human creates, agent populates)**: create the empty `allod/profiles`
    repo — this permanently ends the redirect; old-URL cold fetches now resolve
@@ -158,10 +165,10 @@ definitions exist both in the framework's `hosts/` tree and in the new repo,
 but nothing consumes the new repo until M2 locks it. Between M2 and M4 the
 secrets template exports attrs nobody reads.
 
-PR map: M1 `allod/profiles`, M2 `allod/archetypes`, M3 `allod/deploy`, M4
-`allod/secrets`, M5a `allod/inventory`, M5b `allod/nexus`, M5c `allod/memory`.
-Seven PRs, two human forge operations (M0, M1 creation), one operator gate
-(G1).
+PR map: G1 `allod/deploy` (URL re-point), M1 `allod/profiles`, M2
+`allod/archetypes`, M3 `allod/deploy`, M4 `allod/secrets`, M5a
+`allod/inventory`, M5b `allod/nexus`, M5c `allod/memory`. Eight PRs, two
+human forge operations (M0, M1 creation), one operator gate (G1).
 
 ## Risk Assessment
 
@@ -172,9 +179,10 @@ changes. Per milestone:
 | Milestone | Risk | Reason | Human scrutiny |
 |---|---|---|---|
 | M0 rename | R2 Medium | Forge-level and reversible until M1; the redirect keeps every consumer working. Blast radius is anything hardcoding the old URL, bridged by the redirect until G1/M1 complete. | Confirm the redirect serves: `git ls-remote` the old URL after renaming. Confirm M1 is *not* done in the same sitting. |
+| G1 re-point (`allod/deploy`) | R1 Low | URL-only input rewrite at the same locked rev; composed content identical by construction, proven by drvPath comparison. | The diff touches only the input URL and lock metadata; drvPaths byte-identical before/after. |
 | M1 new `allod/profiles` | R2 Medium | Additive fresh repo nobody consumes yet. The risk is entirely in the sequencing: creating it kills the redirect, so G1 must actually be complete, and the fresh history must carry no framework commits. | Verify G1 confirmations happened. Verify `git log` in the new repo shows only new commits. |
 | M2 seam flip | R3 High | The composition path for every machine changes; wrong merge or default re-homing silently changes composed systems. Mitigated by drvPath parity on the whole example fleet plus the existing check suite. | The parity output; the diff hunks deleting `or {}` fallbacks (removed reads must be gone entirely, not defaulted); the re-homed `preferencesModule` and `profileData` reads. |
-| M3 deploy template | R2 Medium | A new leaf nothing depends on — but it pins the pattern operators fork, so a wrong follows shape here propagates into every future fork. | The three `follows` lines; the canary sabotage runs actually failing. |
+| M3 deploy template | R2 Medium | Adapts an existing template nothing operational builds from directly — but it pins the pattern operators fork, so a wrong follows shape here propagates into every future fork. | The three `follows` lines; the canary sabotage runs actually failing. |
 | M4 secrets cleanup | R1 Low | Removes exports the framework no longer reads; straight revert. | The grep proving zero readers at M2's merged rev. |
 | M5 sweep | R2 Medium | Mechanical pointers, but they touch provisioning defaults (`DEPLOY_FLAKE`, registry aliases, rotation-runbook checkout resolution); a wrong default strands provisioning on a host without env injection. | The `nexus` defaults diff; the inventory registry check and `vm-specs.json` regen. |
 
@@ -261,7 +269,10 @@ Rename costs, recorded up front (reference hygiene):
    configuration, and every identity/credential read from `secrets`
    (identity is charter; only behavior moves).
 
-3. **The `allod/deploy` template shape** — the thin adapter, pinned as code:
+3. **The `allod/deploy` template shape** — the thin adapter. The pre-split
+   template (allod/deploy#1) already pins this shape minus the definitions
+   input, with the framework input still named `profiles`; M3 transforms it
+   into:
 
    ```nix
    inputs = {
@@ -321,10 +332,11 @@ Rename costs, recorded up front (reference hygiene):
 - **Forge repo operations are human-only**: the M0 rename, the M1 repo
   creation, new-repo settings (description, branch protection), and all PR
   merges. Blocks every milestone start; each PR waits on its human merge.
-- **G1 is an operator confirmation.** The agent cannot enumerate deploy flakes
-  or checkouts outside the public org, so it cannot verify that all old-URL
-  consumers have re-pointed. The human confirms G1 before creating the new
-  repo. Blocks M1.
+- **G1's private half is an operator confirmation.** The public half — the
+  `allod/deploy` URL re-point PR — is agent work, but the agent cannot
+  enumerate deploy flakes or checkouts outside the public org, so it cannot
+  verify that all old-URL consumers have re-pointed. The human confirms G1
+  before creating the new repo. Blocks M1.
 - **Full-fleet parity is operator-side.** This plan's parity evidence covers
   the public example fleet only; parity for an operator's real fleet belongs
   to the companion operator-side plan.
@@ -336,6 +348,17 @@ M0/G1 (human-observable, recorded in the tracking issue):
 ```sh
 # after the rename, before M1: the redirect serves the framework
 git ls-remote https://forge.anarch.diy/allod/profiles.git   # same heads as allod/archetypes
+```
+
+G1 re-point PR (`allod/deploy`):
+
+```sh
+# URL-only: the composed content is provably unchanged
+nix eval .#vmFacts --json >/dev/null
+for m in allod-dev privacy-1 nexus installer; do
+  nix eval .#nixosConfigurations.$m.config.system.build.toplevel.drvPath
+done   # identical to the pre-re-point values
+git diff master -- flake.nix   # touches only the profiles input URL
 ```
 
 M1 (new `allod/profiles`):
@@ -431,12 +454,15 @@ done   # review every hit; each is either the History note or means the new repo
   repo; after M1, rolling back the rename first requires deleting or renaming
   away the new repo (destroying its fresh history) — which is why M0 and M1
   are separate human sessions separated by G1.
+- **G1 re-point**: revert the PR; the redirect still serves until M1, so the
+  old URL keeps resolving.
 - **M1**: delete the new repo. Clean until M2 locks it; after M2, revert M2
   first.
 - **M2**: `git revert` of the seam PR restores the in-tree definitions and the
   `secrets`/`inventory` reads; the new profiles repo goes dormant but stays
   valid. No lock surgery needed — the PR touched only the `profiles` node.
-- **M3**: revert; the template returns to LICENSE-only. Nothing consumes it.
+- **M3**: revert; the template returns to the pre-split adapter shape
+  (allod/deploy#1 plus the G1 re-point). Nothing operational builds from it.
 - **M4**: revert restores dead-but-harmless exports. Only meaningful if M2 was
   also reverted; revert M4 before M2 in that case so the restored framework
   reads find their attrs.
