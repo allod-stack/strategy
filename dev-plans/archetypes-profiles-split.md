@@ -379,7 +379,10 @@ Rename costs, recorded up front (reference hygiene):
    definitions-profile concern. It should either keep resolving the
    profiles-definitions checkout (possibly under a clearer variable such as
    `PROFILE_HOOKS_CHECKOUT`) or be deleted if no public/private hook contract is
-   intended; it must not silently look under the deploy template. `allod-dev`'s
+   intended; it must not silently look under the deploy template.
+   `verify-vm-from-host` assigns the same `MACHINE_PROFILES` from
+   `resolve_checkout profiles` but never reads it; drop that dead line rather
+   than repointing it. `allod-dev`'s
    machine `repos` list has `allod/archetypes` before M1 and may add
    `allod/profiles` after the examples repo exists; `vm-specs.json` is
    regenerated (`nix eval .#lib.vmSpecsJson --raw | jq -S .`) in the same PR
@@ -432,25 +435,37 @@ jq -e '.repositories["allod/archetypes"].remote == "allod/archetypes"' scripts/r
 # their bare aliases, so no bare registry entries are added.
 
 # nexus: deploy-flake defaults and rotation lock-bump steps use deploy before
-# the profiles checkout can become definitions-only. These patterns match only
-# literal old-name targets. Do NOT grep for `cd ${MACHINE_PROFILES}` /
-# `cd ${PROFILES_CHECKOUT}`: §5 permits keeping those variable names while
-# repointing their default to the deploy checkout, so their presence is not a
-# failure — the resolved default is verified by the diff and `nix flake check`,
-# not by a variable name. (The earlier `cd \$\{MACHINE_PROFILES\}` alternative
-# was also double-escaped and never matched.)
+# the profiles checkout can become definitions-only. The literal patterns catch
+# the DEPLOY_FLAKE defaults (provision/rebuild) and rotate-token's literal
+# ~/work/allod/profiles steps (tests/rotate-token.sh also pins that path, so a
+# missed rotate-token repoint fails nix flake check too). They do NOT catch
+# forge-ssh-key / vm-ssh-host-key / nexus-host-key, whose lock-bump default is
+# `resolve_checkout profiles "$REGISTRY" allod/profiles` behind a
+# `cd ${MACHINE_PROFILES}` / `cd ${PROFILES_CHECKOUT}` variable. Do NOT grep the
+# variable name (§5 permits keeping it, and the name cannot distinguish a
+# repointed default from a stale one) and do NOT lean on nix flake check for
+# these three — their tests override MACHINE_PROFILES/PROFILES_CHECKOUT with
+# fixtures and assert none of the printed step text, so the check passes whether
+# or not they were repointed. Guard them directly: after G1c none may still
+# resolve the profiles checkout for the bump.
 nix flake check
 if git grep -nE 'DEPLOY_FLAKE=.*allod/profiles|--flake ~/work/allod/profiles|cd ~/work/allod/profiles|Update profiles flake lock' scripts nix docs tests; then
   echo "old deploy-flake/lock-bump literal target still present"
   exit 1
 fi
+if git grep -nE 'resolve_checkout profiles' scripts/forge-ssh-key scripts/vm-ssh-host-key scripts/nexus-host-key; then
+  echo "per-VM lock-bump script still resolves the profiles checkout for its secrets bump"
+  exit 1
+fi
 
-# Catch-all: every remaining allod/profiles hit in nexus before M1 must be
-# optional profile hook lookup, a deploy-flake default doc now reading
-# allod/deploy (docs/provisioning-scripts.md's DEPLOY_FLAKE / deployFlake
+# Catch-all: every remaining allod/profiles hit in nexus before M1 must be the
+# bootstrap-vm-from-host optional profile hook lookup (which keeps
+# `resolve_checkout profiles … allod/profiles`), a deploy-flake default doc now
+# reading allod/deploy (docs/provisioning-scripts.md's DEPLOY_FLAKE / deployFlake
 # defaults and the ~/work/allod/profiles smoke-test line are here, missed by the
-# literal patterns above), or explicit historical/new-definitions prose. Review
-# each.
+# literal patterns above), or explicit historical/new-definitions prose. Drop
+# verify-vm-from-host's dead MACHINE_PROFILES assignment rather than repointing
+# it. Review each.
 git grep -n 'allod/profiles' scripts nix docs tests || true
 ```
 
