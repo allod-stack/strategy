@@ -160,9 +160,11 @@ frozen at current behavior. Specifically:
   evaluation check before commit; execs `nix`, `git`, `forge` as subprocesses.
 - `flake-status`: column layout, `FLAKE_STATUS_JOBS`, `--upstream`, stale and
   INCONSISTENT markers, and the `flake-update-cascade` suggestion footer.
-- Known-bug divergence rule: open correctness bugs (e.g. allod/tools#83,
-  find-by-head head-filter) are fixed in the Go version, covered by a new
-  test, and enumerated in the PR body; everything else is bug-for-bug parity.
+- Known-bug divergence rule: correctness bugs still open at port time are
+  fixed in the Go version, covered by a new test, and enumerated in the PR
+  body; everything else is bug-for-bug parity. allod/tools#83 (find-by-head
+  head-filter) has since been fixed in bash, so the Go port inherits it via
+  parity.
 - Nix: profiles/nexus build migrated tools with
   `pkgs.buildGoModule { src = allod-tools; vendorHash = null; }` from the
   existing `flake = false` input, wrapping binaries so `git` (and for cascade
