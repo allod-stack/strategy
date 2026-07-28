@@ -133,33 +133,38 @@ Human scrutiny:
 ## Interface Contracts
 
 Command names, flags, env vars, exit codes, and machine-consumed stdout are
-frozen at current behavior. Specifically:
+frozen at current behavior. That freeze is executable, not prose: a tool's
+contract is what its existing suite asserts and its `--help` and `docs/`
+document, and a port is done when those suites pass unchanged against the Go
+binary — `ALLOD_UNDER_TEST`, `CASCADE_UNDER_TEST`, and for `forge` the ported
+scenario tests, all listed under Acceptance Tests.
 
-- `forge`: full surface of `docs/forge.md` and `forge --help`; `-R/--repo`
-  inference from `origin`; `FORGE_URL`, `FORGEJO_TOKEN`, `FORGE_TOKEN_FILE`
-  (default `~/.config/git/forgejo-token`); token never in child argv or env
-  (the Go client makes no child processes for API calls); `--body-file -`
-  reads stdin preserving trailing newlines; `pr find-by-head <branch>` prints
-  a bare PR number or nothing (consumed by `allod` and cascade); errors are
-  `forge: <msg>` on stderr with nonzero exit; `token verify` reads candidate
-  tokens from stdin only.
-- `allod change`: `begin` prints the worktree path (or repo root for
-  unprotected repos) as the only stdout line; exit codes 1 usage/generic,
-  2 protected-branch record refusal, 4 nothing to commit, 5 branch exists,
-  6 PR exists; reads `~/.config/git/protected-branches` (`<repo> <branch>`,
-  `#` comments); `record` prints `Branch:`/`Commit:` lines; `submit` shells
-  out to `forge` (composition preserved; `allod` never touches tokens).
-- `allod patch`: manifest.json schema per `docs/allod-patch.md`; exit codes
-  10 dirty source, 11 export invariants, 12 artifact integrity, 13 repo
-  identity mismatch, 14 base not present/root conflict, 15 `git am` failure,
-  16 dirty destination; remote temp dir pattern `/tmp/allod-patch.<10 alnum>`;
-  sha256 verification of every listed patch; unlisted `.patch` files rejected.
-- `flake-update-cascade`: default/`--pr`/`--dry-run` modes; PR branch
-  `agent/flake-update-<slug>`; commit message `flake.lock: update <labels>`;
-  reads `active-pr-branches` and `protected-branches`; per-repo flock;
-  evaluation check before commit; execs `nix`, `git`, `forge` as subprocesses.
-- `flake-status`: column layout, `FLAKE_STATUS_JOBS`, `--upstream`, stale and
-  INCONSISTENT markers, and the `flake-update-cascade` suggestion footer.
+This section deliberately does not restate those surfaces. The tools stay under
+active development throughout the migration: `allod change`'s contract already
+moved under allod/tools#116, which added `~/changes` siting, a `change list`
+subcommand, and a branch-handoff file, and issues allod/tools#53, #88, #89, #90,
+and #100 each change `forge`'s. Any enumeration copied here is therefore stale
+by the time its phase begins, and a stale copy is worse than a pointer because
+it reads as authoritative — one source of truth per fact, `architecture.md`
+principle 8.
+
+What belongs here is what the suites cannot state:
+
+- **Why these contracts are load-bearing.** Agents script against `allod change
+  begin`'s stdout and against the `die` exit codes, and a cutover reaches every
+  dev VM at once after a rebuild, so a silent drift is the worst credible
+  failure of this migration rather than an inconvenience.
+- **Cross-tool couplings no single suite covers.** `forge pr find-by-head`
+  prints a bare PR number or nothing, and both `allod change submit` and
+  `flake-update-cascade` parse that. `allod change submit` shells out to `forge`
+  rather than embedding it, which is what keeps `allod` from ever touching a
+  token. Breaking either one breaks a consumer whose tests do not run in the
+  broken tool's suite.
+- **A requirement on the new implementation, not a description of the old.** Go
+  `forge` keeps API tokens in-process: never in child argv or env, never logged.
+  It makes no child processes for API calls, which is what makes that
+  enforceable statically rather than by inspection. `token verify` keeps reading
+  candidate tokens from stdin only.
 - Known-bug divergence rule: correctness bugs still open at port time are
   fixed in the Go version, covered by a new test, and enumerated in the PR
   body; everything else is bug-for-bug parity. allod/tools#83 (find-by-head
