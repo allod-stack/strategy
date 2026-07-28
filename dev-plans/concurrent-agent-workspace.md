@@ -11,8 +11,9 @@ last PR to land carries `Closes allod/tools#115`.
 
 This document is the arc's shared home. It owns the contracts every child must
 agree on, the sequencing between them, and the review depth each one gets. It
-does not own implementation detail: allod/tools#116 gets its own dev plan,
-`dev-plans/allod-change-always-isolate.md`, which inherits the contracts below.
+does not own implementation detail: a child carrying enough of it gets its own
+dev plan, as allod/tools#116 did in
+`archive/dev-plans/allod-change-always-isolate.md`.
 
 ## Goal
 
@@ -45,10 +46,10 @@ checkout is actually on its default branch before an in-place commit.
 *protected* branch, allod/tools#118's moved-checkout guard is deliberately a
 no-op when `begin` was never called, and allod/tools#119's hook rule covers only
 the `agent/*` prefix. A shared checkout parked on some other branch therefore
-commits there silently. The residue is narrow once allod/tools#116 and
-allod/tools#119 land, since branch work stops living in shared checkouts at all,
-but it is not closed by anything in this arc. Raise it as its own issue if a
-checkout is ever found parked on a stray branch.
+commits there silently. With allod/tools#116 landed, branch work no longer lives
+in shared checkouts, and allod/tools#119 narrows the residue further, but
+nothing in this arc closes it. Raise it as its own issue if a checkout is ever
+found parked on a stray branch.
 
 ## Risk Assessment
 
@@ -63,8 +64,6 @@ not by the severity of the bug it fixes:
 
 | Issue | Risk | Review depth | Reason |
 |---|---|---|---|
-| allod/tools#117 collector | R1 | One-shot, no dev plan | Additive entry point, read-only consumer, mechanism fixed by C2, existing tests in `tests/workspace/` |
-| allod/tools#116 always isolate | R2 | Dev plan + one review pass, different model | Design largely settled in the issue; open surface is the C4 CLI contract, orphan reclaim, and doc updates |
 | allod/tools#118 record refusals | R1 | One review pass, different model | Two pure refusals that preflight and touch nothing on failure |
 | allod/tools#124 concurrent push | R2 | Deferred behind a decision criterion | Rebase state machine; safe but not shown to be worth building |
 | allod/tools#119 hook refusal | R3 | Dev plan + one review pass, different model | Deepest enforcement layer, but a small rule with a 200-line test harness already in place |
@@ -107,8 +106,6 @@ Human scrutiny:
 
 - The hook diffs, first and hardest: confirm the near-miss and worktree rules
   fail closed and do not over-fire on genuinely unlisted repos.
-- The C4 contract change in allod/tools#116: every caller and every doc that
-  says "protected repos get worktrees" has to move together.
 - allod/tools#118's staging refusal: check the failure message names the
   offending paths and that the in-place flow is genuinely unchanged.
 
@@ -143,18 +140,15 @@ worktree's `.git` is a file, so repo-local hooks do not run in a worktree.
 Five facts are shared across the children. They are fixed here so the children
 cannot drift; a child that needs to change one changes it here first.
 
-**C1 — Worktree siting.** `allod change begin` creates worktrees at
-`~/changes/<slug>-<description>-XXXXXX`, replacing the current
-`/tmp/allod-change-...` (`allod:293`). Never under `$WORK_DIR`: a worktree there
-is collected as a repo by `workspace_collect_repos`, and its `$HOME`-relative
-path is a lookup key matching nothing. Owner: allod/tools#116. No consumer may
-depend on this path — enumerate via C2 instead.
-
-allod/tools#116's body says `/tmp` has no cleanup rule and orphans accumulate
-indefinitely. That is wrong, and the truth is a stronger argument for C1:
-`/etc/tmpfiles.d/tmp.conf:11` carries `q /tmp 1777 root root 10d` and
+**C1 — Worktree siting.** `allod change begin -d` creates worktrees at
+`~/changes/<slug>-<description>-XXXXXX`, implemented in allod/tools#116. Never
+under `$WORK_DIR`: a worktree there is collected as a repo by
+`workspace_collect_repos`, and its `$HOME`-relative path is a lookup key
+matching nothing. No consumer may depend on this path — enumerate via C2
+instead. Anything still under the old `/tmp` siting is on a hidden deadline:
+`/etc/tmpfiles.d/tmp.conf` carries `q /tmp 1777 root root 10d` and
 `systemd-tmpfiles-clean.timer` is active, so a stalled agent's uncommitted work
-is destroyed on a hidden ten-day deadline rather than merely left lying around.
+there is destroyed at ten days rather than merely left lying around.
 
 **C2 — Worktree detection and repo identity.** One mechanism everywhere, all
 verified:
@@ -178,7 +172,7 @@ private `<main>/.git/worktrees/<name>`, so the file is per-worktree rather than
 per-repo, and `git worktree remove` deletes it, so it needs no cleanup path of
 its own. A missing file means `begin` was never called and `record` proceeds
 unchanged, which is what keeps the in-place default-branch flow unaffected.
-Owners: allod/tools#116 writes, allod/tools#118 reads.
+`begin` writes it as of allod/tools#116; allod/tools#118 owns the reader.
 
 **C4 — What `-d` means.** After allod/tools#116, `-d <description>` is the
 isolation switch, not a protected-repo formality:
@@ -189,26 +183,18 @@ isolation switch, not a protected-repo formality:
   default-branch flow for memory and planning docs.
 - `protected-branches` goes back to governing only which branch is protected.
 
-Settled by `dev-plans/allod-change-always-isolate.md`: omitting `-d` on a
-protected repo still fails loud, as it does today (`allod:274-275`), because
-committing in place to a protected branch is refused later anyway
-(`refuse_protected_branch_record`, `allod:230`) and failing at `begin` is louder
-and earlier. The distinction that resolves it: C4 removes protection as the
-*isolation* switch, not as a *validation* input.
-
-An earlier revision of this contract claimed `tests/allod-change.sh:256` and
-`:262` pin the old behavior and must move with it, repeating a claim in
-allod/tools#116's body. Both are wrong. Those two assertions call `begin` with
-no `-d` at all, which C4 preserves as passthrough, so they keep passing and only
-their descriptions are stale. What actually moves is `:287`, which pins the
-`/tmp/allod-change-...` path shape, and the harness `/tmp` sweep at `:20`. The
-real coverage gap is the absence of any `begin -d` test on an unprotected repo —
-the new behavior is currently untested.
+Omitting `-d` on a protected repo fails loud, keyed on the repo rather than on
+HEAD, because committing in place to a protected branch is refused later anyway
+(`refuse_protected_branch_record`) and failing at `begin` is louder and earlier.
+The distinction that resolves it: C4 removes protection as the *isolation*
+switch, not as a *validation* input. The full argument is in
+`archive/dev-plans/allod-change-always-isolate.md`.
 
 **C5 — The collector's output set is frozen.** `workspace_collect_repos` keeps
-returning exactly the registry checkouts. allod/tools#117 adds a second entry
-point rather than changing it, because `pull-all`, `flake-status`, and
-`flake-update-cascade` all mutate based on its output. Owner: allod/tools#117.
+returning exactly the registry checkouts. allod/tools#117 added
+`workspace_collect_worktrees` as a second entry point rather than changing it,
+because `pull-all`, `flake-status`, and `flake-update-cascade` all mutate based
+on its output. That constraint binds every later consumer too.
 
 Do not unify worktree enumeration across `work-diff` and `allod change list`.
 They have opposite requirements: `work-diff` wants worktrees with content to
@@ -218,46 +204,46 @@ still registered plus the reason it is not actionable. Recovering `prunable` and
 `locked` needs a second porcelain parse regardless, so sharing buys nothing.
 `list` inlines its own enumeration; this is settled, not a sequencing accident.
 
-Coordination hazard in the same file: `workspace_repo_default_branch`
-(`lib/workspace.sh:33-38`) has a latent bug of the kind `allod/memory`
-`shell.md` warns about — its `|| echo "master"` binds to the pipeline, whose
-status is `sed`'s, so a repo with no `origin/HEAD` yields empty output and a
-zero exit rather than the intended fallback. Verified. No current caller is hurt,
-but allod/tools#116 acquires one when `begin -d` starts resolving a base branch
-for unprotected repos. allod/tools#116 and allod/tools#117 both touch this file;
-whichever fixes it says so in its PR, and the other rebases rather than fixing
-it twice.
+Coordination hazard in the same file: `workspace_repo_default_branch` has a
+latent bug of the kind `allod/memory` `shell.md` warns about, and an earlier
+revision of this contract described it backwards. Its `|| echo "master"` binds
+to the pipeline, so the behaviour depends on the caller's shell options: without
+`pipefail` the status is `sed`'s and the fallback is unreachable, returning
+empty; with it the status is git's and the fallback fires, silently guessing
+`master`. Every consumer sets `set -euo pipefail`, so the live behaviour is the
+guess, not the empty return. Verified.
+
+allod/tools#116 and allod/tools#117 both landed without touching the helper.
+allod/tools#116 defends itself instead, asserting `symbolic-ref
+refs/remotes/origin/HEAD` resolves before consuming it, so `begin -d` cannot
+branch a repo off a guessed base. The helper itself is issue allod/tools#126;
+its remaining consumers still take the guess.
 
 ## Sequencing
 
+allod/tools#117 and allod/tools#116 have merged, so C1, C2, C3, and C4 are all
+implemented and nothing downstream is blocked on them.
+
 ```
-allod/tools#117  (independent — open as PR #123, awaiting merge)
-allod/tools#116  (independent — needs C3, C4 fixed above)
-   └── allod/tools#118  (moved-checkout refusal reads C3)
+allod/tools#118  (unblocked — C2 and the C3 handoff both exist)
 allod/tools#112  (independent)
    └── allod/tools#119  (needs the hook to resolve identity from a worktree)
 
 allod/tools#124  (independent — deferred behind its decision criterion)
 ```
 
-allod/tools#118's two refusals have different dependencies: the sweep guard
-needs only C2 detection, which already exists as `main_repo_dir_for_dir`
-(`allod:111`), while the moved-checkout guard reads the C3 handoff and must wait
-for allod/tools#116 to write it. They stayed in one issue because they share a
-two-agent test fixture and a message style, and because allod/tools#116 is
-already in flight so the wait is short. If that stops being true, split the
-sweep guard out and let it go first.
+allod/tools#118's two refusals were split by dependency while C3 was pending:
+the sweep guard needs only C2 detection (`main_repo_dir_for_dir`), and the
+moved-checkout guard reads the C3 handoff. Both inputs exist now, so the issue
+can be taken whole.
 
 Only allod/tools#119 has a hard dependency, and only on allod/tools#112. The
 arc-wide "112 must land first" constraint does not survive the Forge-Side
 Protection finding above.
 
-Order: allod/tools#117 went first and is open as PR #123, since `work-diff` was
-blind to the `/tmp` worktrees that already exist and the fix paid off before any
-other change landed. Then allod/tools#116, then allod/tools#118.
-allod/tools#112 and allod/tools#119 form a second wave that can run in parallel
-with the first, since they share no files with it. allod/tools#124 sits outside
-the order entirely until its criterion is met.
+Order: allod/tools#118 next. allod/tools#112 and allod/tools#119 form a second
+wave that can run in parallel with it, since they share no files.
+allod/tools#124 sits outside the order entirely until its criterion is met.
 
 ## Agent Gates
 
@@ -283,13 +269,9 @@ the order entirely until its criterion is met.
 Per child, all runnable by the agent:
 
 ```sh
-# allod/tools#116, allod/tools#118 — CLI contract, guards, and the C4 flip
+# allod/tools#118 — CLI contract and the record guards; also the regression
+# suite for the C1-C4 behaviour already landed
 bash tests/allod-change.sh
-
-# allod/tools#117 — worktree visibility, and that the mutating consumers
-# still see registry checkouts only
-bash tests/workspace/work-diff.sh
-bash tests/workspace/pull-all.sh
 
 # allod/tools#112, allod/tools#119 — near-miss fixture, worktree fixture,
 # refusal, default-branch pass-through, and the human override
@@ -298,8 +280,8 @@ bash tests/git-hooks/protected-refs-policy.sh
 
 Each child adds negative cases, not only happy paths: a genuinely unlisted repo
 must stay unprotected under allod/tools#112, an in-place default-branch commit
-must stay frictionless under allod/tools#116 and allod/tools#118, and a human
-`--no-verify` must still pass under allod/tools#119.
+must stay frictionless under allod/tools#118, and a human `--no-verify` must
+still pass under allod/tools#119.
 
 ## Rollback Plan
 
@@ -313,6 +295,7 @@ Two qualifications:
   or allod/tools#119 in the repo is not enough — the human rebuilds to restore
   the previous hook. Until then, `git commit --no-verify` is the standard
   override, per architecture principle 4.
-- Reverting allod/tools#116 after worktrees exist under `~/changes` leaves them
-  orphaned rather than broken. They stay valid git worktrees reachable through
-  `git worktree list`; recover any uncommitted work from them before pruning.
+- allod/tools#116 has shipped, so reverting it now leaves any worktree already
+  under `~/changes` orphaned rather than broken. They stay valid git worktrees
+  reachable through `git worktree list`, and `allod change list` names each one
+  with what blocks its removal; recover any uncommitted work before pruning.
