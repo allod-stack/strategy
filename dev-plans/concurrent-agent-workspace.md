@@ -39,6 +39,17 @@ Out of scope:
 - Changing forge-side branch protection rules, which is admin-scoped and human
   only (see Agent Gates).
 
+Known gap, owned by no child: nothing verifies that an *unprotected* shared
+checkout is actually on its default branch before an in-place commit.
+`refuse_protected_branch_record` (`allod:230`) only fires when HEAD equals a
+*protected* branch, allod/tools#118's moved-checkout guard is deliberately a
+no-op when `begin` was never called, and allod/tools#119's hook rule covers only
+the `agent/*` prefix. A shared checkout parked on some other branch therefore
+commits there silently. The residue is narrow once allod/tools#116 and
+allod/tools#119 land, since branch work stops living in shared checkouts at all,
+but it is not closed by anything in this arc. Raise it as its own issue if a
+checkout is ever found parked on a stray branch.
+
 ## Risk Assessment
 
 Residual risk: R3 High for the arc, carried almost entirely by the two issues
@@ -198,6 +209,14 @@ the new behavior is currently untested.
 returning exactly the registry checkouts. allod/tools#117 adds a second entry
 point rather than changing it, because `pull-all`, `flake-status`, and
 `flake-update-cascade` all mutate based on its output. Owner: allod/tools#117.
+
+Do not unify worktree enumeration across `work-diff` and `allod change list`.
+They have opposite requirements: `work-diff` wants worktrees with content to
+show, so allod/tools#117's `workspace_collect_worktrees` deliberately skips
+prunable entries and does not parse lock state, while `list` wants everything
+still registered plus the reason it is not actionable. Recovering `prunable` and
+`locked` needs a second porcelain parse regardless, so sharing buys nothing.
+`list` inlines its own enumeration; this is settled, not a sequencing accident.
 
 Coordination hazard in the same file: `workspace_repo_default_branch`
 (`lib/workspace.sh:33-38`) has a latent bug of the kind `allod/memory`
