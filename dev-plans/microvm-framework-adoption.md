@@ -1,4 +1,4 @@
-# microvm.nix Secret Injection — Framework Half
+# microvm.nix Framework Adoption — Public Half
 
 ## Tracking Issue
 
@@ -10,7 +10,9 @@ This is the public half of a cross-boundary plan. It is a self-contained leaf: i
 
 ## Goal
 
-The VM framework can build and boot a microvm.nix guest whose secrets arrive from the host as systemd credentials at every start, with no age identity and no agenix decryption inside the guest, proven by nested VM boots and generated-artifact assertions.
+The VM framework can build and boot a working microvm.nix guest — one that keeps its state across restarts, reaches the network, and receives its secrets from the host as systemd credentials at every start with no age identity or agenix decryption inside it — proven by nested VM boots and generated-artifact assertions.
+
+Credential delivery is the load-bearing part and the reason this arc is possible at all: microvm.nix has no installer, and a key cannot be baked into a world-readable store path, so nothing else can be adopted until secrets have a per-boot route. But the deliverable is the runtime, not the mechanism. A guest that receives its credentials and then loses an agent's work on restart has not adopted anything.
 
 ## Scope
 
@@ -20,6 +22,8 @@ In scope:
 - `allod/archetypes` — a credential-consumption module replacing the agenix path in `modules/agent-forgejo-token.nix` and the agenix half of `modules/netrc.nix`; `sharedModules` stops setting `age.identityPaths` for the microvm archetypes; the `credentialFiles` assertions; and the checks plus their mutation fixtures.
 - `allod/nexus` — the host framework module gains microvm.nix host wiring exposed as public options carrying no values, in the same shape as the existing `nexus.provisioning.deployFlake` option: the framework declares the interface, a deployment supplies the paths.
 - `allod/inventory` — whichever machine fact selects the runtime for a machine, since that is a machine fact and inventory owns it. The public template machines exercise both values.
+- **Persistent guest state.** With `storeOnDisk` and zero shares the store is a read-only image, so everything a machine must keep across restarts — home directories, repository checkouts, in-flight agent work, agent state directories — needs a declared writable volume. The framework owns which paths are persistent for each archetype and the shape of that declaration; sizes and host-side locations are the deployment's. A guest that receives its credentials and then loses an agent's work on restart has not adopted anything, so this cannot be split out.
+- **Guest network interface declaration.** The guest must declare the interface it comes up on, which is framework. Addressing, host TAP creation, and systemd-networkd on the host are the deployment's. State the seam explicitly so neither half assumes the other covered it.
 
 Out of scope, each with its owner:
 
@@ -28,6 +32,8 @@ Out of scope, each with its owner:
 - Brokering service credentials so a compromised guest holds less durable authority — allod/strategy#13, orthogonal to delivery.
 - The privacy-VM Tor topology under microvm.nix. The topological fail-closed property is preservable with TAP plus netns plus nftables, but the existing design is written in libvirt XML and needs its own plan.
 - Removing libvirt from the host. The two coexist through migration; a first microvm guest is provisioned alongside, not in place of, the libvirt path.
+- Host-side networking — TAP creation, systemd-networkd, addressing, and whatever replaces libvirt's dnsmasq DHCP reservations. The private plan owns it. This plan owns only the guest's own interface declaration, per contract 12.
+- Volume sizing and host-side volume placement. The framework declares which paths persist; how large they are and where they live on the host are the deployment's.
 
 ## Risk Assessment
 
@@ -65,6 +71,10 @@ Every rule below was observed in a nested microVM boot on nixpkgs `b6018f87da91d
 
 10. **Host-side plaintext lives on a ramfs.** The framework's option documentation states this requirement; the deployment supplies the path. The framework must not default it to anything on durable storage.
 
+11. **Every path a machine must keep is on a declared volume.** The read-only store image means anything not on a writable volume is lost at restart. The framework declares the persistent path set per archetype; a machine with an empty set is an evaluation error rather than a guest that silently discards state, because the failure would otherwise appear only after work was already lost.
+
+12. **The guest declares its interface; the deployment supplies the addressing.** The framework must not carry an address, and must not leave the interface undeclared and assume the host will conjure one.
+
 ## Agent Gates
 
 The implementing agent is public-only and inside a dev VM. It can build every configuration, boot nested microVMs, and assert on generated artifacts. It cannot:
@@ -94,19 +104,28 @@ Nested microVM boots are the primary evidence, because a happy-path build passin
 6. A `credentialFiles` key of 29 characters: assert the length assertion trips.
 7. A non-QEMU hypervisor with non-empty `credentialFiles`: assert evaluation fails.
 
+**State persistence — the failure this arc would otherwise hide:**
+
+8. Boot a guest, write a file under each declared persistent path, shut it down, boot it again, and assert every file survived. Run this against a guest built the way a dev archetype is built, not a minimal fixture, so the declared path set is the one a real machine would get.
+9. Assert a guest whose persistent path set is empty fails evaluation, per contract 11. This must be a mutation fixture: an empty set that merely warns would surface only after an agent's work was already gone.
+10. Assert that a path *not* on a declared volume does not survive a restart, so the test proves the volume is doing the work rather than the store image happening to carry it.
+
 **Generated-artifact assertions:**
 
-8. The generated runner script contains no credential path under the store prefix.
-9. The runner's `bin/` contains no `virtiofsd-run`.
-10. `config.age.secrets` is empty and `age.identityPaths` is unset for every microvm archetype.
-11. No private-key or age-key material appears anywhere in the built closure.
+11. The generated runner script contains no credential path under the store prefix.
+12. The runner's `bin/` contains no `virtiofsd-run`.
+13. `config.age.secrets` is empty and `age.identityPaths` is unset for every microvm archetype.
+14. No private-key or age-key material appears anywhere in the built closure.
+15. Every microvm archetype declares at least one network interface and no address, per contract 12.
 
-**Validating the validators.** Tests 4–7 are mutation fixtures and must be shown to fail on sabotaged input, following the pattern already established in `allod/archetypes` by the mutated-registry checks and the `vmFacts` negative check, both of which build deliberately broken inputs and assert each mutation errors. A check that cannot be demonstrated to fail does not count.
+**Validating the validators.** Tests 4–7 and 9 are mutation fixtures and must be shown to fail on sabotaged input, following the pattern already established in `allod/archetypes` by the mutated-registry checks and the `vmFacts` negative check, both of which build deliberately broken inputs and assert each mutation errors. A check that cannot be demonstrated to fail does not count.
 
 ## Rollback Plan
 
 Revert the framework commits in reverse dependency order. The libvirt provisioning path is untouched by this arc and remains a pure function of the flake lock, so a revert restores the previous behavior exactly.
 
-Partial states are benign by construction. Because the first microvm guest is provisioned *alongside* the libvirt path rather than replacing it, an abandoned arc leaves an unused module and an unused inventory value, and every existing machine continues to provision as before. A microvm guest that booted without an age identity holds no in-guest secret material; its recovery is destructive replacement, which is the intended lifecycle for a disposable machine.
+Partial states are benign by construction. Because the first microvm guest is provisioned *alongside* the libvirt path rather than replacing it, an abandoned arc leaves an unused module and an unused inventory value, and every existing machine continues to provision as before. A microvm guest that booted without an age identity holds no in-guest secret material, so nothing secret needs recovering.
+
+The one thing a revert does not reconstruct is a persistent volume. Destroying the machine is the intended lifecycle for the machine, but the volume is where an agent's uncommitted work lives, and that work exists nowhere else. Treat a volume as unique state: before reverting or replacing a guest that has been used, push or relay anything on it, exactly as a libvirt VM would be treated today. The framework's job here is to make the persistent path set explicit enough that an operator can see what would be lost before deciding.
 
 The sequencing constraint is the one thing a revert must respect: `allod/archetypes` pins `allod/vm` as a flake input, so the consumer-side change lands before the input bump, and a revert unwinds the bump first.
