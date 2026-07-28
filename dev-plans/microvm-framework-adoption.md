@@ -2,7 +2,9 @@
 
 ## Tracking Issue
 
-https://forge.anarch.diy/allod/strategy/issues/20
+[allod/strategy#20 — Adopt microvm.nix as a VM runtime in the framework](https://forge.anarch.diy/allod/strategy/issues/20)
+
+That issue is the canonical goal statement for the whole arc, public and private halves together. This plan is its public leaf; the private plan links to the same issue.
 
 Multi-PR arc across `allod/vm`, `allod/archetypes`, `allod/nexus`, and `allod/inventory`. Earlier PRs carry `Refs allod/strategy#20`; the final integration PR carries the closing keyword.
 
