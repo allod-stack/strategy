@@ -122,6 +122,12 @@ is collected as a repo by `workspace_collect_repos`, and its `$HOME`-relative
 path is a lookup key matching nothing. Owner: allod/tools#116. No consumer may
 depend on this path — enumerate via C2 instead.
 
+allod/tools#116's body says `/tmp` has no cleanup rule and orphans accumulate
+indefinitely. That is wrong, and the truth is a stronger argument for C1:
+`/etc/tmpfiles.d/tmp.conf:11` carries `q /tmp 1777 root root 10d` and
+`systemd-tmpfiles-clean.timer` is active, so a stalled agent's uncommitted work
+is destroyed on a hidden ten-day deadline rather than merely left lying around.
+
 **C2 — Worktree detection and repo identity.** One mechanism everywhere, all
 verified:
 
@@ -155,17 +161,36 @@ isolation switch, not a protected-repo formality:
   default-branch flow for memory and planning docs.
 - `protected-branches` goes back to governing only which branch is protected.
 
-Open question for allod/tools#116's plan: whether omitting `-d` on a protected
-repo still fails loud, as it does today (`allod:274-275`). Recommendation: yes.
-Committing in place to a protected branch is refused later anyway
-(`refuse_protected_branch_record`, `allod:230`), and failing at `begin` is
-louder and earlier. Two assertions pin the current contract and must move with
-it: `tests/allod-change.sh:256` and `:262`.
+Settled by `dev-plans/allod-change-always-isolate.md`: omitting `-d` on a
+protected repo still fails loud, as it does today (`allod:274-275`), because
+committing in place to a protected branch is refused later anyway
+(`refuse_protected_branch_record`, `allod:230`) and failing at `begin` is louder
+and earlier. The distinction that resolves it: C4 removes protection as the
+*isolation* switch, not as a *validation* input.
+
+An earlier revision of this contract claimed `tests/allod-change.sh:256` and
+`:262` pin the old behavior and must move with it, repeating a claim in
+allod/tools#116's body. Both are wrong. Those two assertions call `begin` with
+no `-d` at all, which C4 preserves as passthrough, so they keep passing and only
+their descriptions are stale. What actually moves is `:287`, which pins the
+`/tmp/allod-change-...` path shape, and the harness `/tmp` sweep at `:20`. The
+real coverage gap is the absence of any `begin -d` test on an unprotected repo —
+the new behavior is currently untested.
 
 **C5 — The collector's output set is frozen.** `workspace_collect_repos` keeps
 returning exactly the registry checkouts. allod/tools#117 adds a second entry
 point rather than changing it, because `pull-all`, `flake-status`, and
 `flake-update-cascade` all mutate based on its output. Owner: allod/tools#117.
+
+Coordination hazard in the same file: `workspace_repo_default_branch`
+(`lib/workspace.sh:33-38`) has a latent bug of the kind `allod/memory`
+`shell.md` warns about — its `|| echo "master"` binds to the pipeline, whose
+status is `sed`'s, so a repo with no `origin/HEAD` yields empty output and a
+zero exit rather than the intended fallback. Verified. No current caller is hurt,
+but allod/tools#116 acquires one when `begin -d` starts resolving a base branch
+for unprotected repos. allod/tools#116 and allod/tools#117 both touch this file;
+whichever fixes it says so in its PR, and the other rebases rather than fixing
+it twice.
 
 ## Sequencing
 
