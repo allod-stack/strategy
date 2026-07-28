@@ -231,7 +231,7 @@ it twice.
 ## Sequencing
 
 ```
-allod/tools#117  (independent — landed, PR #123)
+allod/tools#117  (independent — open as PR #123, awaiting merge)
 allod/tools#116  (independent — needs C3, C4 fixed above)
    └── allod/tools#118  (moved-checkout refusal reads C3)
 allod/tools#112  (independent)

@@ -334,13 +334,21 @@ beats `detached` beats `dirty` beats `unpushed` beats `clean`. That is a
 reporting choice — name the strongest blocker — and it deliberately differs from
 the order `cleanup` evaluates in, so a locked *and* dirty worktree is reported
 `locked` while `cleanup` would fail on the dirty check first. Tests must
-therefore assert reclaimability, not error-message equality. Verified against
-git 2.51.2: the only collision the top two rows can have is with each other, and
-they cannot have it — a *locked* worktree whose directory has been removed is
-reported `locked` and not `prunable`, because git withholds the annotation from
-locked worktrees and `prune` skips them. Every other pair is reachable,
-including two that involve neither of the top rows: `detached` with `dirty`
-(detach, then edit a tracked file) and `dirty` with `unpushed`.
+therefore assert reclaimability, not error-message equality.
+
+Verified against git 2.51.2, and stated per row because the earlier summary of
+this was wrong twice: `prunable` collides with nothing, since a worktree whose
+directory is gone offers no branch and no status to read, and the one apparent
+exception is closed by git itself — a *locked* worktree whose directory has been
+removed is reported `locked`, not `prunable`, because git withholds the
+annotation from locked worktrees and `prune` skips them. `locked` is the
+opposite: it collides freely with every row beneath it, which is why the example
+above pairs it with `dirty`. Two pairs involving neither top row are reachable
+and the precedence test must cover both: `detached` with `dirty` (detach, then
+edit a tracked file) and `dirty` with `unpushed`. `detached` with `unpushed` is
+not observable at all, because `has_unpushed_commits` returns early on an empty
+`branch --show-current` (`allod:207-208`) — the same blind spot the `detached`
+row's reclaim advice warns about.
 
 The binding contract: **`list` reports `clean` if and only if
 `allod change cleanup` on that path would succeed.** The trap this replaces is
