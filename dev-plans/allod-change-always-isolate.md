@@ -74,8 +74,8 @@ Why:
 - The one destructive command in the namespace, `cleanup`, is untouched, and the
   new `list` is strictly read-only. An orphan is never removed implicitly. This
   is what bounds the worst case of a `list` defect to a misleading report:
-  `cleanup` still refuses locked, detached, dirty, and unpushed worktrees on its
-  own authority whatever `list` said about them.
+  `cleanup` refuses from five places of its own, covering locked, detached,
+  dirty, unpushed, and directory-less worktrees whatever `list` said about them.
 - Rollback is a straight revert with no persistent state to unwind, since a
   reverted `begin` still returns a usable path and existing worktrees remain
   valid (see Rollback Plan).
@@ -97,7 +97,7 @@ Human scrutiny, in order:
 - The failure handling around `git worktree add`. Confirm the plan's refusal to
   delete a branch it cannot prove it created (below) reads as deliberate.
 - The `list` state words against `cleanup`'s refusals, since the contract is
-  that they agree. `cleanup` refuses from four places, not two: check the
+  that they agree. `cleanup` refuses from five places, not two: check the
   `locked` and `detached` states specifically, because a worktree in either one
   looks clean by the dirty and unpushed checks alone.
 - The `allod/memory` commit, which must not land before the rebuild.
@@ -166,7 +166,11 @@ fixtures, not the live workspace, are where this gets exercised.
 
 Inherited from `dev-plans/concurrent-agent-workspace.md`: C1, C2, C3, C4, C5.
 C1 and C3 are implemented by this PR; C2 is consumed by it; C4 is completed by
-it; C5 is not touched.
+it. C5's frozen output set is not touched, but C5 now also carries a binding
+ruling that this PR implements: `concurrent-agent-workspace.md:213-219` settles
+that worktree enumeration is **not** unified between `work-diff` and
+`allod change list`. The inline enumeration below is therefore a contract-level
+decision, not a local implementation preference.
 
 ### `allod change begin [-d <description>] [<repo-path>]`
 
@@ -218,14 +222,24 @@ With `-d` present, for every repo, protected or not:
     `path=$(allod change begin ...)` depends on is preserved exactly.
 
 Failure handling for step 8 or 9: `rm -rf "$worktree_path"` and
-`git -C "$repo" worktree prune`, then exit with git's status. Both are provably
-safe — prune only drops admin entries whose gitdir is gone. The branch is *not*
-deleted. The pre-check at step 4 proves the branch did not exist before this
-call, but under concurrency another agent may have created it between the check
-and the add, and deleting it would be the exact failure class allod/tools#115
-exists to close. Instead the error states that `agent/<description>` may have
-been left behind and points at `allod change list`. This is architecture
-principle 11: when state is left uncertain, say so loudly rather than guess.
+`git -C "$repo" worktree prune`, then exit with git's status. Neither can
+destroy anything it should not — prune only drops admin entries whose gitdir is
+gone — but "safe" is not "effective": `git worktree prune` reports a failed
+delete and still **exits 0**, so a permission problem under
+`<main>/.git/worktrees/` leaves the entry listed while the rollback appears to
+succeed. The acceptance test for step 9 is built to catch exactly that, and the
+implementation must not treat prune's exit status as proof the entry is gone.
+
+The branch is *not* deleted. The pre-check at step 4 proves the branch did not
+exist before this call, but under concurrency another agent may have created it
+between the check and the add, and deleting it would be the exact failure class
+allod/tools#115 exists to close. Instead the error states that
+`agent/<description>` may have been left behind and points at
+`git -C <repo> branch --list 'agent/*'`. It must *not* point at
+`allod change list`: after a successful rollback the worktree is gone, and
+`list` prints one row per worktree, so the leftover branch is precisely what
+`list` structurally cannot show. This is architecture principle 11: when state
+is left uncertain, say so loudly rather than guess.
 
 ### The C4 open question, settled
 
@@ -275,9 +289,11 @@ New read-only subcommand, dispatched from `change_main` (`allod:523-530`).
 
 Enumeration. With no argument, iterate `workspace_collect_repos "$WORK_DIR"` —
 already available, since `allod` sources `lib/workspace.sh` at `allod:4-7` — and
-for each registry checkout run `git -C <repo> worktree list --porcelain`,
-skipping the first record, which is always the main checkout (C2, verified from
-inside a worktree as well as from the main one). With a `<repo-path>` argument,
+for each entry run `git -C "$WORK_DIR/$repo" worktree list --porcelain`. The
+`$WORK_DIR/` prefix is required: the helper emits `$WORK_DIR`-relative names
+(`lib/workspace.sh:16`), which is why every existing caller re-prefixes. Skip
+the first record, which is always the main checkout (C2, verified from inside a
+worktree as well as from the main one). With a `<repo-path>` argument,
 resolve it with `resolve_git_repo` and enumerate only that repo. Never glob a
 directory: that is what makes `list` find the `/tmp` worktrees that predate C1
 and anything sited elsewhere later.
@@ -308,7 +324,7 @@ you may delete must not need the network to answer.
 |---|---|---|
 | `prunable` | `prunable` annotation in the porcelain output | `git -C <repo> worktree prune` |
 | `locked` | `locked` annotation | none; unlock first, then reassess |
-| `detached` | porcelain reports `detached` rather than `branch` | none; check out a branch first |
+| `detached` | porcelain reports `detached` rather than `branch` | none; check out or create a branch at HEAD first, then reassess |
 | `dirty` | `git status --porcelain` non-empty | none automatic |
 | `unpushed` | `has_unpushed_commits` true (`allod:203-228`) | none automatic |
 | `clean` | none of the above | `allod change cleanup <path>` |
@@ -319,10 +335,12 @@ reporting choice — name the strongest blocker — and it deliberately differs 
 the order `cleanup` evaluates in, so a locked *and* dirty worktree is reported
 `locked` while `cleanup` would fail on the dirty check first. Tests must
 therefore assert reclaimability, not error-message equality. Verified against
-git 2.51.2: the top two rows cannot collide, because a *locked* worktree whose
-directory has been removed is reported `locked` and not `prunable`, and
-`git worktree prune` skips it. The reachable collisions are all between `locked`
-and the three rows below it.
+git 2.51.2: the only collision the top two rows can have is with each other, and
+they cannot have it — a *locked* worktree whose directory has been removed is
+reported `locked` and not `prunable`, because git withholds the annotation from
+locked worktrees and `prune` skips them. Every other pair is reachable,
+including two that involve neither of the top rows: `detached` with `dirty`
+(detach, then edit a tracked file) and `dirty` with `unpushed`.
 
 The binding contract: **`list` reports `clean` if and only if
 `allod change cleanup` on that path would succeed.** The trap this replaces is
@@ -333,8 +351,14 @@ locked — fire on a worktree that looks clean by those two conditions alone.
 - `resolve_git_repo` requires an existing directory (`allod:75`), so a
   `prunable` stub cannot even be passed to `cleanup`.
 - `current_branch_or_die` (`allod:495`) dies 1 with "HEAD is detached" *before*
-  either named check. A detached worktree has empty `branch --show-current`, an
-  empty status, and no unpushed commits.
+  either named check. A freshly detached worktree has empty
+  `branch --show-current`, an empty status, and no unpushed commits, so it looks
+  clean by both named conditions. A detached worktree that has been *committed*
+  to is worse: `has_unpushed_commits` returns 1 on empty `branch --show-current`
+  (`allod:207-208`) and so cannot see those commits at all. That is why the
+  reclaim advice is "check out **or create** a branch at HEAD" — checking out an
+  existing branch would strand them. `cleanup` refuses either way and git warns
+  loudly, so this is a reporting hazard, not silent loss.
 - The dirty refusal (`allod:497-499`).
 - The unpushed refusal (`allod:501-503`).
 - `git -C "$main_repo" worktree remove "$repo"` (`allod:506`) is unguarded and
@@ -371,11 +395,25 @@ pointed at it because `resolve_git_repo` requires an existing directory
 prunes as its last step (`allod:512`), so any successful reclaim in that repo
 clears the stubs as a side effect. No new `allod` surface for it.
 
-Considered and rejected: folding the listing into `cleanup` with no argument.
-`cleanup` today prints usage and exits 1 in that case, and turning a destructive
-command's zero-argument form into a report is a surprise in the wrong direction.
-A separate verb also keeps `list` provably read-only, which is worth more at
-review time than one fewer subcommand.
+Considered and rejected, first: folding the listing into `cleanup` with no
+argument. `cleanup` today prints usage and exits 1 in that case, and turning a
+destructive command's zero-argument form into a report is a surprise in the
+wrong direction. A separate verb also keeps `list` provably read-only, which is
+worth more at review time than one fewer subcommand.
+
+Considered and rejected, second, and the one most likely to be re-proposed:
+dropping `list` entirely and having `work-diff` carry the state word. The two
+commands answer different questions and their row sets are not nested.
+`work-diff` answers "what work exists right now?", so its rows are worktrees
+with content to show. `list` answers "what can I take back?", so its rows are
+worktrees still registered, including the ones with nothing left to show.
+Neither set contains the other, and `work-diff`'s row set comes from a helper
+that drops directory-less worktrees and cannot see lock state, so it
+structurally cannot carry 2 of the 6 states above. The operational test for
+anyone proposing the merge later: ask what the merged command prints for a
+`prunable` stub. A row with no diff under it means it is `list` wearing
+`work-diff`'s name; nothing at all means the merge deleted the orphan-reclaim
+capability that allod/tools#116's fourth goal asked for.
 
 Relationship to allod/tools#117: `work-diff` will show worktree *contents* —
 what changed, for worktrees that still have contents. `list` shows worktree
@@ -463,11 +501,16 @@ Required fixture coverage in `tests/allod-change.sh`. Positive paths:
     (`allod:506`) with "cannot remove a locked working tree". Follow it with
     `git worktree unlock` and assert `list` flips to `clean` and `cleanup` then
     succeeds, so the test pins the lock as the cause rather than the fixture.
-- **Precedence.** A worktree that is both locked and dirty reports `locked`. A
-  locked worktree whose directory has been removed reports `locked`, *not*
-  `prunable`, since git withholds the `prunable` annotation from locked
-  worktrees and `prune` skips them; asserting this keeps the precedence table
-  honest about which pairs are reachable at all.
+- **Precedence**, four assertions, one per adjacent pair, so no rung of the
+  order is unasserted:
+  - locked + dirty reports `locked`.
+  - detached + dirty reports `detached` — detach, then edit a tracked file.
+  - dirty + unpushed reports `dirty` — commit without pushing, then edit again.
+  - a locked worktree whose directory has been removed reports `locked`, *not*
+    `prunable`, since git withholds the annotation from locked worktrees and
+    `prune` skips them. This is the assertion that also kills the obvious
+    shortcut of computing `prunable` from `[[ -d "$path" ]]` instead of reading
+    git's annotation, so it is worth more than its one line suggests.
 - `list` reports `prunable` after the worktree directory is removed with
   `rm -rf`, and the repo's worktree count is unchanged by running `list`.
 
@@ -498,25 +541,42 @@ Negative paths, all required:
   entry names a branch that does not exist on `origin` — `protect_repo <repo>
   no-such-branch` — gives a non-empty base, so it passes step 3 and the branch
   checks, fetches, and then fails the post-fetch `refs/remotes/origin/$base`
-  verification. Assert exit 1, a message naming the missing ref, no directory
-  under `$HOME/changes`, and no `agent/<desc>` branch. Today this fixture falls
-  through to git's own `worktree add` error, so the test is new behavior rather
-  than a restatement.
+  verification. Assert exit 1 and that **`$HOME/changes` does not exist**, since
+  step 6 precedes step 7's `mkdir -p`; also assert no `agent/<desc>` branch.
+  A broken implementation falls through to `worktree add` against a
+  nonexistent `origin/` ref, which exits 128 rather than 1 and creates the
+  directory, so those two assertions are what bite. Do not lean on the message:
+  git's own error names the missing ref too, so asserting on it alone would not
+  distinguish a working implementation from a broken one.
 - **Contract steps 8 and 9, the rollback.** This is the plan's centerpiece
-  safety argument and it is otherwise untested. Extend `make_mock_git_path`
-  (`tests/allod-change.sh:215-231`, already used this way by the `no-force`
-  test at `:461-473` and the `cleanup` test at `:549-551`) with a mode that
-  intercepts `worktree add`, creates `agent/<desc>` through `REAL_GIT`, and then
-  exits non-zero — simulating another agent winning the race between the step-4
-  pre-check and the add. Assert: `begin` exits non-zero; `agent/<desc>` **still
-  exists** in the main repo, because the plan deliberately refuses to delete a
-  branch it cannot prove it created; no directory remains under `$HOME/changes`;
-  `git worktree list --porcelain` in the repo shows only the main checkout; and
-  the message names the branch that may have been left behind. A second mode
-  covers step 9: let the add succeed through `REAL_GIT`, then make the new
-  worktree's private git dir unwritable so the C3 handoff write fails, and
-  assert the same rollback post-conditions plus a non-zero exit — proving the
-  write failure is fatal rather than silently tolerated.
+  safety argument and it is otherwise untested. Two modes on
+  `make_mock_git_path` (`tests/allod-change.sh:215-231`, already used this way
+  by the `no-force` test at `:461-473` and the `cleanup` test at `:549-551`).
+
+  *Step 8, the lost race.* The mock intercepts `worktree add`, creates
+  `agent/<desc>` through `REAL_GIT`, and exits non-zero — another agent winning
+  between the step-4 pre-check and the add. Assert: `begin` exits non-zero;
+  `agent/<desc>` **still exists** in the main repo, because the plan
+  deliberately refuses to delete a branch it cannot prove it created; no
+  directory remains under `$HOME/changes`; and the message names the branch that
+  may have been left behind, pointing at `git branch --list 'agent/*'` rather
+  than at `allod change list`, which cannot show a branch with no worktree.
+  Note what this mode does *not* prove: no admin entry is ever created, so
+  asserting "`worktree list` shows only the main checkout" here would be a
+  property of the mock rather than of the rollback. The `worktree prune` half of
+  the rollback is carried entirely by the step-9 test below.
+
+  *Step 9, the fatal handoff write.* The mock lets `worktree add` register
+  through `REAL_GIT`, then pre-creates the handoff file read-only —
+  `: > "$gd/allod-change-branch"; chmod a-w "$gd/allod-change-branch"`, where
+  `$gd` is the new worktree's private git dir — so step 9's write fails with
+  EACCES. Assert a non-zero exit, no directory under `$HOME/changes`, and
+  `git worktree list --porcelain` showing **only the main checkout**, which is
+  the one assertion in the set that exercises `worktree prune`. Verified that
+  this fixture leaves all three satisfiable. Do *not* instead `chmod a-w` the
+  private git *directory*: that also blocks prune from deleting the admin entry,
+  and prune reports the failure while still exiting 0, so the entry stays listed
+  and the assertion becomes unsatisfiable rather than merely failing.
 - Invalid descriptions still exit 1 on an unprotected repo, not only a protected
   one (`:291-297`).
 - `begin -d` does not move the shared checkout: after a successful call, assert
