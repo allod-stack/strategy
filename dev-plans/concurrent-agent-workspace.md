@@ -11,8 +11,8 @@ last PR to land carries `Closes allod/tools#115`.
 
 This document is the arc's shared home. It owns the contracts every child must
 agree on, the sequencing between them, and the review depth each one gets. It
-does not own implementation detail: allod/tools#116 and allod/tools#118 get
-their own dev plans that inherit the contracts below.
+does not own implementation detail: allod/tools#116 gets its own dev plan,
+`dev-plans/allod-change-always-isolate.md`, which inherits the contracts below.
 
 ## Goal
 
@@ -33,7 +33,7 @@ In scope:
 Out of scope:
 
 - Implementation detail for any single child; each child's issue body, and for
-  allod/tools#116 and allod/tools#118 a child dev plan, owns that.
+  allod/tools#116 a child dev plan, owns that.
 - Agent identity as a general feature, and per-VM agent topology — both already
   excluded by allod/tools#115's own scope.
 - Changing forge-side branch protection rules, which is admin-scoped and human
@@ -54,20 +54,37 @@ not by the severity of the bug it fixes:
 |---|---|---|---|
 | allod/tools#117 collector | R1 | One-shot, no dev plan | Additive entry point, read-only consumer, mechanism fixed by C2, existing tests in `tests/workspace/` |
 | allod/tools#116 always isolate | R2 | Dev plan + one review pass, different model | Design largely settled in the issue; open surface is the C4 CLI contract, orphan reclaim, and doc updates |
-| allod/tools#118 record guards | R2–R3 | Dev plan + review cycle to convergence | Three mechanisms; two carry unresolved tension (see below) |
+| allod/tools#118 record refusals | R1 | One review pass, different model | Two pure refusals that preflight and touch nothing on failure |
+| allod/tools#124 concurrent push | R2 | Deferred behind a decision criterion | Rebase state machine; safe but not shown to be worth building |
 | allod/tools#119 hook refusal | R3 | Dev plan + one review pass, different model | Deepest enforcement layer, but a small rule with a 200-line test harness already in place |
 | allod/tools#112 remote-identity rails | R3 | Dev plan + review cycle to convergence | Security boundary, cross-repo packaging decision, human-gated validation |
 
-Why allod/tools#118 needs a convergence cycle rather than one pass: its
-auto-rebase goal rewrites history and moves the working tree in the *shared*
-checkout, where by this arc's own premise another agent may be mid-write, so it
-can reintroduce the exact failure class the arc exists to close. Separately, no
-mechanism can tell who edited a tracked file, so the only implementable form of
-the sweep guard is "refuse any modification not passed through `-f`", which
-converts the `git add -u` default (`allod:350`) into explicit-files-required for
-every caller. That is a real friction change, and it is in direct tension with
-that issue's own fourth goal. Consider splitting the two refusals, which are
-cheap and safe, from the auto-rebase, which is not.
+allod/tools#118 originally carried three mechanisms and was triaged at R2–R3
+with a convergence cycle. It was split two ways, and both halves got cheaper.
+
+The auto-rebase moved to allod/tools#124, deferred behind a decision criterion
+rather than dropped. An earlier revision of this document claimed it could
+reintroduce the arc's own failure class by rewriting history in a shared
+checkout under a concurrent writer. Fixture testing refuted that: when another
+agent has uncommitted work, `git pull --rebase` refuses outright and touches
+nothing, and the one bad state — conflict, rebase-in-progress, detached HEAD,
+markers in the shared tree — is fully recoverable by `git rebase --abort`. It
+is safe to build. What it is not is demonstrably worth building, since the
+rejected push already fails loud under `set -euo pipefail` and recovery is one
+documented command. Note the fail-closed property holds only while
+`rebase.autoStash` is false, so an implementation must pass
+`-c rebase.autoStash=false` rather than inherit config.
+
+What remains in allod/tools#118 is two pure refusals, and the friction problem
+that drove the convergence-cycle rating dissolved rather than being accepted. No
+mechanism can attribute a tracked-file edit to an agent, so the sweep guard can
+only be positional — named versus unnamed. But the hazard is not uniform: it
+exists only in a shared checkout, because a linked worktree belongs to one agent
+by construction. Scoping the refusal to a main checkout keeps `git add -u` and
+zero friction everywhere allod/tools#116 sends branch work, and costs the
+in-place flow one flag per file, which `allod/memory` `git-workflow.md` already
+instructs agents to pass. That is principle 14 promoting a prose rule into the
+tool, with the override staying standard git per principle 4.
 
 Why allod/tools#112 needs one despite a smaller live bug than its body claims:
 the change touches the rail every commit passes through, must decide where a
@@ -195,22 +212,33 @@ it twice.
 ## Sequencing
 
 ```
-allod/tools#117  (independent — start now)
+allod/tools#117  (independent — landed, PR #123)
 allod/tools#116  (independent — needs C3, C4 fixed above)
-   └── allod/tools#118  (reads C3)
+   └── allod/tools#118  (moved-checkout refusal reads C3)
 allod/tools#112  (independent)
    └── allod/tools#119  (needs the hook to resolve identity from a worktree)
+
+allod/tools#124  (independent — deferred behind its decision criterion)
 ```
+
+allod/tools#118's two refusals have different dependencies: the sweep guard
+needs only C2 detection, which already exists as `main_repo_dir_for_dir`
+(`allod:111`), while the moved-checkout guard reads the C3 handoff and must wait
+for allod/tools#116 to write it. They stayed in one issue because they share a
+two-agent test fixture and a message style, and because allod/tools#116 is
+already in flight so the wait is short. If that stops being true, split the
+sweep guard out and let it go first.
 
 Only allod/tools#119 has a hard dependency, and only on allod/tools#112. The
 arc-wide "112 must land first" constraint does not survive the Forge-Side
 Protection finding above.
 
-Recommended order: allod/tools#117 first, since `work-diff` is blind to the
-`/tmp` worktrees that already exist today and the fix pays off before any other
-change lands. Then allod/tools#116, then allod/tools#118. allod/tools#112 and
-allod/tools#119 form a second wave that can run in parallel with the first,
-since they share no files with it.
+Order: allod/tools#117 went first and is open as PR #123, since `work-diff` was
+blind to the `/tmp` worktrees that already exist and the fix paid off before any
+other change landed. Then allod/tools#116, then allod/tools#118.
+allod/tools#112 and allod/tools#119 form a second wave that can run in parallel
+with the first, since they share no files with it. allod/tools#124 sits outside
+the order entirely until its criterion is met.
 
 ## Agent Gates
 
