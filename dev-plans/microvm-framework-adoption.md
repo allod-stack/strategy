@@ -1,133 +1,297 @@
-# microvm.nix Framework Adoption — Public Half
+# microvm.nix Framework Adoption: Public Half
 
 ## Tracking Issue
 
-[allod/strategy#20 — Adopt microvm.nix as a VM runtime in the framework](https://forge.anarch.diy/allod/strategy/issues/20)
+[allod/strategy#20: Adopt microvm.nix as a VM runtime in the framework](https://forge.anarch.diy/allod/strategy/issues/20)
 
-That issue is the canonical goal statement for the whole arc, public and private halves together. This plan is its public leaf; the private plan links to the same issue.
+That issue is the canonical goal statement for the public framework work and the private deployment integration. This plan is the public leaf: it contains no private machine, key, address, or host path, and a public-only agent can implement and validate it. The private plan links to the same issue and owns real values, full deployment builds, and cutover.
 
-Multi-PR arc across `allod/vm`, `allod/archetypes`, `allod/nexus`, and `allod/inventory`. Earlier PRs carry `Refs allod/strategy#20`; the final integration PR carries the closing keyword.
+This is a multi-repo arc. Every prerequisite PR carries `Refs allod/strategy#20`. The final `allod/archetypes` integration PR, after all prerequisite revisions are pinned and its full check set passes, carries `Closes allod/strategy#20`.
 
-This is the public half of a cross-boundary plan. It is a self-contained leaf: it names no private machine, path, or key, and a public-only agent can execute and validate all of it. The private plan owns integration against real machines and full-build validation, and links here.
+Three `allod/nexus` issues are required parts of this arc rather than deployment workarounds:
+
+- [allod/nexus#21](https://forge.anarch.diy/allod/nexus/issues/21): runtime-aware VM SSH host-key rotation.
+- [allod/nexus#22](https://forge.anarch.diy/allod/nexus/issues/22): runtime-aware Forge SSH key rotation.
+- [allod/nexus#23](https://forge.anarch.diy/allod/nexus/issues/23): per-VM host-path isolation for the shared microvm runner user.
+
+The PR implementing each nexus issue closes that issue and references allod/strategy#20. Only the final archetypes integration PR closes allod/strategy#20.
 
 ## Goal
 
-The VM framework can build and boot a working microvm.nix guest — one that keeps its state across restarts, reaches the network, and receives its secrets from the host as systemd credentials at every start with no age identity or agenix decryption inside it — proven by nested VM boots and generated-artifact assertions.
-
-Credential delivery is the load-bearing part and the reason this arc is possible at all: microvm.nix has no installer, and a key cannot be baked into a world-readable store path, so nothing else can be adopted until secrets have a per-boot route. But the deliverable is the runtime, not the mechanism. A guest that receives its credentials and then loses an agent's work on restart has not adopted anything.
+The framework can select microvm.nix for a machine and boot a networked guest alongside the unchanged libvirt runtime, with stable secrets delivered from host ramfs at every start, declared state surviving restart, no in-guest age identity, no shared folders, and generated plus nested-boot tests proving the lifecycle and its failure paths.
 
 ## Scope
 
 In scope:
 
-- `allod/vm` — a microvm guest module: `boot.initrd.kernelModules` carrying `qemu_fw_cfg`, zero `microvm.shares`, and the QEMU hypervisor pin.
-- `allod/archetypes` — a credential-consumption module replacing the agenix path in `modules/agent-forgejo-token.nix` and the agenix half of `modules/netrc.nix`; `sharedModules` stops setting `age.identityPaths` for the microvm archetypes; the `credentialFiles` assertions; and the checks plus their mutation fixtures.
-- `allod/nexus` — the host framework module gains microvm.nix host wiring exposed as public options carrying no values, in the same shape as the existing `nexus.provisioning.deployFlake` option: the framework declares the interface, a deployment supplies the paths.
-- `allod/inventory` — whichever machine fact selects the runtime for a machine, since that is a machine fact and inventory owns it. The public template machines exercise both values.
-- **Persistent guest state.** With `storeOnDisk` and zero shares the store is a read-only image, so everything a machine must keep across restarts — home directories, repository checkouts, in-flight agent work, agent state directories — needs a declared writable volume. The framework owns which paths are persistent for each archetype and the shape of that declaration; sizes and host-side locations are the deployment's. A guest that receives its credentials and then loses an agent's work on restart has not adopted anything, so this cannot be split out.
-- **Guest network interface declaration.** The guest must declare the interface it comes up on, which is framework. Addressing, host TAP creation, and systemd-networkd on the host are the deployment's. State the seam explicitly so neither half assumes the other covered it.
+- `allod/vm`: pin microvm.nix to the framework's nixpkgs line; separate common guest behavior from the disk-installed `nixosModules.qemuGuest`; add an exclusive microvm guest module that imports microvm.nix without disko, a partition-backed root, or a bootloader; and add module-composition checks.
+- `allod/inventory`: add the required runtime fact for non-hypervisor machines, export it in `lib.vmSpecsJson` and `scripts/vm-specs.json`, validate its enum, and keep public examples for both libvirt and microvm.
+- `allod/archetypes`: select exactly one guest module from the runtime fact; export the same fact through `vmFacts`; declare the microvm runner, credential names, persistent mount points, and guest interface; move microvm credential consumption away from agenix and durable paths; wire evaluated microvm guests into the host configuration; and add generated-artifact, mutation, and nested-boot checks.
+- `allod/nexus`: import the microvm.nix host module; expose value-free public options for per-machine credential sources and writable-volume placement; prepare and remove per-VM runtime directories; isolate each runner from sibling credentials and volumes; keep libvirt enabled; and make the two SSH-key rotation tools dispatch by runtime.
+- `allod/profiles`: update only the public example home configuration that currently hard-codes the Forge SSH identity under `~/.ssh`, so the microvm example consumes the framework-provided runtime identity path. The profiles schema and private layering model do not change.
+- Documentation in the changed repositories that describes the runtime fact, guest-module split, host options, runtime credential paths, persistent-volume ownership, rotation behavior, and the fact that the libvirt path remains supported.
 
-Out of scope, each with its owner:
+The existing structured secret registries remain authoritative for credential aliases, owners, rotation state, and encrypted source files. This arc derives runtime delivery from them; it does not introduce a second credential inventory.
 
-- The real host configuration, real secret material, real machine cutover, and any absolute path on a deployed host — the private plan.
-- Ephemeral per-boot host keys. Separable and cheaper to evaluate once per-boot delivery exists, because at that point a guest host key decrypts nothing and only authenticates one sshd to one client. Do not fold it in here.
-- Brokering service credentials so a compromised guest holds less durable authority — allod/strategy#13, orthogonal to delivery.
-- The privacy-VM Tor topology under microvm.nix. The topological fail-closed property is preservable with TAP plus netns plus nftables, but the existing design is written in libvirt XML and needs its own plan.
-- Removing libvirt from the host. The two coexist through migration; a first microvm guest is provisioned alongside, not in place of, the libvirt path.
-- Host-side networking — TAP creation, systemd-networkd, addressing, and whatever replaces libvirt's dnsmasq DHCP reservations. The private plan owns it. This plan owns only the guest's own interface declaration, per contract 12.
-- Volume sizing and host-side volume placement. The framework declares which paths persist; how large they are and where they live on the host are the deployment's.
+Persistent-state ownership is split deliberately:
+
+- The framework declares which guest mount points an archetype must keep. For the dev archetype this includes the user's home, which contains checkouts, in-flight work, and agent state.
+- Deployment data supplies volume size and host placement through the public option shape.
+- A volume image is unique state once a guest has been used. It is not disposable merely because the VM root and store image are.
+
+The network boundary is also explicit:
+
+- The framework declares a guest TAP interface and its inventory-owned MAC.
+- Deployment integration supplies addressing, host TAP attachment, routes, and systemd-networkd configuration.
+- The public guest module carries no real address.
+
+Out of scope:
+
+- Real host configuration values, real secret material, real addressing, real volume locations and sizes, host rebuilds, and cutover of running machines. The private integration plan owns them.
+- Ephemeral SSH host keys. This arc preserves the stable pinned host-key model while changing delivery. Reconsidering key lifetime is separable after per-boot delivery exists.
+- Brokering short-lived service authority so a compromised guest holds less durable power. That is allod/strategy#13; per-boot delivery changes persistence, not the authority of a stolen credential.
+- The privacy-VM Tor topology on microvm.nix. The public examples keep a libvirt privacy VM so this arc does not weaken the existing fail-closed topology while it is still expressed in libvirt XML.
+- Removing libvirt, libvirtd, `nixos-anywhere`, or the existing provisioning scripts. Both runtimes coexist through migration, and the libvirt path remains a tested rollback target.
+- A general volume manager, snapshot interface, backup policy, live migration mechanism, or multi-host scheduler.
+- Changing Forgejo accounts, SSH pin registries, token registries, or age as the host-side encrypted source format.
 
 ## Risk Assessment
 
-**Residual risk: R3 High.**
+**Overall residual risk: R3 High.**
 
-Cross-repo interfaces with a sequencing constraint, generated lifecycle behavior including activation ordering and systemd units, and a change to how secret material reaches a machine. Those are R3 signals and the plan does not reduce them below that.
+The arc crosses repository interfaces and changes generated boot, activation, systemd, credential, persistence, networking, and rotation behavior. Those are R3 areas even after strong local validation. It is not R4 for the public work: no PR operates on a real host, mutates deployed state, or handles real plaintext, and every framework contract is exercisable with synthetic fixtures and nested VMs. The private cutover remains R4 in its own plan because it acts on real host state and unique writable volumes.
 
-It is not R4. No PR in this arc mutates deployed state or authoritative secret material: the framework repos describe behavior, and the deployment that consumes them is the private plan's subject. Every contract rule below is exercisable by the implementing agent — in fixtures for the assertions, and in real nested microVM boots for the delivery path, which the spike demonstrated works inside a dev VM. Rollback is a revert against a libvirt path that this arc never modifies.
+The worst credible public failure after validation is a guest or host unit that evaluates cleanly but strands on boot, loses runtime credentials, writes derived plaintext to a durable volume, or exposes a sibling VM's files. Nested boots, generated-unit inspection, store scans, restart tests, and hostile same-uid fixtures target those failures directly.
 
-The single failure mode that would justify R4 is a `credentialFiles` value silently copied into the world-readable Nix store, which is a security-boundary mistake that could expose private material. That is why the store-prefix assertion and its mutation fixture are contract items rather than nice-to-haves, and why the arc should not land without them.
+| PR or milestone | Risk | Reason | Human scrutiny |
+|---|---|---|---|
+| `allod/inventory` runtime fact | R2 Medium | Changes a machine-data contract consumed by host scripts and `vmFacts`; rollback is a revert and both values are checked. | Schema propagation into generated JSON and missing/unknown-value failures. |
+| `allod/vm` guest-module split | R3 High | Changes boot and filesystem composition and adds an upstream runtime dependency. | Confirm microvm never composes disko, a disk root, or a bootloader, while `qemuGuest` output remains unchanged. |
+| `allod/nexus` host runtime and nexus#23 isolation | R3 High | Adds generated host units around plaintext credentials, writable images, namespaces, and a kernel hardening requirement. | Inspect concrete unit properties and the behavioral sibling-access fixture, including `/proc/<pid>/root`. |
+| `allod/archetypes` guest integration and credential consumers | R3 High | Selects runtime modules, changes secret consumption, and defines persistent and network behavior. | Inspect initrd ordering, missing-credential failure, SSH host-key startup, runtime-only destinations, and restart persistence. |
+| `allod/profiles` public runtime identity path | R2 Medium | Localized consumer-path change with a generated Home Manager assertion. | Confirm libvirt still resolves the existing home path and microvm resolves only a `/run` path. |
+| `allod/nexus` nexus#21 host-key rotation | R3 High | Changes a trust and anti-TOFU lifecycle while preserving two runtime paths. | Stage/activate/retire state transitions, restart failure recovery, and selected-endpoint pin behavior. |
+| `allod/nexus` nexus#22 Forge-key rotation | R3 High | Changes deployment and verification of a durable Forge authority. | Prove no microvm path installs the key under a persistent home and both runtime verification paths fail closed. |
+| Final `allod/archetypes` input integration | R3 High | Establishes the cross-repo revision set and closing validation signal. | Input ordering, full check output, generated host/guest artifacts, and absence of private values. |
 
-Most useful human scrutiny: whether the credential-consumption module's failure path is genuinely loud when a credential is absent, and whether the mutation fixtures actually fail on sabotaged input rather than passing vacuously.
+Most useful human scrutiny is the boundary between the privileged host preparation unit, the unprivileged shared microvm user, and the guest's systemd consumers. Source review alone is not enough: review the rendered units and runner command, then the negative fixtures.
 
 ## Interface Contracts
 
-Every rule below was observed in a nested microVM boot on nixpkgs `b6018f87da91d19d0ab4cf979885689b469cdd41` with microvm.nix `39a499ab85311b56dddb09ec43351cc3658f22c1`, except where marked as source-derived.
+The transport-specific rules below were established by a nested-boot spike on nixpkgs `b6018f87da91d19d0ab4cf979885689b469cdd41` and microvm.nix `39a499ab85311b56dddb09ec43351cc3658f22c1`. The implementation may advance those pins only by rerunning the same lifecycle checks.
 
-1. **`microvm.hypervisor = "qemu"`.** `credentialFiles` is QEMU-only; every other microvm.nix runner throws on it, cloud-hypervisor explicitly. A machine configured for another runner with a non-empty `credentialFiles` must fail evaluation, not silently lose its secrets.
+1. **Runtime is a required machine fact.** Every non-hypervisor `inventory.machines.<name>` has `runtime = "libvirt"` or `runtime = "microvm"`. Missing, non-string, and unknown values fail evaluation. `lib.vmSpecsJson`, committed `scripts/vm-specs.json`, and `archetypes.vmFacts.<name>.runtime` agree exactly. Hypervisor entries do not acquire a fake guest runtime.
 
-2. **`microvm.qemu.machine` stays at its default** (`"microvm"` on x86_64). Do not set it. `fw_cfg` works there and errors loudly when absent.
+2. **Runtime selects one guest module, never two.** Libvirt machines compose the existing `vm.nixosModules.qemuGuest` behavior. Microvm machines compose the new microvm guest module and the shared base, but not disko, `disk.nix`, the NixOS qemu disk profile, or a bootloader. Composing both runtime modules is an evaluation error with a named assertion rather than a precedence accident.
 
-3. **`boot.initrd.kernelModules` must contain `"qemu_fw_cfg"`.** microvm.nix sets `boot.initrd.systemd.enable = true` by default, which relocates NixOS activation into the initrd ahead of switch-root. Without the module in the initrd, credentials are imported only by stage-2 PID 1, roughly a second and a switch-root after the activation script has already run — so anything consuming a credential during activation sees nothing. With it, the import happens in the initrd and the credential is readable at activation time.
+3. **The microvm runner is QEMU with the upstream machine default.** `microvm.hypervisor = "qemu"` and `microvm.qemu.machine` is not overridden (`"microvm"` on x86_64 at the pinned revision). `credentialFiles` is QEMU-only. A non-QEMU runner with a non-empty credential map fails evaluation.
 
-4. **`boot.blacklistedKernelModules` must not contain `qemu_fw_cfg`.** Blacklisting it produces no credentials at all and the guest still boots successfully — a silent, total failure. Assert against it.
+4. **The microvm root is the upstream tmpfs root.** No microvm `fileSystems` entry resolves `/` or `/boot` to a partition or disk device, no EFI or systemd-boot installer is enabled, and no disko device is generated. A mutation that composes the disk guest module must fail evaluation.
 
-5. **`microvm.shares` is empty**, so `microvm.storeOnDisk` resolves true and the store is a read-only image rather than a host share. Note precisely: the host module always emits the `microvm-virtiofsd@` template unit, but with zero shares its `ConditionPathExists` gate never matches, so it condition-skips and no virtiofsd process runs. A check must assert the *runner* has no `virtiofsd-run`, not that the template unit is absent.
+5. **Credentials exist before initrd activation consumers.** `boot.initrd.kernelModules` contains `qemu_fw_cfg`, and `boot.blacklistedKernelModules` does not. Removing the initrd module proves an activation-time consumer cannot read the credential; blacklisting it is rejected at evaluation.
 
-6. **Every `credentialFiles` value is a quoted absolute string.** The option's type accepts a Nix path literal, which copies the file into the store at mode 0444 — world-readable plaintext that also propagates into any binary cache. An assertion must reject any value whose string form begins with the store prefix.
+6. **There are zero shared folders.** `microvm.shares = []`, `microvm.storeOnDisk` resolves true, and the runner contains no `bin/virtiofsd-run`. The upstream `microvm-virtiofsd@` template may still exist, but its condition skips and no virtiofsd process runs.
 
-7. **Every `credentialFiles` key is at most 28 characters.** systemd caps the full `io.systemd.credentials/<name>` string at 55. Existing secret names must be checked against this before they are reused as credential names.
+7. **Credential names and host paths are closed contracts.** Each `microvm.credentialFiles` key is non-empty and at most 28 characters. Each value is an absolute string under the framework's per-machine runtime directory and must not resolve under the Nix store prefix. A Nix path literal, relative path, overlong name, duplicate normalized name, source/guest-map mismatch, or unexpected extra credential fails evaluation.
 
-8. **An absent credential fails loud.** A unit consuming a credential that was not delivered must fail visibly rather than starting degraded. The tolerate-a-missing-optional-resource pattern used during `nixos-anywhere` provisioning is the wrong default here, because there is no provisioning window to tolerate.
+8. **Host preparation is per start and ramfs-only.** `nexus` exposes a per-machine credential-source map whose values default to nothing and are supplied by deployment composition. A privileged preparation unit copies or converts the active sources into `/run` for exactly one VM before `microvm@<name>` starts, with no secret bytes in argv, the Nix store, logs, or durable host storage. Stopping the VM removes its prepared directory. Preparation failure prevents QEMU from starting.
 
-9. **No guest holds an age identity.** For microvm archetypes, `config.age.secrets` is empty and `age.identityPaths` is unset. Consumption is via `ImportCredential=` or `LoadCredential=` in units.
+9. **Guest-derived plaintext has one runtime root.** Microvm consumers use named files under `/run/allod/credentials`; they do not write credential-derived plaintext under `/home`, `/root`, `/etc`, any declared persistent mount, or any other durable filesystem. The runtime module configures the Forge API token path, Git credential-store path, Nix netrc path, user netrc path if still needed, Forge SSH `IdentityFile`, and any registered GitHub credential target to those runtime files. The libvirt destinations remain unchanged.
 
-10. **Host-side plaintext lives on a ramfs.** The framework's option documentation states this requirement; the deployment supplies the path. The framework must not default it to anything on durable storage.
+10. **The materializer is a boot service, not the current activation script.** It imports or loads credentials with systemd, validates exact input shape, writes consumer files atomically with declared owner and mode, and orders before every consuming daemon or user session. It does not inherit the provisioning-era "missing is expected" branch. A required missing, empty, malformed, or wrongly owned credential makes the materializer and dependent consumer fail visibly.
 
-11. **Every path a machine must keep is on a declared volume.** The read-only store image means anything not on a writable volume is lost at restart. The framework declares the persistent path set per archetype; a machine with an empty set is an evaluation error rather than a guest that silently discards state, because the failure would otherwise appear only after work was already lost.
+11. **The stable SSH host key cannot auto-regenerate.** For microvm, `services.openssh.hostKeys` is empty and sshd is pointed at the delivered runtime key, or an equivalent ordering prevents `sshd-keygen` from ever minting a replacement. A boot without the credential leaves sshd failed and reports the missing key; it never generates a new identity. Libvirt keeps its existing `/etc/ssh/<name>` path and installer lifecycle.
 
-12. **The guest declares its interface; the deployment supplies the addressing.** The framework must not carry an address, and must not leave the interface undeclared and assume the host will conjure one.
+12. **No microvm guest decrypts with age.** For every microvm archetype, `config.age.secrets == {}` and `age.identityPaths` is unset. Host-side encrypted source files and rotation registries remain authoritative. A closure and generated-config check rejects an age private key, a VM host private key, or an agenix deployment target in a microvm guest.
+
+13. **Every required persistent path maps to a writable volume.** The framework declares a non-empty, duplicate-free set per selected microvm archetype. Every path has exactly one `microvm.volumes` entry, every image path is outside the Nix store and outside the credential runtime root, and the root/store disk is not mistaken for persistence. Empty sets, duplicate mount points, and required paths without volumes fail evaluation.
+
+14. **Persistence and secrets never overlap.** No runtime credential path is equal to or nested under a declared persistent mount. Generated activation text, Home Manager output, and unit definitions contain no command that copies a delivered credential into a persistent path. A mutation that adds such a copy must fail the validator.
+
+15. **The guest declares networking but no address.** Each selected microvm has one TAP interface with its inventory MAC and a valid host interface ID. The guest definition contains no real IP, route, gateway, or DNS value. Host TAP attachment and addressing remain deployment inputs. The public example's nested test may use synthetic test-network values local to the fixture.
+
+16. **Host path isolation is effective against the shared uid.** QEMU remains non-root. Each concrete `microvm@<name>` unit can reach only its own prepared credential files read-only and its own writable volume images with the required mode. It cannot read a sibling credential or read, write, truncate, rename, or replace a sibling image through a direct path, symlink, alternate bind path, or `/proc/<sibling-pid>/root`. The host module pins `kernel.yama.ptrace_scope >= 2` unless it instead uses distinct per-instance principals with equivalent tests. Isolation setup failure prevents VM start.
+
+17. **Host and guest declarations agree before boot.** For each selected microvm, the prepared host credential names equal the guest `credentialFiles` keys, the declared volume files equal the guest volume attachments, and the runtime in host tooling equals inventory and `vmFacts`. The generated check compares the two sides; it does not trust duplicated prose.
+
+18. **Rotation dispatches on `vmFacts.<name>.runtime`.** Libvirt stage/activate/retire behavior and guest installation remain intact. Microvm activation refreshes only the target VM's host runtime credential, restarts its declared `microvm@<name>` unit, and verifies the presented SSH or Forge identity through the runtime path. It never copies a private key into the guest's persistent filesystem and never tells the operator to add the guest as an age recipient.
+
+19. **Rotation failure preserves authoritative state.** If refresh, restart, or verification fails before registry promotion, the tool restores the prior active runtime credential when possible, restarts the prior state, and leaves staged/active registry and known-host state unchanged. If automatic restoration cannot be proved, it stops with explicit recovery commands and does not promote. Fixtures exercise failures at each boundary.
+
+20. **Rotation manages the selected endpoint only.** The tools preserve unrelated `known_hosts` lines and do not pretend to reconcile a second rollback endpoint during a dual-runtime migration. The private cutover freezes routine rotation while both endpoints or pins are live, then reconciles the retired endpoint before lifting the freeze. This avoids adding a permanent migration-state schema solely for a one-owner cutover.
+
+21. **Libvirt remains a first-class tested path.** Existing inventory values continue to build and provision with disko, `nixos-anywhere`, guest-local agenix, stable key paths, and the current network flow. No default silently changes an omitted runtime to microvm. Host libvirt services and tools remain enabled after the microvm host module is added.
+
+## Implementation Sequence
+
+1. Land the inventory runtime fact and generated JSON update. This gives every later consumer one authoritative discriminator.
+2. Land the `allod/vm` guest-module split and upstream pin. Prove disk and microvm composition independently before any archetype selects the new module.
+3. Land the `allod/nexus` microvm host module, preparation lifecycle, and nexus#23 isolation against synthetic guests. It may consume an injected runtime map in tests before archetypes exports the real one.
+4. Land the archetypes and public profiles consumer work together: pin the inventory and VM revisions, export runtime through `vmFacts`, select the guest module, declare credentials/state/networking, wire evaluated guests into the host, and boot the public microvm example in nested checks.
+5. Land nexus#21 and nexus#22 after the runtime fact and host refresh interface exist. Each PR proves both libvirt and microvm rotation paths.
+6. Update the final archetypes PR or follow-up integration PR to pin the completed nexus revision. Run the whole public check matrix and use this PR as the sole closing PR for allod/strategy#20.
+
+Do not combine the source-repo PRs into one cross-repo change. Each step is independently reviewable and revertible, while the final pin records the coherent revision set.
 
 ## Agent Gates
 
-The implementing agent is public-only and inside a dev VM. It can build every configuration, boot nested microVMs, and assert on generated artifacts. It cannot:
+The public implementation agent runs in a dev VM and may build every public flake, boot nested VMs, inspect closures and units, and use synthetic credential files. It cannot:
 
-- Run any command on the hypervisor host — provisioning, `virsh`, microvm host units, or a host rebuild. `virsh` and `virt-install` are not installed in a dev VM by design.
-- Determine the real host's QEMU version or TPM presence. Both are inputs the private plan needs; neither blocks this plan, because contracts 1–10 are host-version-independent on the pinned nixpkgs.
-- Generate, re-encrypt, or place any real key material.
-- Touch the operator's SSH configuration or `known_hosts` pinning, which live in the private encrypted home configuration.
-- Provision or migrate any real machine.
+- Rebuild or run commands on the real hypervisor host.
+- Create, decrypt, rotate, re-encrypt, or place real key material.
+- Supply the private host credential sources, volume paths/sizes, TAP attachment, addresses, routes, or SSH client pins.
+- Prove the real host's QEMU, KVM, TPM, storage, or network behavior.
+- Start cutover, stop a real libvirt VM, delete a domain or disk, or enable microvm autostart for a real machine.
+- Run routine key rotation during a private dual-endpoint migration window. The human must freeze it before cutover and reconcile the retired endpoint before unfreezing.
 
-What this blocks: nothing in this plan. What it defers: proving the mechanism against the real host, which is the private plan's first acceptance test.
+These gates do not block the public plan. They block the private plan's host rebuild, real nested-boundary validation, and cutover. The human performs those steps only after the public closing PR and private integration plan have passed review.
 
 ## Acceptance Tests
 
-Nested microVM boots are the primary evidence, because a happy-path build passing while first boot strands the machine is the failure this stack has already paid for once.
+Every named check below is part of the implementation, not an ad hoc command that can be skipped.
 
-**Delivery path, positive:**
+**Repository and schema checks:**
 
-1. Build a microvm guest with one `credentialFiles` entry holding a recognizable canary. Boot it. Assert the console shows `Received regular credentials: <name>` from PID 1 and the canary round-trips byte-exact through a unit consuming it with `ImportCredential=`.
-2. Assert `/run/credentials/@system/<name>` is mode 0400 and its parent is 0700, on a tmpfs mounted `noswap`.
+```sh
+cd /path/to/inventory
+nix flake check --print-build-logs
+nix eval .#lib.vmSpecsJson --raw | jq -e '
+  to_entries
+  | all(.value.runtime == "libvirt" or .value.runtime == "microvm")
+'
+diff -u <(nix eval .#lib.vmSpecsJson --raw | jq -S .) \
+  <(jq -S . scripts/vm-specs.json)
 
-**Delivery path, negative — each must fail, and be shown to fail:**
+cd /path/to/vm
+nix flake check --print-build-logs
 
-3. The same configuration with `boot.initrd.kernelModules` lacking `qemu_fw_cfg`: assert the credential is *not* readable during the activation script, and that whatever consumes it says so loudly rather than proceeding.
-4. The same configuration with `qemu_fw_cfg` blacklisted: assert the build refuses, per contract 4.
-5. A `credentialFiles` value given as a Nix path literal: assert the store-prefix assertion trips.
-6. A `credentialFiles` key of 29 characters: assert the length assertion trips.
-7. A non-QEMU hypervisor with non-empty `credentialFiles`: assert evaluation fails.
+cd /path/to/profiles
+nix flake check --print-build-logs
 
-**State persistence — the failure this arc would otherwise hide:**
+cd /path/to/nexus
+nix flake check --print-build-logs
 
-8. Boot a guest, write a file under each declared persistent path, shut it down, boot it again, and assert every file survived. Run this against a guest built the way a dev archetype is built, not a minimal fixture, so the declared path set is the one a real machine would get.
-9. Assert a guest whose persistent path set is empty fails evaluation, per contract 11. This must be a mutation fixture: an empty set that merely warns would surface only after an agent's work was already gone.
-10. Assert that a path *not* on a declared volume does not survive a restart, so the test proves the volume is doing the work rather than the store image happening to carry it.
+cd /path/to/archetypes
+nix flake check --print-build-logs
+nix eval .#vmFacts --json | jq -e '
+  to_entries
+  | all(.value.runtime == "libvirt" or .value.runtime == "microvm")
+'
+```
 
-**Generated-artifact assertions:**
+Inventory mutation checks must show that a missing runtime, an unknown runtime, and drift in committed JSON each fail. Archetypes must independently show that missing or unknown runtime data cannot be hidden by a default.
 
-11. The generated runner script contains no credential path under the store prefix.
-12. The runner's `bin/` contains no `virtiofsd-run`.
-13. `config.age.secrets` is empty and `age.identityPaths` is unset for every microvm archetype.
-14. No private-key or age-key material appears anywhere in the built closure.
-15. Every microvm archetype declares at least one network interface and no address, per contract 12.
+**Guest module composition:**
 
-**Validating the validators.** Tests 4–7 and 9 are mutation fixtures and must be shown to fail on sabotaged input, following the pattern already established in `allod/archetypes` by the mutated-registry checks and the `vmFacts` negative check, both of which build deliberately broken inputs and assert each mutation errors. A check that cannot be demonstrated to fail does not count.
+```sh
+cd /path/to/vm
+nix build .#checks.x86_64-linux.guest-module-contracts --print-build-logs
+
+cd /path/to/archetypes
+nix build .#checks.x86_64-linux.runtime-module-selection --print-build-logs
+```
+
+The generated checks assert that the libvirt example still has its disko GPT root and bootloader, while the microvm example has the upstream tmpfs root, no disk/partition root, no `/boot`, no bootloader, no disko devices, QEMU selected, the default QEMU machine, `qemu_fw_cfg` in the initrd, and zero shares. A deliberate both-modules mutation must fail.
+
+**Nested microvm lifecycle:**
+
+```sh
+cd /path/to/archetypes
+nix build .#checks.x86_64-linux.microvm-nested-boot --print-build-logs
+```
+
+The nested test must:
+
+1. Start the host preparation unit with synthetic host-key, Forge token, Forge SSH key, and Git credential canaries.
+2. Assert PID 1 reports receipt of each expected system credential and the materializer round-trips every canary byte-exact.
+3. Assert the system credential directory is root-only on a `noswap` tmpfs and every consumer file under `/run/allod/credentials` has the declared owner and mode.
+4. Assert sshd presents the supplied public host key and a boot with the host-key credential absent fails sshd without creating any new host key.
+5. Assert the Forge CLI, Git HTTPS/netrc flow, and Git SSH configuration resolve their runtime files, while no corresponding file exists under the persistent home, `/root`, or `/etc`.
+6. Write a distinct canary under every declared persistent mount, restart the microvm host unit, and assert every canary survives.
+7. Write a canary outside the declared persistent mounts, restart, and assert it is gone. This proves persistence came from the volume rather than an accidentally durable root.
+8. Assert the guest TAP interface exists and can reach the fixture network without any deployment address appearing in the public guest definition.
+9. Stop the microvm and assert its prepared host credential directory is removed while its volume remains.
+
+**Negative and mutation checks:**
+
+```sh
+cd /path/to/archetypes
+nix build .#checks.x86_64-linux.microvm-contract-mutations --print-build-logs
+```
+
+Each mutation must be demonstrated to fail for the intended reason:
+
+- `qemu_fw_cfg` removed from `boot.initrd.kernelModules`.
+- `qemu_fw_cfg` added to `boot.blacklistedKernelModules`.
+- `credentialFiles` value supplied as a Nix path literal or store-prefixed string.
+- Relative credential path, 29-character name, duplicate normalized name, missing required name, and unexpected extra name.
+- Non-QEMU hypervisor with credentials.
+- Empty persistent path set, duplicate mount, missing volume, store-backed volume, and a credential destination nested under persistence.
+- A generated command copying credential-derived plaintext into a persistent path.
+- Both runtime guest modules composed.
+- Microvm sshd with host-key auto-generation enabled.
+- Microvm `age.secrets` or `age.identityPaths` populated.
+- Guest interface omitted or a real address introduced.
+
+The no-initrd-module case is behavioral: boot far enough to prove an activation-time consumer cannot read the canary and fails visibly. The other invalid configurations should fail evaluation before a runner is built.
+
+**Generated artifacts and closure:**
+
+```sh
+cd /path/to/archetypes
+nix build .#checks.x86_64-linux.microvm-generated-artifacts --print-build-logs
+
+cd /path/to/nexus
+nix build .#checks.x86_64-linux.microvm-host-contract --print-build-logs
+```
+
+The checks inspect the actual runner, guest activation text, Home Manager result, host units, and closures and assert:
+
+- No credential source or derived plaintext path is under `/nix/store`.
+- No credential destination appears under a persistent mount.
+- The runner contains no `virtiofsd-run`, no share, and no private byte canary.
+- The microvm guest closure contains no age identity, private host key, Forge private key, or agenix target.
+- The host preparation unit runs before and is required by the matching runner, cleans up on stop, and puts no secret bytes in `ExecStart`, environment, or logs.
+- Host and guest credential-name sets and volume declarations are identical.
+- The concrete microvm unit stays non-root and renders the selected isolation mechanism plus `kernel.yama.ptrace_scope >= 2`.
+- The libvirt services, packages, environment, and provisioning script outputs remain present.
+
+**Same-uid host isolation:**
+
+```sh
+cd /path/to/nexus
+nix build .#checks.x86_64-linux.microvm-host-isolation --print-build-logs
+```
+
+A NixOS test starts two credentialed guests or equivalent runner fixtures under the actual shared microvm uid. From each unit's namespace it attempts direct path, symlink, alternate-bind, and `/proc/<sibling-pid>/root` access to the sibling's credential and volume. Every read, write, truncate, rename, and replace attempt fails; each unit retains the required access to its own files. Sabotage fixtures remove the namespace restriction and lower `ptrace_scope`, and prove the test detects both failures independently.
+
+**Rotation lifecycle:**
+
+```sh
+cd /path/to/nexus
+nix build .#checks.x86_64-linux.provisioning-contract --print-build-logs
+bash tests/vm-ssh-host-key.sh
+bash tests/forge-ssh-key.sh
+```
+
+Fixtures cover libvirt and microvm `stage`, `activate`, and `retire`; dry-run output; source refresh; unit restart; presented-key and Forge access verification; preservation of unrelated known-host lines; and failures before refresh, after refresh, during restart, and during verification. They assert no registry promotion on failure, restoration or explicit recovery for partial runtime state, no microvm guest copy, and no age-recipient instruction for microvm.
+
+**Validator validation:**
+
+Every assertion and generated-artifact scanner added by this arc has a paired sabotage fixture. A check that passes only the valid configuration, without proving it fails on the bad configuration it claims to catch, does not count.
 
 ## Rollback Plan
 
-Revert the framework commits in reverse dependency order. The libvirt provisioning path is untouched by this arc and remains a pure function of the flake lock, so a revert restores the previous behavior exactly.
+Public rollback is a reverse dependency unwind:
 
-Partial states are benign by construction. Because the first microvm guest is provisioned *alongside* the libvirt path rather than replacing it, an abandoned arc leaves an unused module and an unused inventory value, and every existing machine continues to provision as before. A microvm guest that booted without an age identity holds no in-guest secret material, so nothing secret needs recovering.
+1. Revert the final archetypes integration pin so no public configuration selects the new nexus behavior.
+2. Revert the nexus rotation PRs, then the archetypes/profile consumer PR, then the nexus host/isolation PR, then the VM and inventory PRs.
+3. Keep libvirt selected and rebuild the public checks after each dependency boundary. The original disko, `nixos-anywhere`, guest-local agenix, network, and rotation paths remain present throughout the arc.
 
-The one thing a revert does not reconstruct is a persistent volume. Destroying the machine is the intended lifecycle for the machine, but the volume is where an agent's uncommitted work lives, and that work exists nowhere else. Treat a volume as unique state: before reverting or replacing a guest that has been used, push or relay anything on it, exactly as a libvirt VM would be treated today. The framework's job here is to make the persistent path set explicit enough that an operator can see what would be lost before deciding.
+No rollback step deletes a credential source, writable image, libvirt disk, domain, pin, or registry entry.
 
-The sequencing constraint is the one thing a revert must respect: `allod/archetypes` pins `allod/vm` as a flake input, so the consumer-side change lands before the input bump, and a revert unwinds the bump first.
+For a private guest that has already run, stop microvm autostart and return the inventory selection to libvirt only after relaying or pushing all work from every declared persistent volume. A revert reconstructs the root and store image but cannot reconstruct unique files on a volume.
+
+If a rotation fails after refreshing a runtime credential but before registry promotion, use the tool's tested recovery path to restore the active credential and restart the previous state. Do not hand-edit the staged/active registries or known-host pins. If the tool cannot prove restoration, preserve both the runtime directory and logs, leave the registries unpromoted, and follow its explicit recovery commands before any retry.
+
+Host ramfs credential directories are reconstructable derivatives of the encrypted sources and may be removed after the relevant VM is stopped. Writable volumes are authoritative user state and must never be removed as cleanup.
