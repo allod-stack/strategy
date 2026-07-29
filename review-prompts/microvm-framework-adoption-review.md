@@ -134,7 +134,8 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **Shared pin topology.** Scope the review to commit `416bd94`. Verify that
+1. **Shared pin topology.** Scope the review to commits `416bd94` and
+   `12c49d7`. Verify that
    the `vm` re-export gives Nexus the actual upstream host module without a
    second microvm.nix lock node, and that `nexus.inputs.vm.follows = "vm"` is
    valid at the archetypes composition root. The lock and evaluated modules,
@@ -166,17 +167,19 @@ areas below.
    that the post-reboot recovery text names the committed pre-stage ciphertext
    revision without weakening the unchanged libvirt stage/activate/retire flow.
 
-Next pass: scoped diff review of `416bd94`, not a full pass. Use a model other
-than `gpt-5.6-terra`; recommend `gpt-5.6-sol` because no model has a stability
-record yet.
+Next pass: scoped diff review of `416bd94` and `12c49d7`, not a full pass. Use
+a model other than `gpt-5.6-terra`; recommend `gpt-5.6-sol` because no model
+has a stable fix record yet.
 
 ## Pass Metadata
 
-Pass 1 found three original-plan BLOCKERs, one original-plan GAP, and one
-original-plan SIMPLIFY. Commit `416bd94` fixes all five: its stability is
-pending the scoped next-pass review. The SIMPLIFY sweep considered generic
-volume creation, capacity options consumed only by automatic creation, and a
-separate preparation-unit abstraction; it removed framework-managed image
+Pass 1 found three original-plan BLOCKERs, one original-plan GAP, one
+original-plan SIMPLIFY, and one GAP introduced by `416bd94`. Commit `416bd94`
+fixes the five original findings but immediately required `12c49d7` to separate
+the raw upstream guest export from its framework wrapper, so it is not stable.
+`12c49d7` is pending the scoped next-pass review. The SIMPLIFY sweep considered
+generic volume creation, capacity options consumed only by automatic creation,
+and a separate preparation-unit abstraction; it removed framework-managed image
 creation and selected one launch helper instead.
 
 Do not re-open focus areas addressed in previous passes unless the current
