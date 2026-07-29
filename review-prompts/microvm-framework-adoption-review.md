@@ -150,7 +150,7 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-Passes 6 and 7 closed several areas. Do not reopen them unless the current
+Passes 6, 7, and 8 closed several areas. Do not reopen them unless the current
 plan contradicts itself. The per-VM runner principal, the `0755` state
 directories, per-instance TAP ownership, the KSM and `microvm`-command bounds,
 leftover-QMP behavior, and sentinel carry-through all held. So did
@@ -161,66 +161,32 @@ non-default host root moves every derived value and the runner store path. So
 did `2657827`'s storage judgement: `ramfs` cannot be bounded at this kernel,
 `tmpfs,noswap,size=16m,mode=0700` mounts and remounts cleanly, `findmnt -M`
 gives real exact-mount semantics, and consolidating `rollback/<name>` beside
-`active/<name>` keeps both sabotage fixtures falsifiable.
+`active/<name>` keeps both sabotage fixtures falsifiable. Pass 8 found
+`94ca185` and `f3c93bc` stable, completed the pinned upstream guest-module
+audit, and repaired `3dc1a73`'s remaining Nix-state defect in `35e49dc`.
 
-1. **The writable Nix store overlay against a real boot.** Scope this to
-   `3dc1a73`. Contract 6a is new and unverified. Build a selected dev microvm
-   with `microvm.writableStoreOverlay` on a declared persistent volume and
-   prove the guest actually gets a working store: `/nix/store` renders as an
-   overlay of the erofs lower plus that volume's upper, `nix-daemon` and its
-   socket come back enabled, a realised or added path survives a restart, and
-   `nix.optimise.automatic` and `auto-optimise-store` stay false. Then walk the
-   failure paths that this overlay newly puts on the boot-critical path: the
-   volume is `neededForBoot`, so an absent, unformatted, or mislabeled store
-   image now strands the whole guest rather than one mount — confirm that fails
-   in the initrd, visibly, and that contract 13's explicit-provisioning rule
-   covers it. Check the overlay against contract 16's namespace, contract 14's
-   persistence/secret separation, and whatever garbage collection means when
-   the lower layer is read-only. Prove the paired mutation fails for the reason
-   it claims.
+1. **The `/nix/var/nix` writable-store repair.** Scope this to `35e49dc`.
+   Re-evaluate and boot a selected dev microvm with the repaired shape:
+   `/nix/var/nix` is a declared `neededForBoot` persistent volume,
+   `microvm.writableStoreOverlay = "/nix/var/nix"`, `/nix/store` overlays the
+   erofs lower with upper/work below `/nix/var/nix`, `nix-daemon` and its socket
+   are enabled, `microvm.registerClosure` resolves true, the base closure
+   registers on a fresh Nix state volume, auto store optimisation stays false,
+   and the runner declares only precreated images. Add or realise a store path,
+   restart, then move the guest toplevel used by the generated restart trigger
+   and restart again; require `nix-store --verify-path` or `nix path-info` to
+   prove the path is still valid, not merely physically present. Keep the
+   sabotage cases: null overlay fails the write against the read-only erofs
+   mount, overlay backing outside `/nix/var/nix` leaves files but loses Nix
+   validity after reboot, and missing, unformatted, or mislabeled `/nix/var/nix`
+   fails in the initrd. Check the repaired volume against contract 14, contract
+   16, garbage collection, and rollback: home and `/nix/var/nix` must be relayed
+   together, and no credential path may land under either persistent mount.
 
-2. **The host plaintext root as a real mount unit.** Scope this to `94ca185`.
-   The move off `boot.specialFileSystems` was made because `RequiresMountsFor`
-   yields no `Requires=` against a mountinfo-only mount; verify that the
-   replacement does not trade one defect for another. A `.mount` unit under
-   `/run` is restarted, not remounted, by `switch-to-configuration` whenever
-   anything other than `Options` changes, and a restart is an unmount — walk
-   what that does to live per-VM credentials and to an armed `rollback/<name>`
-   slot mid-rotation, and decide whether the plan must say so. Confirm the
-   ordering still holds for first boot, a switch, and every automatic VM
-   restart now that the mount is a systemd unit rather than an activation-time
-   mount, and that the two rotation tools, which are outside systemd entirely,
-   still fail before decrypting or writing against absent, ancestor-only,
-   ramfs, swappable, oversized, and wrong-mode roots.
-
-3. **What else the pinned upstream guest module does.** Pass 5 audited what
-   the upstream host module does to the host and found four host-wide
-   assignments. Pass 7 found that nobody had done the same for the guest, and
-   the read-only store and disabled `nix-daemon` were the result. Finish that
-   audit: read `nixos-modules/microvm/` at the pinned revision end to end and
-   list every assignment outside `microvm.*` that the wrapper drags into a
-   selected guest — blacklisted kernel modules, disabled generators and
-   services, `boot.initrd` contents, `microvm.kernelParams`, the tmpfs root
-   size, and anything else — then decide for each whether the dev archetype can
-   live with it, the way contract 21a decided for the host. Anything the
-   archetype cannot live with becomes a pinned value with a check, not an
-   inherited default.
-
-4. **Restart-on-rebuild now that it is switched on.** Scope this to `f3c93bc`.
-   `restartIfChanged = true` means a host rebuild that moves a guest's
-   `system.build.toplevel` stops and restarts that VM. Confirm the nested
-   test's rebuild-stop path now observes the final `ExecStopPost`, and think
-   operationally about whether restarting a dev guest full of in-flight agent
-   work on every host rebuild is what this stack wants — contract 13's volumes
-   survive it, but the running session does not.
-
-Next pass: scoped diff review of `3dc1a73`, `94ca185`, and `f3c93bc`, not a
-full pass. Recommend `gpt-5.5` at `xhigh`. It is callable, cross-vendor from
-the pass-7 author, and the only eligible model that has never touched this
-plan, which matters because the defect this pass found is one that repeated
-reviewers of the same text kept missing. `gpt-5.6-sol` is otherwise the
-roster's default for this class but authored `2657827` and `34ef13d`, which
-two of the three commits under review repair.
+Next pass: scoped diff review of `35e49dc`, not a full pass, plus the final
+convergence check. Recommend `gpt-5.6-sol` at `xhigh`; it is callable, did not
+author `35e49dc`, and has the best stable record among the eligible Codex
+models.
 
 ## Pass Metadata
 
@@ -443,6 +409,62 @@ review of such a fix before it is trusted, which is the reasoning passes 3, 4,
 and 6 used when they also met the arithmetic. The condition is primed: a scoped
 pass over the three pass-7 commits that finds no original-plan BLOCKER closes
 the arc.
+
+Pass 8 was the scoped diff review of `3dc1a73`, `94ca185`, and `f3c93bc`, run
+by `gpt-5.5` at `xhigh` effort. Findings new to pass 8: 1 BLOCKER, 0 GAP, 0
+SIMPLIFY, 0 QUESTION. 1. [BLOCKER] Overlay-only store persistence forgot Nix's
+database. `3dc1a73` made the selected dev guest's writable store overlay
+persistent, but upstream keeps the Nix validity database, profiles, and gcroots
+under `/nix/var/nix`; paired nested boots showed an added store path physically
+survived when only the overlay upper/work persisted while `nix-store --verify-path`
+failed after reboot. Fixing commit: `35e49dc`. Issue:
+https://forge.anarch.diy/allod/strategy/issues/20. Origin: introduced by
+pass-7 commit `3dc1a73`.
+
+Focus area 3 completed the pinned guest-module audit. The wrapper imports the
+upstream guest module and drags these non-`microvm.*` settings into a selected
+guest: `assertions` and `warnings`; `boot.loader.grub.enable = false`;
+`boot.initrd.kernelModules`, optional `boot.initrd.availableKernelModules`, and
+the store-overlay `overlay` module; `boot.blacklistedKernelModules`;
+`systemd.services.nix-daemon.enable`, `systemd.sockets.nix-daemon.enable`,
+`systemd.services.mount-pstore.enable = false`,
+`systemd.generators.systemd-gpt-auto-generator = "/dev/null"`, and the
+non-storeOnDisk unmount-helper `systemd.mounts`; optional
+`environment.etc."machine-id"` and `networking.hostId`; the root, store,
+overlay, volume, and share `fileSystems`; closure-registration
+`boot.postBootCommands`; optimization defaults for `documentation.enable`,
+`boot.initrd.systemd.enable`, `boot.initrd.systemd.tpm2.enable`,
+`boot.kernelParams = [ "8250.nr_uarts=1" ]`, `boot.swraid.enable`,
+`nixpkgs.overlays`, `networking.useNetworkd`,
+`systemd.network.wait-online.enable`, `systemd.tpm2.enable`, and
+`system.switch.enable`; optional graphics `boot.kernelModules` and
+`environment.systemPackages`; optional Rosetta; and optional VSOCK SSH
+`services.openssh.enable`. The selected dev archetype can live with these
+because it deliberately uses the tmpfs root, qemu, headless graphics, zero
+shares, no VSOCK SSH, no PCI devices, explicit per-VM TAP ownership instead of
+upstream's helper user, and now a persistent `/nix/var/nix` Nix state volume;
+future graphics, PCI, VSOCK, share, or non-qemu use needs explicit review.
+
+Fix stability: `3dc1a73` did not fully hold. Its overlay rendering, daemon
+enablement, and auto-optimise guard held, but its persistence boundary needed
+`35e49dc` because overlay-only state loses the Nix DB. `94ca185` held: the real
+mount unit makes `RequiresMountsFor` a real dependency, launcher and rotation
+preflight still gate every writer, and host mount loss is already modeled as
+lost active and rollback bytes under contract 19. `f3c93bc` held: explicit
+`restartIfChanged = true` renders `X-RestartIfChanged=true` and toplevel
+restart triggers for `evaluatedConfig`, while the upstream default remains
+false for evaluated guests. The SIMPLIFY sweep considered deleting
+`restartIfChanged`, deleting the real host mount unit, deleting the standalone
+guest export before `extendModules`, deleting `microvm.registerClosure`, and
+keeping an overlay-only state volume separate from `/nix/var/nix`; only the
+overlay-only state surface was cut, as part of the blocker repair.
+
+Convergence: not converged. Pass 8 found no original-plan defect, and the guest
+audit came back clean after the Nix-state repair, but the pass did produce a
+BLOCKER introduced by the previous review pass. The next review should be the
+scoped diff review of `35e49dc` and a final convergence check rather than
+another full pass. Next pass: scoped diff review of `35e49dc`, not a full pass;
+recommend `gpt-5.6-sol` at `xhigh`.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
