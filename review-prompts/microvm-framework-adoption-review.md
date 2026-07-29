@@ -426,9 +426,10 @@ Include a plain-text findings summary in this commit's message:
   growing plan is a smell to call out, not a clean bill: pure accretion is what
   breeds internal contradictions.
 - Put a final `Model: <exact model>` footer at the bottom (for example,
-  `Model: claude-opus-4-6` or `Model: gpt-5.5`). Use the exact model
-  identifier, not the agent framework or product name. This is review-pass
-  metadata, not authorship attribution.
+  `Model: claude-fable-5` or `Model: gpt-5.5`). Use the exact identifier of the
+  model that actually ran, not the agent framework, the product name, or the
+  model a previous pass recommended. This is review-pass metadata, not
+  authorship attribution.
 
 When a pass commits a structural or design change (a blocker-level fix), the
 next pass should be a scoped diff review of that change, not a full re-review,
