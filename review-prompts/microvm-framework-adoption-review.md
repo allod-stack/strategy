@@ -95,7 +95,23 @@ file layout drift):
   and runs every `microvm@<name>` instance as that same principal from
   `/var/lib/microvms/<name>/current/bin/microvm-run`. The template unit has
   `Restart=always` and depends on TAP, device, virtiofsd, and booted-link
-  helpers. It does not provide per-instance filesystem isolation.
+  helpers. It does not provide per-instance filesystem isolation. Its state
+  directory is `microvm:kvm` mode `0775`, and `tap-up` hardcodes
+  `user = "microvm"`.
+- That same import makes four assignments outside `microvm.*`:
+  `hardware.ksm.enable = lib.mkDefault true` where the NixOS default is
+  `false`; upstream's `microvm` command on every account, whose `-r` execs the
+  runner with no unit and whose `-s` execs `ssh` with
+  `StrictHostKeyChecking=no` into a root shell over VSOCK; a
+  `boot.kernelModules` list merge; and a `security.pam.loginLimits` `memlock`
+  grant that never applies because the generated units set no `PAMName`.
+- At kernel 6.12.93, `/proc/<pid>/root` opens under `PTRACE_MODE_READ_FSCREDS`
+  and is gated only by the same-credential comparison in
+  `__ptrace_may_access`. Yama's hook inspects `PTRACE_MODE_ATTACH` only, and
+  every `has_pid_permissions` branch reduces to that same read check, so no
+  `ptrace_scope`, `hidepid`, or `subset=pid` value closes a same-uid read into
+  another process's mount namespace. Measured downstream and re-derived from
+  the pinned kernel source; do not relitigate it.
 - Upstream `microvm.volumes` defaults `autoCreate = true`; creation touches,
   truncates, and formats the declared host image if it does not exist.
   Volumes are attached after the read-only store disk and are mounted by label
@@ -134,34 +150,58 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **Final post-stop ownership and ordering.** Scope the review to commit
-   `23e9704`, not a full re-review. Inspect the rendered pinned
-   `microvm@<name>` unit and prove Nexus appends exactly one root cleanup
-   `ExecStopPost` with `lib.mkAfter`, after the upstream unregister hook. Walk
-   cold start, preparation failure before QEMU, unexpected QEMU exit, manual
-   stop, automatic restart, rebuild stop, and rollback restart. Partial and
-   complete credential/QMP directories must be removed before a new directory
-   and socket are created, while the volume and rotation rollback slot survive.
+Pass 5 verified and closed the three previous focus areas: the final root
+`ExecStopPost` merged with `lib.mkAfter` lands after the upstream unregister
+hook and systemd will not start the unit again until it completes, the
+graceful-stop sentinel plus broken-socket sabotage does distinguish a QMP
+shutdown from a systemd kill, and the QMP directory topology is right. Do not
+reopen them. The isolation claim they rested on was wrong, and pass 5 replaced
+the shared runner uid with one principal per VM. That replacement is now the
+riskiest text in the plan.
 
-2. **Graceful-stop evidence.** Inspect the pinned QEMU argv and
-   `booted/bin/microvm-shutdown`, then verify the nested test uses a durable
-   guest shutdown sentinel. Its broken/absent-socket sabotage must demonstrate
-   that directory cleanup and a later successful restart cannot masquerade as
-   a QMP-triggered guest shutdown when systemd killed QEMU instead.
+1. **Per-VM runner principal against the pinned upstream.** Scope the review to
+   pass 5's commits `e315741`, `86dd6e5`, `d40adf9`, `a7e2fca`, and `e95d704`,
+   not a full re-review. Contracts 16, 16a, and 16b now require a
+   `microvm-<name>` user per selected guest. Prove that is implementable
+   without breaking what the shared uid made work: `tap-up` hardcodes
+   `user = "microvm"`, `install-microvm-<name>` chowns the state directory and
+   `current` to `microvm:kvm`, `microvm-set-booted@` runs as `microvm:kvm` and
+   writes `booted`, `/dev/kvm` access comes from group `kvm`, and the host
+   tmpfiles rule the plan now tightens is upstream's. Confirm nothing else
+   still depends on one shared principal, that the per-VM ownership of volume
+   images is a change the private deployer can actually make, and that
+   collapsing both guests onto one principal is a sabotage fixture that can be
+   built. Check that dropping the `kernel.yama.ptrace_scope` pin removed no
+   control the rest of the plan relies on.
 
-3. **Writable QMP isolation.** Prove the QMP source parent is root-only and
-   excluded from each namespace, while only the selected `root:kvm` mode-`0770`
-   child is bound at its identical absolute path. From both actual shared-uid
-   guest namespaces, exercise direct, symlink, alternate-bind, and
-   `/proc/<pid>/root` attacks against sibling credentials, current runner
-   entries, QMP sockets/directories, volume images, and all source parents.
-   Retain independent namespace and Yama sabotage fixtures.
+2. **Non-pageable plaintext roots and their mount ordering.** Contract 8a makes
+   the host module mount `ramfs` or `noswap` `tmpfs` at the host credential and
+   rollback roots. Prove the mount is expressible in the host module and lands
+   before every writer: the launcher on each start, the rotation tools which
+   run outside any unit, and anything that creates the roots through tmpfiles.
+   Check `noswap` availability at the pinned nixpkgs and kernel, whether an
+   unbounded `ramfs` is a real host hazard here, whether the rollback slot
+   survives across the mount's own lifecycle and a host reboot as contract 19
+   still claims, and whether the stock-`/run` sabotage fixture can fail for the
+   right reason.
 
-Next pass: scoped diff review of `23e9704`, not a full pass. Use neither
-`gpt-5.6-sol`, which authored the fix, nor `gpt-5.6-terra`, whose QMP/lifecycle
-fixes have now regressed immediately more than once. Recommend
-`claude-opus-4-6` as a fresh independent verifier; no model has a stable
-fix record yet.
+3. **Cross-repo agreement on the root options.** The three plaintext roots are
+   now options rather than literals, while contract 7 still requires each
+   `microvm.credentialFiles` value to be an absolute string under the
+   per-machine runtime directory. Those two live in different repos. Prove the
+   guest's declared credential paths derive from the host module's option
+   instead of a second copy of the literal, that the host/guest agreement check
+   in contract 17 compares derived values, and that the option-change assertion
+   in the generated-artifact list is executable rather than aspirational.
+
+Next pass: scoped diff review of the five pass-5 commits above, not a full
+pass. Use a model other than `claude-fable-5`, which authored them, and other
+than `gpt-5.6-terra`, whose QMP/lifecycle fixes regressed immediately more than
+once. `gpt-5.6-sol` is eligible again: it authored `23e9704`, which pass 5
+verified as stable, and it is the roster's default for cross-repo generated
+lifecycle behavior. Confirm the model is instantiable on its runner before
+recording it — pass 4 recommended `claude-opus-4-6`, which the Claude runner
+cannot instantiate, and pass 5 substituted `claude-fable-5`.
 
 ## Pass Metadata
 
@@ -223,6 +263,41 @@ third pass, but convergence is not declared while this replacement
 blocker-level lifecycle fix lacks its mandatory independent stability result.
 If the scoped next pass finds no new blocker or original-plan GAP, stop
 plan-text review and hand the remaining checks to implementation review.
+
+Pass 5 was the scoped diff review of `23e9704`, widened by the user to also
+dispose of three downstream integration reviews left unaddressed on
+`allod/strategy` PR #22. `claude-fable-5` ran it: pass 4 recommended
+`claude-opus-4-6`, which the Claude runner cannot instantiate, so the
+substitute was chosen as the highest-capability Claude option, the roster's
+role for terminal verification of cross-repo generated lifecycle behavior, and
+not the author of any fix in this plan. Record substitutions like this one
+rather than silently renaming the pass.
+
+Two determinations, kept separate. First, `23e9704` is fix-stable: its ordered
+final `ExecStopPost`, its `lib.mkAfter` merge, its stop-before-next-start
+guarantee, and its sentinel-based graceful-stop evidence all survived scoped
+verification against the pinned unit, the built runner argv, and the built
+`microvm-shutdown`. Only its own new "refuses a stale socket" wording was
+wrong, and that is a GAP, not a blocker. `gpt-5.6-sol` is therefore the first
+model on this plan with a stable structural fix. Second, the plan text has not
+converged: pass 5 found three BLOCKERs and four GAPs, five of them original
+defects that four passes missed, so both stop conditions fail. The
+review-introduced majority streak is broken, and this pass contains both new
+BLOCKERs and original-plan GAPs.
+
+Those five original defects share a cause worth naming: every earlier pass
+reviewed the plan's own mechanisms and never audited what the pinned upstream
+host module does to the host, nor whether a control the plan names actually
+holds at the kernel. A sweep that asks only "did this change a pre-existing
+default?" sees the overrides and misses the additions. The plan's isolation
+contract asserted a boundary that measurement showed open, and its
+"ramfs-only" title had no mount behind it.
+
+Pass 5 replaced the shared runner uid with one principal per VM, put both host
+plaintext roots on declared non-pageable storage behind readable options,
+bounded the host-wide settings the upstream import brings, and made the
+leftover-QMP-directory behavior explicit. That is a structural change, so pass
+6 is its scoped diff review by a different model.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
