@@ -12,7 +12,7 @@ Three `allod/nexus` issues are required parts of this arc rather than deployment
 
 - [allod/nexus#21](https://forge.anarch.diy/allod/nexus/issues/21): runtime-aware VM SSH host-key rotation.
 - [allod/nexus#22](https://forge.anarch.diy/allod/nexus/issues/22): runtime-aware Forge SSH key rotation.
-- [allod/nexus#23](https://forge.anarch.diy/allod/nexus/issues/23): per-VM host-path isolation for the shared microvm runner user.
+- [allod/nexus#23](https://forge.anarch.diy/allod/nexus/issues/23): per-VM host-path and runner-principal isolation for microvm guests.
 
 The PR implementing each nexus issue closes that issue and references allod/strategy#20. Only the final archetypes integration PR closes allod/strategy#20.
 
@@ -61,7 +61,7 @@ Out of scope:
 
 The arc crosses repository interfaces and changes generated boot, activation, systemd, credential, persistence, networking, and rotation behavior. Those are R3 areas even after strong local validation. It is not R4 for the public work: no PR operates on a real host, mutates deployed state, or handles real plaintext, and every framework contract is exercisable with synthetic fixtures and nested VMs. The private cutover remains R4 in its own plan because it acts on real host state and unique writable volumes.
 
-The worst credible public failure after validation is a guest or host unit that evaluates cleanly but strands on boot, loses runtime credentials, writes derived plaintext to a durable volume, or exposes a sibling VM's files. Nested boots, generated-unit inspection, store scans, restart tests, and hostile same-uid fixtures target those failures directly.
+The worst credible public failure after validation is a guest or host unit that evaluates cleanly but strands on boot, loses runtime credentials, writes derived plaintext to a durable volume, or exposes a sibling VM's files. Nested boots, generated-unit inspection, store scans, restart tests, and hostile cross-VM fixtures target those failures directly.
 
 | PR or milestone | Risk | Reason | Human scrutiny |
 |---|---|---|---|
@@ -74,7 +74,7 @@ The worst credible public failure after validation is a guest or host unit that 
 | `allod/nexus` nexus#22 Forge-key rotation | R3 High | Changes deployment and verification of a durable Forge authority. | Prove no microvm path installs the key under a persistent home and both runtime verification paths fail closed. |
 | Final `allod/archetypes` input integration | R3 High | Establishes the cross-repo revision set and closing validation signal. | Input ordering, full check output, generated host/guest artifacts, and absence of private values. |
 
-Most useful human scrutiny is the boundary between the privileged host preparation unit, the unprivileged shared microvm user, and the guest's systemd consumers. Source review alone is not enough: review the rendered units and runner command, then the negative fixtures.
+Most useful human scrutiny is the boundary between the privileged host preparation unit, the unprivileged per-VM runner principal, and the guest's systemd consumers. Source review alone is not enough: review the rendered units and runner command, then the negative fixtures.
 
 ## Interface Contracts
 
@@ -214,13 +214,13 @@ The nested test must:
 
 1. Start the host unit through the root launch helper with synthetic host-key, Forge token, Forge SSH key, and Git credential canaries.
 2. Assert PID 1 reports receipt of each expected system credential and the materializer round-trips every canary byte-exact.
-3. Assert the system credential directory is root-only on a `noswap` tmpfs and every consumer file under `/run/allod/credentials` has the declared owner and mode.
+3. Assert the system credential directory is root-only on a `noswap` tmpfs, the guest declares no swap device, and every consumer file under the guest credential root has the declared owner and mode.
 4. Assert sshd presents the supplied public host key and a boot with the host-key credential absent fails sshd without creating any new host key.
 5. Assert the Forge CLI, Git HTTPS/netrc flow, and Git SSH configuration resolve their runtime files, while no corresponding file exists under the persistent home, `/root`, or `/etc`.
 6. Pre-create, format, label, and hand the synthetic volume images to the fixture before enabling the microvm. Write a distinct canary under every declared persistent mount, restart the microvm host unit, and assert every canary survives. Separately prove an absent image fails before QEMU, an existing image is never truncated or relabeled, and a regular image with an invalid filesystem or expected label fails in the initrd without starting sshd, a user session, or a writer against the tmpfs mount point.
 7. Write a canary outside the declared persistent mounts, restart, and assert it is gone. This proves persistence came from the volume rather than an accidentally durable root.
 8. Assert the guest TAP interface exists and can reach the fixture network without any deployment address appearing in the public guest definition.
-9. Start cold with no prepared credential or QMP directory. Exercise a preparation failure, an early QEMU failure with `Restart=always`, manual stop and restart, rebuild stop, and rollback restart. In every path assert the final Nexus `ExecStopPost` runs after the rendered upstream post-stop commands, removes any complete or partial credential and QMP directories only after QEMU exits, preserves the volume and rollback slot, and lets the next attempt recreate a different QMP-directory inode with a newly reachable socket. For the successful stop, install a guest shutdown unit that writes a unique sentinel to the persistent volume, invoke the rendered upstream QMP `ExecStop`, and require that sentinel before accepting directory cleanup as a graceful shutdown. In a separate sabotage case remove or break the socket while QEMU is live, stop the unit, and prove the sentinel is absent when the pinned shutdown script falls through and systemd kills QEMU; directory removal or a successful later restart alone does not count as QMP-shutdown evidence.
+9. Start cold with no prepared credential or QMP directory. Exercise a preparation failure, an early QEMU failure with `Restart=always`, manual stop and restart, rebuild stop, and rollback restart. In every path assert the final Nexus `ExecStopPost` runs after the rendered upstream post-stop commands, removes any complete or partial credential and QMP directories only after QEMU exits, preserves the volume and rollback slot, and lets the next attempt recreate a different QMP-directory inode with a newly reachable socket. For the successful stop, install a guest shutdown unit that writes a unique sentinel to the persistent volume, ordered after that mount and before `shutdown.target` so it lands while the volume is still mounted; invoke the rendered upstream QMP `ExecStop` and require that sentinel before accepting directory cleanup as a graceful shutdown. The pinned stop path sends ctrl-alt-del over QMP and the runner carries `-no-reboot`, so the guest runs a reboot transaction that QEMU turns into an exit: the sentinel must survive that path, not only a poweroff. In a separate sabotage case remove or break the socket while QEMU is live, stop the unit, and prove the sentinel is absent when the pinned shutdown script falls through and systemd kills QEMU; directory removal or a successful later restart alone does not count as QMP-shutdown evidence.
 
 **Negative and mutation checks:**
 
@@ -263,7 +263,7 @@ The checks inspect the actual runner, guest activation text, Home Manager result
 - No credential destination appears under a persistent mount.
 - The runner contains no `virtiofsd-run`, no share, and no private byte canary.
 - The microvm guest closure contains no age identity, private host key, Forge private key, or agenix target.
-- The root launch helper prepares credentials and a fresh `root:kvm` mode-`0770` QMP directory on every start, clears and recreates a leftover directory or socket instead of reusing it, invokes the matching runner only after preparation, and gives the root-namespace upstream `ExecStop` the same absolute per-VM QMP socket path that QEMU sees in its namespace. A final root `ExecStopPost` merged with `lib.mkAfter` follows the rendered upstream post-stop commands and idempotently removes only the credential and QMP directories, including after failed preparation or QEMU exit; neither command puts secret bytes in argv, environment, or logs.
+- The root launch helper prepares credentials and a fresh `root:microvm-<name>` mode-`0770` QMP directory on every start, clears and recreates a leftover directory or socket instead of reusing it, invokes the matching runner only after preparation, and gives the root-namespace upstream `ExecStop` the same absolute per-VM QMP socket path that QEMU sees in its namespace. A final root `ExecStopPost` merged with `lib.mkAfter` follows the rendered upstream post-stop commands and idempotently removes only the credential and QMP directories, including after failed preparation or QEMU exit; neither command puts secret bytes in argv, environment, or logs.
 - Each host plaintext root is mounted `ramfs` or `noswap` `tmpfs` with mode `0700` at the path its option reports, and a fixture that leaves it on the stock swappable `/run` tmpfs fails the check.
 - Changing a plaintext-root option moves every rendered unit path, launcher argument, rotation-tool path, and guest consumer path that names it; a rendered path still carrying the old default fails the check.
 - Host and guest credential-name sets and volume declarations are identical.
@@ -272,7 +272,7 @@ The checks inspect the actual runner, guest activation text, Home Manager result
 - The libvirt services, packages, environment, and provisioning script outputs remain present.
 - Importing the microvm host module leaves the host's rendered `hardware.ksm.enable` false and the libvirt bridge configuration and wrappers unchanged; an upstream default change fails this check rather than altering the host silently.
 
-**Same-uid host isolation:**
+**Cross-VM host isolation:**
 
 ```sh
 cd /path/to/nexus
