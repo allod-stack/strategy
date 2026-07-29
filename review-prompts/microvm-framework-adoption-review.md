@@ -134,48 +134,31 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **Single-drop launch boundary.** Scope the review to commit `10f3425`.
-   Evaluate the rendered `microvm@<name>` unit and QEMU argv, not just the
-   helper source. Prove the unit invokes the helper as root, the helper performs
-   exactly one uid/gid transition before `microvm-run`, `microvm.user` remains
-   unset, no `-run-with user=` is rendered, and the runner plus QEMU are
-   observed as `microvm:kvm`. Walk cold start, preparation failure, QEMU
-   failure, manual and automatic restart, stop, rebuild, upstream `ExecStop`,
-   and every `ExecStopPost`.
+1. **QMP socket topology.** Scope the review to commit `e99f5e6`, not a full
+   re-review. Inspect the rendered QEMU argv and `microvm@<name>` unit from the
+   pinned source. Prove `microvm.socket` is one root-owned,
+   `microvm:kvm`-writable, per-VM directory that is bind-mounted at precisely
+   the same absolute path in the launcher namespace; QEMU must create that
+   socket there and upstream host-namespace `ExecStop` must connect to it via
+   `booted/bin/microvm-shutdown`. Confirm the path is neither a credential
+   directory nor a sibling-visible source parent.
 
-2. **Rollback-selector authority.** Trace the `10f3425` one-shot selector
-   through both key tools and the per-start launcher. The slot and selector
-   must sit outside ordinary cleanup, be root-only and atomically armed, cause
-   the launcher to ignore the still-staged configured source on every recovery
-   retry, and survive until the old presented identity is verified. Independently
-   sabotage refresh, restart, verification, automatic retry, and loss of
-   `/run`; the reboot path must name the exact committed pre-stage ciphertext
-   revision without weakening the unchanged libvirt lifecycle.
+2. **Stop and cleanup ordering.** Walk cold start, preparation failure, QEMU
+   failure, manual stop, automatic restart, rebuild stop, and rollback restart.
+   The QMP directory must outlive QEMU, upstream `ExecStop`, and every upstream
+   `ExecStopPost`, then be removed before the next start uses a fresh socket.
+   Generated-artifact and nested tests must distinguish a real QMP shutdown
+   from systemd killing QEMU after a failed stop hook.
 
-3. **Required-volume mount failure.** Confirm the evaluated guest marks every
-   authoritative volume mount `neededForBoot = true` and that the generated
-   initrd actually attempts those mounts. A regular but corrupt, unformatted,
-   or wrongly labeled image must not reach sshd, a user session, or any writer
-   against the tmpfs directory underneath. Retain missing-image preflight,
-   no-truncate/no-mkfs, valid-image restart persistence, and rollback coverage.
+3. **Writable-state isolation.** The selected QMP directory must be writable
+   to the shared runner principal without reopening access to any sibling QMP
+   socket, credential, image, runner, or host source parent. Exercise direct
+   paths, symlinks, alternate binds, and `/proc/<pid>/root` against the actual
+   namespace; retain independent namespace and Yama sabotage fixtures.
 
-4. **Pin and wrapper topology.** Verify the simplified VM export in `10f3425`
-   still closes the guest wrapper over the exact pinned upstream guest module,
-   gives Nexus the actual upstream host module, and makes
-   `nexus.inputs.vm.follows = "vm"` resolve at the archetypes composition root.
-   The lock and evaluated modules must prove one `vm`, microvm.nix, and nixpkgs
-   lineage, with no unused raw guest-module export.
-
-5. **Namespace completeness.** Recheck the refined runner/current,
-   working-state, KVM, TAP, QMP/shutdown, credential, image, `/nix/store`, and
-   `/proc` paths against the pinned runner. Prove the old root and every source
-   parent are detached. Sabotage the namespace and Yama protections
-   independently so sibling direct paths, symlinks, alternate binds, and
-   `/proc/<pid>/root` fail for the intended reason.
-
-Next pass: scoped diff review of `10f3425`, not a full pass. Use a model other
-than `gpt-5.6-sol`; recommend `gpt-5.6-terra` because the structural fix needs
-a different model and no model has a stable fix record yet.
+Next pass: scoped diff review of `e99f5e6`, not a full pass. Use a model other
+than `gpt-5.6-terra`; recommend `gpt-5.6-sol` because this structural fix needs
+an independent stability result and no model has a stable record yet.
 
 ## Pass Metadata
 
@@ -198,6 +181,22 @@ the unused raw export because the other mechanisms serve concrete lifecycle or
 security requirements. Convergence has not been reached: this is the first
 pass where review-introduced findings outnumbered original-plan findings, and
 the pass contains both BLOCKERs and an original-plan GAP.
+
+Pass 3 found one BLOCKER introduced by `10f3425`: the new launch namespace did
+not make QEMU's `microvm.socket` visible to the upstream host-namespace
+`ExecStop`, so graceful stop and restart could fall through to a systemd kill.
+Commit `e99f5e6` requires a root-owned, `microvm:kvm`-writable, per-VM QMP
+working directory bound at the same absolute path inside the launcher and adds
+generated plus nested coverage for stop, retry, rebuild, and rollback. The
+SIMPLIFY sweep reconsidered a separate shutdown helper, a generic host-state
+manager, a second service unit, and a durable QMP path; all add scope or weaken
+the one-start lifecycle, so nothing was removed. Commit `10f3425` is unstable;
+`e99f5e6` is pending an independent scoped diff review. The review-introduced
+finding majority now spans two passes, which meets the plan-text convergence
+heuristic, but convergence is not declared until the mandatory independent
+review of the new structural fix verifies that the terminal lifecycle repair
+does not introduce another blocker. Afterwards, hand remaining work to
+implementation review unless that scoped diff exposes a new plan defect.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
