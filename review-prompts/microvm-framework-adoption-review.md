@@ -134,31 +134,34 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **QMP socket topology.** Scope the review to commit `e99f5e6`, not a full
-   re-review. Inspect the rendered QEMU argv and `microvm@<name>` unit from the
-   pinned source. Prove `microvm.socket` is one root-owned,
-   `microvm:kvm`-writable, per-VM directory that is bind-mounted at precisely
-   the same absolute path in the launcher namespace; QEMU must create that
-   socket there and upstream host-namespace `ExecStop` must connect to it via
-   `booted/bin/microvm-shutdown`. Confirm the path is neither a credential
-   directory nor a sibling-visible source parent.
+1. **Final post-stop ownership and ordering.** Scope the review to commit
+   `23e9704`, not a full re-review. Inspect the rendered pinned
+   `microvm@<name>` unit and prove Nexus appends exactly one root cleanup
+   `ExecStopPost` with `lib.mkAfter`, after the upstream unregister hook. Walk
+   cold start, preparation failure before QEMU, unexpected QEMU exit, manual
+   stop, automatic restart, rebuild stop, and rollback restart. Partial and
+   complete credential/QMP directories must be removed before a new directory
+   and socket are created, while the volume and rotation rollback slot survive.
 
-2. **Stop and cleanup ordering.** Walk cold start, preparation failure, QEMU
-   failure, manual stop, automatic restart, rebuild stop, and rollback restart.
-   The QMP directory must outlive QEMU, upstream `ExecStop`, and every upstream
-   `ExecStopPost`, then be removed before the next start uses a fresh socket.
-   Generated-artifact and nested tests must distinguish a real QMP shutdown
-   from systemd killing QEMU after a failed stop hook.
+2. **Graceful-stop evidence.** Inspect the pinned QEMU argv and
+   `booted/bin/microvm-shutdown`, then verify the nested test uses a durable
+   guest shutdown sentinel. Its broken/absent-socket sabotage must demonstrate
+   that directory cleanup and a later successful restart cannot masquerade as
+   a QMP-triggered guest shutdown when systemd killed QEMU instead.
 
-3. **Writable-state isolation.** The selected QMP directory must be writable
-   to the shared runner principal without reopening access to any sibling QMP
-   socket, credential, image, runner, or host source parent. Exercise direct
-   paths, symlinks, alternate binds, and `/proc/<pid>/root` against the actual
-   namespace; retain independent namespace and Yama sabotage fixtures.
+3. **Writable QMP isolation.** Prove the QMP source parent is root-only and
+   excluded from each namespace, while only the selected `root:kvm` mode-`0770`
+   child is bound at its identical absolute path. From both actual shared-uid
+   guest namespaces, exercise direct, symlink, alternate-bind, and
+   `/proc/<pid>/root` attacks against sibling credentials, current runner
+   entries, QMP sockets/directories, volume images, and all source parents.
+   Retain independent namespace and Yama sabotage fixtures.
 
-Next pass: scoped diff review of `e99f5e6`, not a full pass. Use a model other
-than `gpt-5.6-terra`; recommend `gpt-5.6-sol` because this structural fix needs
-an independent stability result and no model has a stable record yet.
+Next pass: scoped diff review of `23e9704`, not a full pass. Use neither
+`gpt-5.6-sol`, which authored the fix, nor `gpt-5.6-terra`, whose QMP/lifecycle
+fixes have now regressed immediately more than once. Recommend
+`claude-opus-4-6` as a fresh independent verifier; no model has a stable
+fix record yet.
 
 ## Pass Metadata
 
@@ -197,6 +200,29 @@ heuristic, but convergence is not declared until the mandatory independent
 review of the new structural fix verifies that the terminal lifecycle repair
 does not introduce another blocker. Afterwards, hand remaining work to
 implementation review unless that scoped diff exposes a new plan defect.
+
+Pass 4 found one BLOCKER and two GAPs, all introduced by `e99f5e6`.
+First, the execing root launcher could not perform cleanup after QEMU exit and
+upstream post-stop hooks; `23e9704` assigns idempotent cleanup to a final root
+`ExecStopPost` merged with `lib.mkAfter` and covers preparation failure, QEMU
+failure, every stop/restart path, and rollback-slot preservation
+([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+Second, cleanup plus restart could falsely pass as QMP shutdown because the
+pinned shutdown script accepts an absent socket before systemd kills QEMU;
+`23e9704` requires a durable guest shutdown sentinel and a broken-socket
+sabotage fixture. Third, the same-uid fixture omitted the new writable QMP
+socket/directory, current runner entries, and their host source parents;
+`23e9704` adds those objects and operations to every namespace access path
+([allod/nexus#23](https://forge.anarch.diy/allod/nexus/issues/23)).
+The SIMPLIFY sweep considered a cleanup service, a long-lived privileged
+supervisor, a generic runtime-directory manager, and a second shutdown helper;
+all were rejected in favor of one ordered post-stop command on the existing
+unit. Commit `e99f5e6` is unstable. Commit `23e9704` is pending independent
+scoped verification. The review-introduced finding majority continues for a
+third pass, but convergence is not declared while this replacement
+blocker-level lifecycle fix lacks its mandatory independent stability result.
+If the scoped next pass finds no new blocker or original-plan GAP, stop
+plan-text review and hand the remaining checks to implementation review.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
