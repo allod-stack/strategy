@@ -150,53 +150,77 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-Pass 6 verified the pass-5 runner-principal change against the pinned host
-module and generated runner: retain upstream's shared `microvm` account only
-for the trusted install and `booted`-link helpers, remove group write from its
-state directories, assign TAP ownership per selected VM, and give each runner
-its own primary uid/gid with `kvm` supplementary. The shared-principal
-sabotage remains valid, and no remaining control depends on
-`kernel.yama.ptrace_scope`. It also verified the KSM/command bounds, leftover
-QMP behavior, and sentinel carry-through. Do not reopen those areas unless the
-new storage or evaluation wiring contradicts them.
+Passes 6 and 7 closed several areas. Do not reopen them unless the current
+plan contradicts itself. The per-VM runner principal, the `0755` state
+directories, per-instance TAP ownership, the KSM and `microvm`-command bounds,
+leftover-QMP behavior, and sentinel carry-through all held. So did
+`34ef13d`'s evaluation wiring: `extendModules` derives each guest's exact
+`credentialFiles` from `nexus.microvm.hostPlaintextRoot` with no recursion,
+the extended result is what `install-microvm-<name>` links as `current`, and a
+non-default host root moves every derived value and the runner store path. So
+did `2657827`'s storage judgement: `ramfs` cannot be bounded at this kernel,
+`tmpfs,noswap,size=16m,mode=0700` mounts and remounts cleanly, `findmnt -M`
+gives real exact-mount semantics, and consolidating `rollback/<name>` beside
+`active/<name>` keeps both sabotage fixtures falsifiable.
 
-1. **One bounded host plaintext mount against real activation and tool
-   behavior.** Scope this to `2657827`. Render the pinned nixpkgs
-   `boot.specialFileSystems` activation result and the concrete systemd unit;
-   prove the 16 MiB `tmpfs,noswap,mode=0700` mount exists before a first boot,
-   a switch, and every automatic VM restart, and that `RequiresMountsFor` plus
-   the launcher's exact-mount preflight fail without creating an underlying
-   `/run` fallback. Exercise both packaged rotation commands outside systemd
-   against absent, ancestor-only, ramfs, swappable, oversized, and wrong-mode
-   mounts and prove they fail before decrypting or writing. Confirm
-   `active/<name>` cleanup cannot reach `rollback/<name>`, the consolidated
-   mount survives VM stop/restart, and host-mount loss follows the same
-   explicit recovery path as reboot loss.
+1. **The writable Nix store overlay against a real boot.** Scope this to
+   `3dc1a73`. Contract 6a is new and unverified. Build a selected dev microvm
+   with `microvm.writableStoreOverlay` on a declared persistent volume and
+   prove the guest actually gets a working store: `/nix/store` renders as an
+   overlay of the erofs lower plus that volume's upper, `nix-daemon` and its
+   socket come back enabled, a realised or added path survives a restart, and
+   `nix.optimise.automatic` and `auto-optimise-store` stay false. Then walk the
+   failure paths that this overlay newly puts on the boot-critical path: the
+   volume is `neededForBoot`, so an absent, unformatted, or mislabeled store
+   image now strands the whole guest rather than one mount — confirm that fails
+   in the initrd, visibly, and that contract 13's explicit-provisioning rule
+   covers it. Check the overlay against contract 16's namespace, contract 14's
+   persistence/secret separation, and whatever garbage collection means when
+   the lower layer is read-only. Prove the paired mutation fails for the reason
+   it claims.
 
-2. **Host-option propagation into the actual installed runner.** Scope this to
-   `34ef13d`. Build the default and non-default synthetic host integrations and
-   prove `nixosConfiguration.extendModules` can derive each selected guest's
-   exact `credentialFiles` map from
-   `nexus.microvm.hostPlaintextRoot` without evaluation recursion. The
-   extended result assigned to `microvm.vms.<name>.evaluatedConfig`, not the
-   standalone guest, must supply `install-microvm-<name>` and the QEMU runner.
-   Inspect the early mount, `/etc/allod/microvm-runtime.json`, launcher,
-   rotation tools, `-fw_cfg` argv, guest materializer, and Home Manager output
-   under safe non-default host and guest roots; every old-default sabotage must
-   fail for the path it claims to cover.
+2. **The host plaintext root as a real mount unit.** Scope this to `94ca185`.
+   The move off `boot.specialFileSystems` was made because `RequiresMountsFor`
+   yields no `Requires=` against a mountinfo-only mount; verify that the
+   replacement does not trade one defect for another. A `.mount` unit under
+   `/run` is restarted, not remounted, by `switch-to-configuration` whenever
+   anything other than `Options` changes, and a restart is an unmount — walk
+   what that does to live per-VM credentials and to an armed `rollback/<name>`
+   slot mid-rotation, and decide whether the plan must say so. Confirm the
+   ordering still holds for first boot, a switch, and every automatic VM
+   restart now that the mount is a systemd unit rather than an activation-time
+   mount, and that the two rotation tools, which are outside systemd entirely,
+   still fail before decrypting or writing against absent, ancestor-only,
+   ramfs, swappable, oversized, and wrong-mode roots.
 
-3. **Integration regression at the principal/storage seam.** With the
-   consolidated `active/<name>` layout, repeat the two-runner namespace test
-   far enough to prove a unique runner can read its own credentials and open
-   its reassigned TAP and volume while direct, proc-root, signal, QMP, runner,
-   and image attacks against the sibling still fail. Keep upstream's shared
-   helper account out of the runner process tree and preserve its ability to
-   update `booted` through `0755`, not `0775`, state directories.
+3. **What else the pinned upstream guest module does.** Pass 5 audited what
+   the upstream host module does to the host and found four host-wide
+   assignments. Pass 7 found that nobody had done the same for the guest, and
+   the read-only store and disabled `nix-daemon` were the result. Finish that
+   audit: read `nixos-modules/microvm/` at the pinned revision end to end and
+   list every assignment outside `microvm.*` that the wrapper drags into a
+   selected guest — blacklisted kernel modules, disabled generators and
+   services, `boot.initrd` contents, `microvm.kernelParams`, the tmpfs root
+   size, and anything else — then decide for each whether the dev archetype can
+   live with it, the way contract 21a decided for the host. Anything the
+   archetype cannot live with becomes a pinned value with a check, not an
+   inherited default.
 
-Next pass: scoped diff review of `2657827` and `34ef13d`, not a full pass.
-Recommend `claude-opus-5`, which is callable, did not author either commit, and
-is the strongest fresh rotation partner available without returning to the
-pass-5 author.
+4. **Restart-on-rebuild now that it is switched on.** Scope this to `f3c93bc`.
+   `restartIfChanged = true` means a host rebuild that moves a guest's
+   `system.build.toplevel` stops and restarts that VM. Confirm the nested
+   test's rebuild-stop path now observes the final `ExecStopPost`, and think
+   operationally about whether restarting a dev guest full of in-flight agent
+   work on every host rebuild is what this stack wants — contract 13's volumes
+   survive it, but the running session does not.
+
+Next pass: scoped diff review of `3dc1a73`, `94ca185`, and `f3c93bc`, not a
+full pass. Recommend `gpt-5.5` at `xhigh`. It is callable, cross-vendor from
+the pass-7 author, and the only eligible model that has never touched this
+plan, which matters because the defect this pass found is one that repeated
+reviewers of the same text kept missing. `gpt-5.6-sol` is otherwise the
+roster's default for this class but authored `2657827` and `34ef13d`, which
+two of the three commits under review repair.
 
 ## Pass Metadata
 
@@ -350,6 +374,75 @@ original-plan findings four to zero, but this is only the first consecutive
 pass after pass 5 broke that streak, and the two BLOCKERs also prevent the
 second stop condition. The next scoped target is `2657827` and `34ef13d`, with
 `claude-opus-5` recommended as a callable model that authored neither.
+
+Pass 7 was the scoped diff review of `2657827` and `34ef13d`, run by
+`claude-opus-5` at max effort. It found one BLOCKER and two GAPs, grounded
+against pinned nixpkgs `b6018f87`, pinned microvm.nix `39a499ab`, systemd
+258.7, kernel 6.12.93, and a synthetic host/guest evaluation built from those
+store paths.
+
+1. [BLOCKER] The selected dev guest had no writable Nix store. At the pinned
+   revision the upstream guest module mounts `/nix/store` from the read-only
+   erofs disk and disables `nix-daemon` and its socket whenever
+   `microvm.writableStoreOverlay` is null, so a dev VM would boot unable to
+   realise, fetch, or collect a store path while carrying contract 9's Nix
+   netrc wiring; `3dc1a73` adds contract 6a, the overlay on a declared
+   persistent mount point, a restart-survival test, and a paired mutation.
+   Origin: original-plan defect, present since `236f1cb`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+2. [GAP] `RequiresMountsFor` was not a requirement. Systemd derives
+   `Requires=` only for a mount unit with a fragment file, so against a
+   `boot.specialFileSystems` mount it degrades to ordering and, with nothing
+   mounted, silently to `-.mount`; the check bullet `2657827` added could not
+   be shown to fail. `94ca185` declares the root as a real mount unit and
+   asserts the resolved `Requires=` plus a failing-mount fixture. Origin:
+   introduced by `2657827`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+3. [GAP] `evaluatedConfig` silently disabled restart-on-rebuild. Upstream
+   defaults `restartIfChanged` to `config.config != null`, so the rendered
+   drop-in carried `X-RestartIfChanged=false` and `switch-to-configuration`
+   skipped the unit, making the nested test's rebuild-stop path vacuous;
+   `f3c93bc` pins the value and drives the test with a toplevel-moving change.
+   Origin: introduced by `34ef13d`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+
+The SIMPLIFY sweep cut `boot.specialFileSystems` as the mount mechanism. It
+considered and kept the `/etc/allod/microvm-runtime.json` descriptor and its
+env override, because a rotation tool invoked from a deploy-flake checkout
+would bake that checkout's value; the `RequiresMountsFor` edge, which was made
+real rather than deleted because it is the only control that refuses the start
+before the launcher runs; the standalone exported guest, which is the base
+`extendModules` needs and the subject of six contract checks; the separate
+`active/` and `rollback/` children, because `ExecStopPost` removes
+`active/<name>` wholesale; and the 28-character credential-name limit, which is
+the real fw_cfg constraint rather than ceremony.
+
+Fix stability for the pass-6 commits: `2657827` is stable for the storage
+decision itself — the ramfs ban, the fixed 16 MiB `tmpfs,noswap,mode=0700`
+root, the exact-mount rather than `findmnt --target` preflight, and the
+consolidated `active`/`rollback` children all survived measurement — but it is
+not fix-stable overall, because its `RequiresMountsFor` claim and the check
+built on it needed `94ca185`. `34ef13d` is stable for its central mechanism:
+`extendModules` derives the exact `credentialFiles` map with no recursion, the
+extended result is what `install-microvm-<name>` installs, and a non-default
+host root moves every derived value and the runner path. It is not fix-stable
+overall, because naming `evaluatedConfig` silently flipped `restartIfChanged`
+and needed `f3c93bc`. Commits `3dc1a73`, `94ca185`, and `f3c93bc` await
+independent scoped verification.
+
+Convergence: not converged. New findings are 2 review-introduced against 1
+original-plan, so the arithmetic of the first stop condition holds for a second
+consecutive pass. It is not being used to declare convergence. The heuristic
+assumes the plan's own defects are exhausted and the reviews are finding their
+own churn; an original-plan BLOCKER that six passes missed falsifies that
+assumption, and it is the same species as pass 5's — nobody had audited what
+the pinned upstream guest module does to the guest, exactly as nobody had
+audited the host module. `3dc1a73` is also a blocker-level structural change to
+the store and persistence model, and this prompt requires an independent scoped
+review of such a fix before it is trusted, which is the reasoning passes 3, 4,
+and 6 used when they also met the arithmetic. The condition is primed: a scoped
+pass over the three pass-7 commits that finds no original-plan BLOCKER closes
+the arc.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
