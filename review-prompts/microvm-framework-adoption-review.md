@@ -134,112 +134,50 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **One upstream pin, two module roles.** The plan says `allod/vm` pins
-   microvm.nix and exposes the guest split, while `allod/nexus` imports the
-   upstream host module. Determine the exact flake interface by which Nexus
-   receives that same upstream revision. Can an implementer follow the plan
-   without independently pinning microvm.nix in two repos, reaching through an
-   unexported transitive input, or temporarily combining mismatched host and
-   guest modules? Verify the final Archetypes pin order proves one coherent
-   nixpkgs/microvm revision set.
+1. **Shared pin topology.** Scope the review to commit `416bd94`. Verify that
+   the `vm` re-export gives Nexus the actual upstream host module without a
+   second microvm.nix lock node, and that `nexus.inputs.vm.follows = "vm"` is
+   valid at the archetypes composition root. The lock and evaluated modules,
+   rather than prose, must prove one `vm`, microvm.nix, and nixpkgs lineage.
 
-2. **Exclusive guest composition without libvirt drift.** Trace how the current
-   `sharedModules`, `mkDevVm`, and `mkPrivacyVm` must change so runtime selects
-   exactly one boot/storage module while truly common behavior remains common.
-   Does the plan preserve the current disko, bootloader, NetworkManager,
-   OpenSSH, agenix, installer, and provisioning outputs for libvirt, while
-   preventing every disk and age module from leaking into microvm? Is the
-   "both modules" assertion implemented at a layer that can actually observe
-   imports, or could module merging make the bad composition evaluate before
-   the named assertion runs?
+2. **Per-start launch boundary.** Walk the proposed root launch helper against
+   upstream `microvm@.service` and `microvm-run`: cold start, manual restart,
+   automatic restart, preparation failure, QEMU failure, stop, host rebuild,
+   and `ExecStopPost`. Confirm its root phase cannot expose plaintext and that
+   the QEMU process, not merely the systemd wrapper, ends as `microvm:kvm`.
 
-3. **Credentials from host source to first consumer.** Follow one canary from
-   the encrypted authoritative source, through privileged host preparation,
-   the QEMU `file=` argument, `qemu_fw_cfg` availability, PID 1's system
-   credential import, the materializer, and every consuming daemon or user
-   session. Does the plan specify real systemd dependencies and credential
-   directives rather than assuming activation order? Do missing, empty,
-   malformed, wrongly owned, and unexpectedly extra inputs all fail before a
-   consumer starts? Prove that the missing SSH host key cannot trigger
-   `sshd-keygen`, and that no source or generated path puts plaintext under
-   `/nix/store`, `/etc`, `/root`, a persistent home, or another durable mount.
+3. **Namespace completeness.** Audit the tmpfs-root namespace one required
+   path at a time: runner/current link, `/nix/store`, `/dev/kvm`, TAP state,
+   QMP or shutdown paths, credentials, and each image. Then sabotage the
+   namespace and Yama protections independently to prove sibling direct paths,
+   symlinks, alternate binds, and `/proc/<pid>/root` are denied for the right
+   reason.
 
-4. **Preparation on every effective start.** Upstream `microvm@.service` has
-   `Restart=always`; restarting a unit does not automatically restart an
-   already-active oneshot dependency, and an automatic QEMU restart may not
-   rerun a separate preparation service at all. Check the literal proposed
-   unit graph for cold boot, `systemctl restart`, process crash, preparation
-   failure, stop, failed stop, and host rebuild. Does every effective QEMU
-   start see freshly prepared files, does a failed preparation prevent the
-   `ExecStart`, and does cleanup remove only reconstructable `/run` material
-   without racing a restart or deleting a volume?
+4. **Explicit-volume simplification.** Confirm `autoCreate = false` removes
+   upstream `truncate` and `mkfs` from every framework runner and that the
+   selected missing-image preflight happens before QEMU. Check the synthetic
+   fixture can create its own images without turning the public framework into
+   a generic volume manager; retain restart, existing-image, failed-mount, and
+   rollback coverage.
 
-5. **Same-UID isolation that survives hostile path access.** POSIX ownership
-   cannot isolate two processes running as the same `microvm:kvm` user.
-   Review the exact systemd mount-namespace or per-instance-principal design,
-   including access needed for `/dev/kvm`, TAP interfaces, runner/store paths,
-   the instance's read-only credentials, and its writable images. Does it stop
-   direct paths, symlinks, alternate bind paths, file replacement, and
-   `/proc/<sibling-pid>/root` without breaking the selected VM? Verify what
-   `kernel.yama.ptrace_scope >= 2` actually protects and what still depends on
-   namespace construction. Sabotage one protection at a time so a test cannot
-   pass because a different restriction masked the missing one.
+5. **Rotation recovery authority.** Trace the new `/run` rollback slot through
+   both key tools. Confirm it is verified against the active registry key,
+   survives every recoverable failure long enough to restore and verify, and
+   that the post-reboot recovery text names the committed pre-stage ciphertext
+   revision without weakening the unchanged libvirt stage/activate/retire flow.
 
-6. **Persistent volume authority and creation semantics.** Reconcile
-   framework-owned mount requirements with deployment-owned image paths and
-   sizes and upstream's default `autoCreate = true`. Can the public synthetic
-   configuration evaluate and boot without smuggling private values into
-   framework code? Can a missing path create and format only the intended new
-   image, while an existing unique image is never truncated, relabeled,
-   cleaned up, or mistaken for the reconstructable store disk? Test restart,
-   partial install, failed mount, rollback, and an image already containing
-   user state. Confirm every required path is covered exactly once and that
-   credential destinations cannot overlap it.
+Next pass: scoped diff review of `416bd94`, not a full pass. Use a model other
+than `gpt-5.6-terra`; recommend `gpt-5.6-sol` because no model has a stability
+record yet.
 
-7. **Cross-repo facts and network ownership.** Runtime must originate in
-   inventory, survive the `vmSpecsJson` projection, and appear in `vmFacts`
-   without a fallback. Host declarations, guest module selection, and rotation
-   dispatch must consume that same fact. Check the interfaces and PR sequence
-   cold: which PR exports each field or map before the next repo evaluates?
-   Also trace the network split: inventory owns the MAC and current host
-   tooling still consumes an IP, the public guest declares only one TAP
-   interface, and private deployment supplies attachment and addressing. Is
-   there any duplicated runtime, credential-name, volume, interface, address,
-   route, gateway, or DNS fact that can drift?
+## Pass Metadata
 
-8. **Rotation recovery with an overwritten encrypted source.** The current
-   stage paths replace the encrypted host or Forge private-key file with the
-   staged key while the old key survives in the running guest. Under microvm,
-   activation instead refreshes a host runtime file and restarts the guest.
-   At each failure boundary, identify where the previous active private key
-   actually comes from, whether it is still available after refresh, and what
-   state is authoritative. Does rollback restore only the target runtime file,
-   restart and verify the prior identity, preserve registry and unrelated
-   `known_hosts` state, and stop with exact recovery commands when restoration
-   cannot be proved? Confirm libvirt stage/activate/retire remains intact and
-   the temporary dual-endpoint rotation freeze is sufficient without growing
-   a permanent migration schema.
-
-9. **Executable validation at the owning layer.** Every named check in the
-   plan is new. Verify that each repository can implement and run its check
-   using only inputs it actually owns, and that the final integration check
-   exercises the composed revision set. Inspect generated runners, concrete
-   units and drop-ins, initrd contents, activation and Home Manager output,
-   closures, and negative boots. Confirm the nested test environment really
-   supports the proposed QEMU-inside-NixOS lifecycle and observes guest
-   restart rather than merely host unit success. Map every Interface Contract
-   to at least one positive assertion and one sabotage that fails for the
-   intended reason.
-
-10. **Scope pressure and simplification.** This plan has 21 interface contracts,
-    several cross-repo scanners, a nested lifecycle test, hostile namespace
-    fixtures, and two rotation migrations. Run an explicit deletion sweep.
-    Look for duplicated facts, validators that only restate Nix option types,
-    normalization rules with no real upstream or consumer collision, generic
-    volume or credential abstractions built for hypothetical machines, and
-    checks that can be replaced by inspecting one authoritative generated
-    artifact. Do not delete security boundaries, unhappy-path tests, or
-    libvirt coverage merely to shorten the plan.
+Pass 1 found three original-plan BLOCKERs, one original-plan GAP, and one
+original-plan SIMPLIFY. Commit `416bd94` fixes all five: its stability is
+pending the scoped next-pass review. The SIMPLIFY sweep considered generic
+volume creation, capacity options consumed only by automatic creation, and a
+separate preparation-unit abstraction; it removed framework-managed image
+creation and selected one launch helper instead.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
