@@ -150,43 +150,35 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-Passes 6, 7, and 8 closed several areas. Do not reopen them unless the current
-plan contradicts itself. The per-VM runner principal, the `0755` state
-directories, per-instance TAP ownership, the KSM and `microvm`-command bounds,
-leftover-QMP behavior, and sentinel carry-through all held. So did
-`34ef13d`'s evaluation wiring: `extendModules` derives each guest's exact
-`credentialFiles` from `nexus.microvm.hostPlaintextRoot` with no recursion,
-the extended result is what `install-microvm-<name>` links as `current`, and a
-non-default host root moves every derived value and the runner store path. So
-did `2657827`'s storage judgement: `ramfs` cannot be bounded at this kernel,
-`tmpfs,noswap,size=16m,mode=0700` mounts and remounts cleanly, `findmnt -M`
-gives real exact-mount semantics, and consolidating `rollback/<name>` beside
-`active/<name>` keeps both sabotage fixtures falsifiable. Pass 8 found
-`94ca185` and `f3c93bc` stable, completed the pinned upstream guest-module
-audit, and repaired `3dc1a73`'s remaining Nix-state defect in `35e49dc`.
+Pass 9 found no new original-plan defect, but `35e49dc` did not hold and its
+replacement is another structural store-lifecycle change. Do not reopen the
+already stable runner-principal, host-mount, evaluation-wiring, restart-trigger,
+or upstream guest-audit areas unless `2c847c4` contradicts them.
 
-1. **The `/nix/var/nix` writable-store repair.** Scope this to `35e49dc`.
-   Re-evaluate and boot a selected dev microvm with the repaired shape:
-   `/nix/var/nix` is a declared `neededForBoot` persistent volume,
-   `microvm.writableStoreOverlay = "/nix/var/nix"`, `/nix/store` overlays the
-   erofs lower with upper/work below `/nix/var/nix`, `nix-daemon` and its socket
-   are enabled, `microvm.registerClosure` resolves true, the base closure
-   registers on a fresh Nix state volume, auto store optimisation stays false,
-   and the runner declares only precreated images. Add or realise a store path,
-   restart, then move the guest toplevel used by the generated restart trigger
-   and restart again; require `nix-store --verify-path` or `nix path-info` to
-   prove the path is still valid, not merely physically present. Keep the
-   sabotage cases: null overlay fails the write against the read-only erofs
-   mount, overlay backing outside `/nix/var/nix` leaves files but loses Nix
-   validity after reboot, and missing, unformatted, or mislabeled `/nix/var/nix`
-   fails in the initrd. Check the repaired volume against contract 14, contract
-   16, garbage collection, and rollback: home and `/nix/var/nix` must be relayed
-   together, and no credential path may land under either persistent mount.
+1. **The persistent registration replay.** Scope this to `2c847c4`. Evaluate
+   the selected dev guest with upstream `microvm.registerClosure = false` and
+   prove that the framework reuses the registration derivation exposed by
+   `microvm.storeDisk`, carries only its path through the runner kernel command
+   line, and still includes the payload in the erofs store disk. Boot a fresh
+   `/nix/var/nix` volume, a same-toplevel restart after guest GC has whiteouted
+   the lower registration file, a toplevel move whose old lower paths would
+   otherwise remain falsely valid in the persistent DB, and an A-to-B-to-A
+   rollback after `nix-store --verify` plus GC. Require the keyed cached copy to
+   survive on the existing Nix state volume, DB reconciliation to remove stale
+   lower-only validity before the current registration loads, and
+   `nix-store --verify-path` or `nix path-info` to validate the current closure
+   and a rooted upper-store path at every boot. Delete and corrupt the cached
+   copy after its lower source is hidden; verify that the explicit termination
+   path prevents systemd, the daemon, and dev sessions from starting, because
+   an ordinary failing `boot.postBootCommands` child is ignored by stage 2.
+   Recheck contracts 13, 14, and 16: registration copies, database, gcroots,
+   and overlay state move together; no credential enters the volume; and the
+   existing per-VM image boundary remains unchanged.
 
-Next pass: scoped diff review of `35e49dc`, not a full pass, plus the final
-convergence check. Recommend `gpt-5.6-sol` at `xhigh`; it is callable, did not
-author `35e49dc`, and has the best stable record among the eligible Codex
-models.
+Next pass: scoped diff review of `2c847c4`, not a full pass, plus the final
+convergence check. Recommend `claude-fable-5` at `max`; it did not author this
+repair, previously produced a stable structural fix on this plan, and avoids
+the models that authored the two immediately preceding writable-store repairs.
 
 ## Pass Metadata
 
@@ -465,6 +457,52 @@ BLOCKER introduced by the previous review pass. The next review should be the
 scoped diff review of `35e49dc` and a final convergence check rather than
 another full pass. Next pass: scoped diff review of `35e49dc`, not a full pass;
 recommend `gpt-5.6-sol` at `xhigh`.
+
+Pass 9 was the scoped diff review of `35e49dc`, run by `gpt-5.6-sol` at
+`xhigh` effort. Findings new to pass 9: 1 BLOCKER, 0 GAP, 0 SIMPLIFY, and
+0 QUESTION.
+
+1. [BLOCKER] The persistent Nix DB diverged from each new erofs lower, and GC
+   erased rollback's registration payload. A third same-shape boot and one
+   toplevel move preserved a path added to the overlay, so `35e49dc`'s central
+   database-persistence repair worked on its happy path. The wider A-to-B-to-A
+   fixture exposed the missing lifecycle: after B booted, A's toplevel was
+   physically absent while `nix path-info` still reported it valid from the
+   persistent DB and `nix-store --verify-path` rejected it; meanwhile GC had
+   whiteouted each lower store's registration file because that payload is not
+   in its own registration. `nix-store --verify` silently removed the stale A
+   entries, and rollback then booted A with both its current toplevel invalid
+   and its registration source hidden. `2c847c4` disables the incompatible
+   upstream registration path, caches each booted toplevel's registration on
+   `/nix/var/nix`, reconciles the DB to the current merged store before replay,
+   and adds same-toplevel GC plus A-to-B-to-A rollback and cache-sabotage
+   coverage. Origin: introduced by `35e49dc`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+
+The SIMPLIFY sweep reconsidered the writable overlay, guest garbage
+collection, a separate registration volume, a generic registration manager, a
+separate replay service, and unbounded historical metadata. It cut the
+upstream `microvm.registerClosure` requirement as part of the blocker repair:
+that is the incompatible mechanism. The writable overlay and GC are required
+for a useful bounded dev store; the existing `/nix/var/nix` volume already
+owns the database, gcroots, overlay, and small keyed registration copies; and
+one pre-systemd replay is narrower than another service or manager.
+
+Fix stability: `35e49dc` is not stable overall. Its `/nix/var/nix` volume,
+overlay layout, daemon enablement, repeated-boot validity for upper-store
+paths, initrd failure boundary, relay coupling, and credential exclusion all
+held, but its explicit `microvm.registerClosure = true` requirement and its
+assumption that a persistent DB stays coherent across changing lower stores
+needed `2c847c4`. The pass-6 fixes `2657827` and `34ef13d` remained stable and
+were not reopened.
+
+Convergence: not converged. Pass 9 found no original-plan defect, but
+`35e49dc` failed its required independent scoped review with a
+review-introduced BLOCKER, and `2c847c4` is itself a structural replacement
+that requires independent verification. The original-plan defect pool was not
+shown to have reopened; the next scoped target is `2c847c4`, specifically its
+persistent registration replay, DB reconciliation, explicit pre-systemd
+termination, GC behavior, and A-to-B-to-A rollback.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
