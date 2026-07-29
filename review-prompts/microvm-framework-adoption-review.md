@@ -134,53 +134,70 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-1. **Shared pin topology.** Scope the review to commits `416bd94` and
-   `12c49d7`. Verify that
-   the `vm` re-export gives Nexus the actual upstream host module without a
-   second microvm.nix lock node, and that `nexus.inputs.vm.follows = "vm"` is
-   valid at the archetypes composition root. The lock and evaluated modules,
-   rather than prose, must prove one `vm`, microvm.nix, and nixpkgs lineage.
+1. **Single-drop launch boundary.** Scope the review to commit `10f3425`.
+   Evaluate the rendered `microvm@<name>` unit and QEMU argv, not just the
+   helper source. Prove the unit invokes the helper as root, the helper performs
+   exactly one uid/gid transition before `microvm-run`, `microvm.user` remains
+   unset, no `-run-with user=` is rendered, and the runner plus QEMU are
+   observed as `microvm:kvm`. Walk cold start, preparation failure, QEMU
+   failure, manual and automatic restart, stop, rebuild, upstream `ExecStop`,
+   and every `ExecStopPost`.
 
-2. **Per-start launch boundary.** Walk the proposed root launch helper against
-   upstream `microvm@.service` and `microvm-run`: cold start, manual restart,
-   automatic restart, preparation failure, QEMU failure, stop, host rebuild,
-   and `ExecStopPost`. Confirm its root phase cannot expose plaintext and that
-   the QEMU process, not merely the systemd wrapper, ends as `microvm:kvm`.
+2. **Rollback-selector authority.** Trace the `10f3425` one-shot selector
+   through both key tools and the per-start launcher. The slot and selector
+   must sit outside ordinary cleanup, be root-only and atomically armed, cause
+   the launcher to ignore the still-staged configured source on every recovery
+   retry, and survive until the old presented identity is verified. Independently
+   sabotage refresh, restart, verification, automatic retry, and loss of
+   `/run`; the reboot path must name the exact committed pre-stage ciphertext
+   revision without weakening the unchanged libvirt lifecycle.
 
-3. **Namespace completeness.** Audit the tmpfs-root namespace one required
-   path at a time: runner/current link, `/nix/store`, `/dev/kvm`, TAP state,
-   QMP or shutdown paths, credentials, and each image. Then sabotage the
-   namespace and Yama protections independently to prove sibling direct paths,
-   symlinks, alternate binds, and `/proc/<pid>/root` are denied for the right
-   reason.
+3. **Required-volume mount failure.** Confirm the evaluated guest marks every
+   authoritative volume mount `neededForBoot = true` and that the generated
+   initrd actually attempts those mounts. A regular but corrupt, unformatted,
+   or wrongly labeled image must not reach sshd, a user session, or any writer
+   against the tmpfs directory underneath. Retain missing-image preflight,
+   no-truncate/no-mkfs, valid-image restart persistence, and rollback coverage.
 
-4. **Explicit-volume simplification.** Confirm `autoCreate = false` removes
-   upstream `truncate` and `mkfs` from every framework runner and that the
-   selected missing-image preflight happens before QEMU. Check the synthetic
-   fixture can create its own images without turning the public framework into
-   a generic volume manager; retain restart, existing-image, failed-mount, and
-   rollback coverage.
+4. **Pin and wrapper topology.** Verify the simplified VM export in `10f3425`
+   still closes the guest wrapper over the exact pinned upstream guest module,
+   gives Nexus the actual upstream host module, and makes
+   `nexus.inputs.vm.follows = "vm"` resolve at the archetypes composition root.
+   The lock and evaluated modules must prove one `vm`, microvm.nix, and nixpkgs
+   lineage, with no unused raw guest-module export.
 
-5. **Rotation recovery authority.** Trace the new `/run` rollback slot through
-   both key tools. Confirm it is verified against the active registry key,
-   survives every recoverable failure long enough to restore and verify, and
-   that the post-reboot recovery text names the committed pre-stage ciphertext
-   revision without weakening the unchanged libvirt stage/activate/retire flow.
+5. **Namespace completeness.** Recheck the refined runner/current,
+   working-state, KVM, TAP, QMP/shutdown, credential, image, `/nix/store`, and
+   `/proc` paths against the pinned runner. Prove the old root and every source
+   parent are detached. Sabotage the namespace and Yama protections
+   independently so sibling direct paths, symlinks, alternate binds, and
+   `/proc/<pid>/root` fail for the intended reason.
 
-Next pass: scoped diff review of `416bd94` and `12c49d7`, not a full pass. Use
-a model other than `gpt-5.6-terra`; recommend `gpt-5.6-sol` because no model
-has a stable fix record yet.
+Next pass: scoped diff review of `10f3425`, not a full pass. Use a model other
+than `gpt-5.6-sol`; recommend `gpt-5.6-terra` because the structural fix needs
+a different model and no model has a stable fix record yet.
 
 ## Pass Metadata
 
 Pass 1 found three original-plan BLOCKERs, one original-plan GAP, one
 original-plan SIMPLIFY, and one GAP introduced by `416bd94`. Commit `416bd94`
-fixes the five original findings but immediately required `12c49d7` to separate
-the raw upstream guest export from its framework wrapper, so it is not stable.
-`12c49d7` is pending the scoped next-pass review. The SIMPLIFY sweep considered
-generic volume creation, capacity options consumed only by automatic creation,
-and a separate preparation-unit abstraction; it removed framework-managed image
-creation and selected one launch helper instead.
+fixed the pin handoff, disabled automatic image creation, and removed the
+generic volume manager, but its launch and rollback designs required
+blocker-level repair in pass 2; it remains unstable. Commit `12c49d7` resolved
+the raw/wrapped name collision but added an unused public raw guest export that
+pass 2 removed, so it also is not fix-stable.
+
+Pass 2 found two BLOCKERs and one SIMPLIFY introduced by the prior fixes, plus
+one original-plan GAP missed by pass 1. Commit `10f3425` makes the root helper
+the sole privilege transition, adds a recovery selector that overrides the
+still-staged source, makes required volume mounts fail in the initrd, and
+removes the raw guest export; its stability is pending the scoped next pass.
+The SIMPLIFY sweep reconsidered the raw guest export, root launcher, rollback
+slot, volume creation/capacity, and a generic mount validator. It removed only
+the unused raw export because the other mechanisms serve concrete lifecycle or
+security requirements. Convergence has not been reached: this is the first
+pass where review-introduced findings outnumbered original-plan findings, and
+the pass contains both BLOCKERs and an original-plan GAP.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
