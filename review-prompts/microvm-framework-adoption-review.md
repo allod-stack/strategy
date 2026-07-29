@@ -150,58 +150,53 @@ sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
 generated lifecycle behavior) apply as defaults on top of the plan-specific
 areas below.
 
-Pass 5 verified and closed the three previous focus areas: the final root
-`ExecStopPost` merged with `lib.mkAfter` lands after the upstream unregister
-hook and systemd will not start the unit again until it completes, the
-graceful-stop sentinel plus broken-socket sabotage does distinguish a QMP
-shutdown from a systemd kill, and the QMP directory topology is right. Do not
-reopen them. The isolation claim they rested on was wrong, and pass 5 replaced
-the shared runner uid with one principal per VM. That replacement is now the
-riskiest text in the plan.
+Pass 6 verified the pass-5 runner-principal change against the pinned host
+module and generated runner: retain upstream's shared `microvm` account only
+for the trusted install and `booted`-link helpers, remove group write from its
+state directories, assign TAP ownership per selected VM, and give each runner
+its own primary uid/gid with `kvm` supplementary. The shared-principal
+sabotage remains valid, and no remaining control depends on
+`kernel.yama.ptrace_scope`. It also verified the KSM/command bounds, leftover
+QMP behavior, and sentinel carry-through. Do not reopen those areas unless the
+new storage or evaluation wiring contradicts them.
 
-1. **Per-VM runner principal against the pinned upstream.** Scope the review to
-   pass 5's commits `e315741`, `86dd6e5`, `d40adf9`, `a7e2fca`, and `e95d704`,
-   not a full re-review. Contracts 16, 16a, and 16b now require a
-   `microvm-<name>` user per selected guest. Prove that is implementable
-   without breaking what the shared uid made work: `tap-up` hardcodes
-   `user = "microvm"`, `install-microvm-<name>` chowns the state directory and
-   `current` to `microvm:kvm`, `microvm-set-booted@` runs as `microvm:kvm` and
-   writes `booted`, `/dev/kvm` access comes from group `kvm`, and the host
-   tmpfiles rule the plan now tightens is upstream's. Confirm nothing else
-   still depends on one shared principal, that the per-VM ownership of volume
-   images is a change the private deployer can actually make, and that
-   collapsing both guests onto one principal is a sabotage fixture that can be
-   built. Check that dropping the `kernel.yama.ptrace_scope` pin removed no
-   control the rest of the plan relies on.
+1. **One bounded host plaintext mount against real activation and tool
+   behavior.** Scope this to `2657827`. Render the pinned nixpkgs
+   `boot.specialFileSystems` activation result and the concrete systemd unit;
+   prove the 16 MiB `tmpfs,noswap,mode=0700` mount exists before a first boot,
+   a switch, and every automatic VM restart, and that `RequiresMountsFor` plus
+   the launcher's exact-mount preflight fail without creating an underlying
+   `/run` fallback. Exercise both packaged rotation commands outside systemd
+   against absent, ancestor-only, ramfs, swappable, oversized, and wrong-mode
+   mounts and prove they fail before decrypting or writing. Confirm
+   `active/<name>` cleanup cannot reach `rollback/<name>`, the consolidated
+   mount survives VM stop/restart, and host-mount loss follows the same
+   explicit recovery path as reboot loss.
 
-2. **Non-pageable plaintext roots and their mount ordering.** Contract 8a makes
-   the host module mount `ramfs` or `noswap` `tmpfs` at the host credential and
-   rollback roots. Prove the mount is expressible in the host module and lands
-   before every writer: the launcher on each start, the rotation tools which
-   run outside any unit, and anything that creates the roots through tmpfiles.
-   Check `noswap` availability at the pinned nixpkgs and kernel, whether an
-   unbounded `ramfs` is a real host hazard here, whether the rollback slot
-   survives across the mount's own lifecycle and a host reboot as contract 19
-   still claims, and whether the stock-`/run` sabotage fixture can fail for the
-   right reason.
+2. **Host-option propagation into the actual installed runner.** Scope this to
+   `34ef13d`. Build the default and non-default synthetic host integrations and
+   prove `nixosConfiguration.extendModules` can derive each selected guest's
+   exact `credentialFiles` map from
+   `nexus.microvm.hostPlaintextRoot` without evaluation recursion. The
+   extended result assigned to `microvm.vms.<name>.evaluatedConfig`, not the
+   standalone guest, must supply `install-microvm-<name>` and the QEMU runner.
+   Inspect the early mount, `/etc/allod/microvm-runtime.json`, launcher,
+   rotation tools, `-fw_cfg` argv, guest materializer, and Home Manager output
+   under safe non-default host and guest roots; every old-default sabotage must
+   fail for the path it claims to cover.
 
-3. **Cross-repo agreement on the root options.** The three plaintext roots are
-   now options rather than literals, while contract 7 still requires each
-   `microvm.credentialFiles` value to be an absolute string under the
-   per-machine runtime directory. Those two live in different repos. Prove the
-   guest's declared credential paths derive from the host module's option
-   instead of a second copy of the literal, that the host/guest agreement check
-   in contract 17 compares derived values, and that the option-change assertion
-   in the generated-artifact list is executable rather than aspirational.
+3. **Integration regression at the principal/storage seam.** With the
+   consolidated `active/<name>` layout, repeat the two-runner namespace test
+   far enough to prove a unique runner can read its own credentials and open
+   its reassigned TAP and volume while direct, proc-root, signal, QMP, runner,
+   and image attacks against the sibling still fail. Keep upstream's shared
+   helper account out of the runner process tree and preserve its ability to
+   update `booted` through `0755`, not `0775`, state directories.
 
-Next pass: scoped diff review of the five pass-5 commits above, not a full
-pass. Use a model other than `claude-fable-5`, which authored them, and other
-than `gpt-5.6-terra`, whose QMP/lifecycle fixes regressed immediately more than
-once. `gpt-5.6-sol` is eligible again: it authored `23e9704`, which pass 5
-verified as stable, and it is the roster's default for cross-repo generated
-lifecycle behavior. Confirm the model is instantiable on its runner before
-recording it — pass 4 recommended `claude-opus-4-6`, which the Claude runner
-cannot instantiate, and pass 5 substituted `claude-fable-5`.
+Next pass: scoped diff review of `2657827` and `34ef13d`, not a full pass.
+Recommend `claude-opus-5`, which is callable, did not author either commit, and
+is the strongest fresh rotation partner available without returning to the
+pass-5 author.
 
 ## Pass Metadata
 
@@ -298,6 +293,63 @@ plaintext roots on declared non-pageable storage behind readable options,
 bounded the host-wide settings the upstream import brings, and made the
 leftover-QMP-directory behavior explicit. That is a structural change, so pass
 6 is its scoped diff review by a different model.
+
+Pass 6 was the scoped diff review of `e315741`, `86dd6e5`, `d40adf9`,
+`a7e2fca`, and `e95d704`, run by `gpt-5.6-sol` at `xhigh` effort. It found two
+BLOCKERs, one GAP, one SIMPLIFY, and no QUESTIONs, all introduced by the
+pass-5 root change.
+
+1. [BLOCKER] Standalone rotation could bypass the plaintext mount.
+   `86dd6e5` ordered systemd units but not `vm-ssh-host-key` or
+   `forge-ssh-key`, so either command could create the configured path on
+   stock swappable `/run` when the mount was absent; `2657827` requires the
+   unit dependency plus an exact-mount preflight in every writer before any
+   plaintext read or write. Origin: introduced by `86dd6e5`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+2. [BLOCKER] The permitted ramfs could exhaust host memory. The pinned kernel
+   cannot bound or resize ramfs, so a bad source or writer bug could OOM the
+   public 16 GiB host while satisfying contract 8a; `2657827` permits only one
+   fixed 16 MiB `tmpfs,noswap` host root. Origin: introduced by `86dd6e5`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+3. [GAP] The host root did not reach the already evaluated guest.
+   `86dd6e5`, with an aspirational assertion carried by `e95d704`, never
+   defined how a Nexus host option could change `credentialFiles` inside an
+   exported Archetypes `nixosConfiguration`; `34ef13d` assigns option
+   ownership, extends each selected guest once at host composition, compares
+   exact derived values, and builds default plus non-default fixtures. Origin:
+   introduced by `86dd6e5` and carried forward by `e95d704`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+4. [SIMPLIFY] The rollback root did not need its own option or mount.
+   `86dd6e5` added a second host storage surface even though a root-owned
+   `rollback/<name>` child beside `active/<name>` remains outside cleanup and
+   every runner namespace; `2657827` removes the option, mount, ordering edge,
+   and duplicated value. Origin: introduced by `86dd6e5`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+
+The SIMPLIFY sweep also reconsidered the guest credential-root option, per-VM
+principal, mount namespace, QMP directory, and active-system root descriptor.
+Only the rollback-root option and mount were deleted. The guest option is the
+single source for materializer and Home Manager destinations; the principal,
+namespace, and QMP directory close independent tested boundaries; and the
+minimal generated descriptor is how commands outside systemd read the active
+host option instead of an unactivated checkout.
+
+Fix stability for all five pass-5 commits: `e315741` is stable for the
+runner-principal change; the pinned upstream's shared `microvm` account can
+remain only for trusted install and `booted`-link work while `0755` state
+directories exclude every per-VM runner's supplementary `kvm` group, and TAP
+ownership is replaceable per instance. `86dd6e5` is unstable and required both
+blocker-level storage repair and simplification. `d40adf9` is stable.
+`a7e2fca` is stable. `e95d704` is stable for its principal and sentinel
+carry-through but is not fix-stable overall because its root-propagation
+assertion needed `34ef13d`. Commits `2657827` and `34ef13d` are pending
+independent scoped verification.
+
+Convergence: not converged. Review-introduced findings outnumber
+original-plan findings four to zero, but this is only the first consecutive
+pass after pass 5 broke that streak, and the two BLOCKERs also prevent the
+second stop condition. The next scoped target is `2657827` and `34ef13d`, with
+`claude-opus-5` recommended as a callable model that authored neither.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
