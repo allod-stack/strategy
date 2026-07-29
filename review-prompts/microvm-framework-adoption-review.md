@@ -141,44 +141,50 @@ in the reverse dependency order.
 
 ## Focus Areas
 
-Concentrate your review on these areas where the plan is most likely to have
-problems. These are lenses, not checklists - follow the thread wherever it
-leads.
+The plan text converged at pass 10. No further plan-text pass is scheduled:
+the remaining verification targets are runtime questions that passes 7
+through 10 could each advance only by static analysis of the pinned sources
+and store-level measurement, and each such advance seeded the next finding in
+the same subsystem. What remains is handed to implementation review, ordered
+below; implementation can boot the nested fixtures, and that is where the
+remaining defects will surface.
 
-The six standing lenses in `dev-plans.md` (internal consistency, operational
-sequencing, risk calibration, acceptance-test coverage, rollback fidelity,
-generated lifecycle behavior) apply as defaults on top of the plan-specific
-areas below.
+Handoff to implementation review, most-unproven first. Every item names
+contracts that were reasoned about statically across passes 5-10 but never
+executed:
 
-Pass 9 found no new original-plan defect, but `35e49dc` did not hold and its
-replacement is another structural store-lifecycle change. Do not reopen the
-already stable runner-principal, host-mount, evaluation-wiring, restart-trigger,
-or upstream guest-audit areas unless `2c847c4` contradicts them.
+1. **Store persistence (contract 6a, acceptance test 9).** The least-proven
+   subsystem; passes 7, 8, 9, and 10 each found exactly one defect here.
+   Never executed: the fresh-volume first boot and cache creation; the GC
+   whiteout plus same-toplevel restart on the cached copy; the toplevel move
+   with and without a surviving upper referrer into the old lower, including
+   reconciliation convergence and the measured fate of lower-referencing
+   survivors; the A-to-B-to-A rollback from the cached registration; the
+   missing/corrupt-cache sabotage; the explicit pre-systemd termination in
+   both initrd flavors, given that stage 2 ignores a failing
+   `boot.postBootCommands` child in both; and the per-boot cost of whole-DB
+   existence checks on a grown store.
+2. **Nested lifecycle paths (acceptance test 10).** The final `ExecStopPost`
+   ordering after rendered upstream post-stop hooks, the persistent-volume
+   shutdown sentinel as graceful-stop evidence across the ctrl-alt-del plus
+   `-no-reboot` path, and a rebuild stop driven by a real toplevel move
+   through the pinned restart trigger.
+3. **Store-volume initrd failure paths (contract 13, test 6).** Missing,
+   unformatted, and mislabeled images failing in the initrd before sshd, a
+   user session, or any writer against the tmpfs mount point.
+4. **Two-runner namespace isolation (contracts 16/16a, nexus#23).** The
+   direct-path and `/proc/<sibling-pid>/root` attack fixtures with both
+   sabotage reopenings; the kernel gate was measured once, but the two-guest
+   NixOS test has never run.
+5. **Rotation failure boundaries (contracts 18/19).** The armed rollback
+   selector across automatic restarts, loss of the mounted rollback slot, and
+   both runtime verification paths failing closed.
+6. **Host plaintext mount dependency (contract 8a).** The resolved
+   `Requires=` on the real mount unit fragment, a failing mount leaving the
+   VM unstarted, and `.mount` restart behavior mid-rotation.
 
-1. **The persistent registration replay.** Scope this to `2c847c4`. Evaluate
-   the selected dev guest with upstream `microvm.registerClosure = false` and
-   prove that the framework reuses the registration derivation exposed by
-   `microvm.storeDisk`, carries only its path through the runner kernel command
-   line, and still includes the payload in the erofs store disk. Boot a fresh
-   `/nix/var/nix` volume, a same-toplevel restart after guest GC has whiteouted
-   the lower registration file, a toplevel move whose old lower paths would
-   otherwise remain falsely valid in the persistent DB, and an A-to-B-to-A
-   rollback after `nix-store --verify` plus GC. Require the keyed cached copy to
-   survive on the existing Nix state volume, DB reconciliation to remove stale
-   lower-only validity before the current registration loads, and
-   `nix-store --verify-path` or `nix path-info` to validate the current closure
-   and a rooted upper-store path at every boot. Delete and corrupt the cached
-   copy after its lower source is hidden; verify that the explicit termination
-   path prevents systemd, the daemon, and dev sessions from starting, because
-   an ordinary failing `boot.postBootCommands` child is ignored by stage 2.
-   Recheck contracts 13, 14, and 16: registration copies, database, gcroots,
-   and overlay state move together; no credential enters the volume; and the
-   existing per-VM image boundary remains unchanged.
-
-Next pass: scoped diff review of `2c847c4`, not a full pass, plus the final
-convergence check. Recommend `claude-fable-5` at `max`; it did not author this
-repair, previously produced a stable structural fix on this plan, and avoids
-the models that authored the two immediately preceding writable-store repairs.
+Do not schedule another plan-text pass for these. A future plan-text pass is
+warranted only if implementation changes the plan's contracts themselves.
 
 ## Pass Metadata
 
@@ -503,6 +509,94 @@ that requires independent verification. The original-plan defect pool was not
 shown to have reopened; the next scoped target is `2c847c4`, specifically its
 persistent registration replay, DB reconciliation, explicit pre-systemd
 termination, GC behavior, and A-to-B-to-A rollback.
+
+Pass 10 was the scoped diff review of `2c847c4` plus the terminal convergence
+check, run by `claude-fable-5` at `max` effort as pass 9 recommended. The
+pass was interrupted once by a provider session limit and resumed rather than
+restarted; the interruption lost no commits. Findings new to pass 10: 1
+BLOCKER, 1 GAP, 0 SIMPLIFY, 0 QUESTION, both introduced by `2c847c4`. No
+original-plan defect surfaced for a third consecutive pass.
+
+1. [BLOCKER] Registration reconciliation could not converge. Contract 6a
+   claimed one `nix-store --verify` run removes database entries whose paths
+   are absent from the current merged store. Measured on the pinned
+   `nixVersions.stable` line (Nix 2.31), `--verify` keeps any absent entry
+   that still has a surviving valid referrer, reports it, and exits 1 on
+   every run without converging, and after an ordinary toplevel move that
+   referenced-absent state is the normal one because upper-overlay builds
+   reference old lower-only paths. The fail-closed reading would terminate
+   every boot after the first host rebuild that follows real dev work —
+   `Restart=always`, `panic=-1`, and `-no-reboot` make that a tight restart
+   loop only host intervention clears — while a fail-open reading silently
+   preserves the stale validity pass 9 set out to remove. `8a21d50`
+   redefines reconciliation as invalidating absent paths together with the
+   valid entries whose reference closures reach them, makes a clean repeated
+   verify the post-condition, adds the referenced-absent fixture to test 9,
+   and scopes rooted-path survival to reference-complete paths. Origin:
+   introduced by `2c847c4`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+2. [GAP] The registration kernel argument's string context was unspecified.
+   The closure-info payload references its entire subject graph (508
+   references on the pass-9 spike guest), so interpolating its path into the
+   runner command line with context would copy the whole guest closure into
+   every host runner closure; upstream discards context for `init=` under
+   `storeOnDisk` for the same reason. `c784e32` requires the discard and
+   records why the erofs payload makes it safe. Origin: introduced by
+   `2c847c4`
+   ([allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20)).
+
+Grounding for pass 10: the pinned microvm.nix store-disk, system, mounts,
+options, and qemu-runner sources; pinned nixpkgs stage-2-init, the
+systemd-initrd prepare-root handoff, overlayfs `depends` wiring, and the
+`booted-system`/`current-system` gcroot rules; a synthetic evaluation of the
+selected dev guest shape with `registerClosure = false` proving the exposed
+`storeDisk.passthru.regInfo`, the absent upstream `regInfo=` parameter and
+load-db hook, a framework parameter reaching `-append`, daemon enablement,
+and the exact overlay layout; the pass-9 built store disk proving payload
+packing is gated only on `nix.enable`; and a scratch-store measurement of
+`--verify` against referenced and unreferenced absent paths. The structural
+mechanism of `2c847c4` held everywhere static checking could reach:
+bijective per-toplevel cache keying, first-boot copy-before-GC ordering, GC
+whiteouts confined to the unregistered closure-info path because the booted
+closure is gcroot-protected, kernel-command-line transport, contract
+13/14/16 alignment, and the necessity of explicit pre-systemd termination.
+No nested boot exercised the replay, because the replay exists only as plan
+text; the defect found is a store-semantics fact a boot would reproduce, not
+resolve.
+
+Fix stability: `2c847c4` did not fully hold. Its cache, replay placement,
+termination requirement, and transport survived scrutiny; its reconciliation
+mechanism claim was disproven by measurement and needed `8a21d50`, and its
+command-line sentence left string context open and needed `c784e32`. The
+pass-6 and pass-7 fixes (`2657827`, `34ef13d`, `94ca185`, `f3c93bc`) and the
+surviving parts of `35e49dc` were not reopened.
+
+The pass-10 SIMPLIFY sweep considered deleting the per-toplevel registration
+cache in favor of a current-only copy (breaks A-to-B-to-A rollback), adding
+a cache-pruning mechanism (new scope for a few hundred kilobytes per
+toplevel; left to implementation if growth measures as material), deleting
+the reconciliation step to rely on load-db plus toplevel verification
+(restores pass 9's stale-validity blocker), dropping store persistence
+entirely to delete the subsystem (re-litigates the settled pass-7/8 design
+and trades a bounded mechanism for a per-restart rebuild tax on the
+archetype's core workflow), and trimming test 9's scenario list (each
+scenario maps to a distinct measured failure). Nothing was cut.
+
+Convergence: converged, with contract 6a explicitly flagged as an empirical
+specification. Review-introduced findings outnumber original-plan findings
+in passes 7 (2-1), 8 (1-0), 9 (1-0), and 10 (2-0), satisfying the first stop
+condition for four consecutive passes, and no original-plan defect has
+surfaced since pass 7. Passes 8 and 9 declined to declare convergence
+because each had just authored a structural fix requiring independent
+review, a loop that is self-perpetuating by construction; pass 10 ends it
+deliberately after the fourth consecutive store-persistence defect showed
+the subsystem cannot be settled by plan-text review. `8a21d50` corrects a
+disproven factual claim to measured semantics rather than restructuring the
+replay, `d20de3b` converts the subsystem into named empirical acceptance
+criteria that implementation must prove in the real nested boot before the
+archetypes milestone lands, and no fifth plan-text verification pass is
+scheduled. Remaining areas are handed to implementation review in the Focus
+Areas order, store persistence first.
 
 Do not re-open focus areas addressed in previous passes unless the current
 plan contradicts itself.
