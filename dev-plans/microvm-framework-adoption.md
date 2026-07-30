@@ -155,6 +155,10 @@ The host module declares the host root as a real systemd mount unit — a `fileS
 
 Do not combine the source-repo PRs into one cross-repo change. Each step is independently reviewable and revertible, while the final pin records the coherent revision set.
 
+**The first machine to select the microvm runtime is a purpose-made one, never the machine the operator develops from.** A dev guest that fails to boot takes its own repair environment with it, and the least-proven part of this arc — contract 6a's store persistence — is exercised precisely on first boot and on the first rebuild after it. So the first real selection is a machine nothing depends on, created for this, and the operator's own dev machine moves only after that machine has completed the acceptance tests on real hardware and been rolled back and forward at least once. The rollback path exists but is not free: returning a guest that has already run costs a relay of everything on its persistent volumes.
+
+The same constraint binds the public example set, and for a sharper reason than convenience. The runtime fact is machine data, and a machine name in the public inventory can also name a real deployed machine whose key material lives in the private secrets repo. Milestone 4 acts on that fact by name. So the example that carries `runtime = "microvm"` must be an example machine and nothing else — if the name is shared with a real machine, renaming afterwards is not a text edit, because per-machine encrypted secret filenames are keyed to it and re-keying them is a human-only host action.
+
 ## Agent Gates
 
 The public implementation agent runs in a dev VM and may build every public flake, boot nested VMs, inspect closures and units, and use synthetic credential files. It cannot:
