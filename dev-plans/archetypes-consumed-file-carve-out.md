@@ -138,13 +138,30 @@ nix build "$ARCHETYPES#checks.$SYSTEM.consumed-file-carve-out" --no-link
 nix build "$ARCHETYPES#checks.$SYSTEM.credential-profiles" --no-link
 nix build "$ARCHETYPES#checks.$SYSTEM.dev-forge-opt-out" --no-link
 
-# 5. Prove the new check rejects a real consumer regression. Temporarily restore
-#    one policy source to "${gitPolicySource}/git/<file>", build the check, and
-#    require a non-zero result naming that target; then restore the carve.
-if nix build "$ARCHETYPES#checks.$SYSTEM.consumed-file-carve-out" --no-link; then
+# 5. Prove the new check rejects a real consumer regression: un-carve one policy
+#    source in place, require the check build to fail naming that target, then
+#    restore. Restore from the scratch copy, never `git checkout --`, which
+#    would clobber uncommitted implementation work. The sed assumes each carved
+#    consumer stays on one line; if the sabotage instead produces an eval error,
+#    the wrong-reason branch below catches it.
+orig=$(mktemp)
+cp modules/agent-hooks.nix "$orig"
+sed -i 's|home\.file\.".config/git/protected-branches"\.source = .*|home.file.".config/git/protected-branches".source = "${gitPolicySource}/git/protected-branches";|' \
+  modules/agent-hooks.nix
+if out=$(nix build "$ARCHETYPES#checks.$SYSTEM.consumed-file-carve-out" --no-link 2>&1); then
+  mv "$orig" modules/agent-hooks.nix
   echo "ERROR: consumed-file check passed with an uncarved policy source" >&2
   exit 1
 fi
+mv "$orig" modules/agent-hooks.nix
+case "$out" in
+  *protected-branches*) ;;
+  *)
+    echo "ERROR: consumed-file check failed, but not on the sabotaged target:" >&2
+    printf '%s\n' "$out" >&2
+    exit 1
+    ;;
+esac
 
 # 6. Inspect each composed dev machine's age secret paths, coerced the way
 #    agenix embeds them (string interpolation). A correct consumer — a token
