@@ -15,10 +15,10 @@ A machine that selects the microvm runtime declares the disks it needs to keep s
 In scope, all in `allod/archetypes` `flake.nix`:
 
 - A per-archetype required-mount set: `/nix/var/nix` for every microvm guest, plus the dev user's home for dev.
-- Derived `microvm.volumes` entries for those mounts — image path, label, size, `autoCreate = false`.
-- `fileSystems.<home>.neededForBoot = true` for the home volume. Upstream sets this only for the store-overlay mount; see Interface Contracts 3.
-- An overridable image-root builder argument, defaulted and threaded like `runtime`.
-- An archetypes-side assertion naming any required mount without a volume.
+- Derived `microvm.volumes` entries with every load-bearing field stated explicitly rather than inherited from an upstream default — see Interface Contracts 4.
+- `fileSystems.<home>.neededForBoot = true`. Upstream sets this only for the store-overlay mount.
+- A validated image root, and validation of every derived image path.
+- Archetypes-side assertions over the merged `config.microvm.volumes`: required mounts present, exactly one entry each, writable, never auto-created, expected label and filesystem type, no duplicate mount points, no unsafe image path.
 - Rework of the `runtime-module-selection` fixtures the declarations invalidate.
 
 Out of scope, later slices of milestone 4: credential delivery and the guest credential root (contracts 7-12), guest networking (15), the `extendModules` host integration (8b), `vmFacts.<name>.runtime` (contract 1), and the nested-boot store-lifecycle tests that settle contract 6a.
@@ -27,53 +27,62 @@ Not in scope anywhere in this repo: creating, formatting, labelling or owning an
 
 ## Risk Assessment
 
-Residual risk: **R2 Medium**, with one R3 signal called out below.
+Residual risk: **R2 Medium**, conditional on the sequencing gate below. Without that gate it is R3.
 
-Why:
+Why R2 holds:
 
-- Every libvirt machine is untouched. The declarations are gated on `runtime == "microvm"` at the Nix level, so a libvirt machine's module list is identical and its derivation must not move. Same acceptance test as allod/archetypes#23.
-- No real machine in the public inventory selects microvm, so the new path's only public coverage is fixtures. The private `microvm-test` machine does select it — see Sequencing.
-- Rollback is a straight revert of one PR in one repo. Nothing creates or mutates a disk image, so a revert cannot strand state.
+- Every libvirt machine is untouched. Declarations are gated on `runtime == "microvm"` at the Nix level, so a libvirt machine's module list is unchanged and its derivation must not move.
+- No public machine selects microvm, so the new path's public coverage is fixtures only.
+- Rollback is a straight revert of one PR in one repo. Nothing creates or mutates an image, so a revert cannot strand state.
 
-The R3 signal, stated plainly rather than averaged away: **a missing `neededForBoot` on the home volume loses user data silently.** Without it a corrupt, unformatted or mislabelled home image is skipped at boot and the guest writes to the tmpfs root underneath, so the machine comes up looking healthy and discards the user's work on the next restart. Nothing in `allod/vm`, `allod/nexus` or upstream asserts it for a non-overlay mount — the auto-add at `mounts.nix:102-117` is guarded on `mountPoint == config.microvm.writableStoreOverlay`. This plan's assertion and its paired sabotage fixture are the only thing standing between that setting and silent loss.
+**The gate that keeps it R2:** this slice declares volumes but validates none of their runtime behavior. Nothing here proves a guest boots, mounts, or retains a byte. `microvm-test` must not be enabled or booted as a microVM on that basis — the store-lifecycle boots in a later slice are what license that, and the parent plan already blocks on them. If this lands and a machine is enabled before those pass, the honest score is R3.
+
+**Correction to an earlier draft of this plan, kept because it changes what the tests are for.** That draft claimed omitting `neededForBoot` on the home volume causes silent data loss — a machine that comes up healthy and discards work. That is wrong, and review caught it. Measured: without it the home entry renders `defaults` with no `nofail`, so systemd's generator makes `local-fs.target` require the mount and a corrupt image fails the boot loudly into emergency. The real reason `neededForBoot` is required is contract 13's own: it moves validation into the initrd, "before sshd, user sessions, or any writer can use the tmpfs directory underneath". Omitting it leaves a window in which activation-time writers land on the tmpfs root beneath an unmounted mount point. That is a narrower defect than data loss and it is still worth closing, but the test exists to close a write window, not to prevent silent loss.
 
 Human scrutiny, in order:
 
-1. The generated `/etc/fstab` for a microvm dev fixture: the home entry must carry `x-initrd.mount`, which is what `neededForBoot` renders to and what allod/vm's own contract check greps for on the state volume.
-2. The libvirt derivation paths, unchanged.
-3. Whether every new assertion has a sabotage fixture that fails for the diagnostic it names.
+1. The merged `config.microvm.volumes` for a dev microvm fixture: two entries, distinct labels, distinct image paths, both writable, neither auto-created.
+2. The generated `/etc/fstab`: both entries carry `x-initrd.mount`, which is what `neededForBoot` renders to.
+3. The libvirt derivation paths, unchanged.
 
 ## Sequencing
 
-The private `microvm-test` machine already declares `runtime = "microvm"` (allod/inventory#11, closed). Since allod/archetypes#23 merged, that machine cannot evaluate — it fails on contract 6a. **This PR is what unblocks it**, and the private deploy lock should advance only after this lands.
+The private `microvm-test` machine already declares `runtime = "microvm"` (allod/inventory#11, closed). Since allod/archetypes#23 merged it cannot evaluate, failing on contract 6a. **This PR is what unblocks evaluation**, and the private deploy lock should advance only after it lands.
 
-That also means this PR's blast radius on the private side is larger than on the public side: it is the change that first makes a real machine composable as a microVM. It does not make it bootable — image creation and the store-lifecycle boots remain ahead.
+It does not make that machine bootable. Image creation, formatting, labelling and ownership are deployer actions, and the store-lifecycle boots remain ahead. See the gate in Risk Assessment.
 
 ## Interface Contracts
 
-Inherited and not restated: contract 6a (one coherent writable Nix store at `/nix/var/nix`), 13 (every required persistent path maps to an explicitly provisioned writable volume), 14 (persistence and secrets never overlap), 21 (libvirt stays first-class).
+Inherited and not restated: contract 6a, 13, 14, 21.
 
-This PR adds:
+1. **The required set is per archetype, and `/nix/var/nix` is not dev-only.** `allod/vm` `modules/microvm-guest.nix:34` imports `microvm-store.nix` into *every* microvmGuest and its assertions carry no archetype guard — verified. A privacy machine selecting microvm requires `/nix/var/nix` exactly as a dev machine does; home is dev-only per contract 13. So a privacy microvm declares one volume, a dev microvm two.
 
-1. **The required set is per archetype, and `/nix/var/nix` is not dev-only.** `allod/vm` `modules/microvm-guest.nix:34` imports `microvm-store.nix` into *every* microvmGuest, and its assertions carry no archetype guard. So a privacy machine selecting microvm requires `/nix/var/nix` exactly as a dev machine does. Home is dev-only, per contract 13. A privacy microvm therefore declares one volume, a dev microvm two.
+2. **Gating happens outside the module system, on the module list.** `microvm.volumes` is not declared under a qemuGuest, so an ungated definition is an unmatched-option error. `lib.mkIf` does not help: it defers the value, not the definition. Gate with `lib.optional (runtime == "microvm")` on the builder's module list, using the `runtime` the builder already holds, so a libvirt machine's list is byte-identical to today's. A lexical `if`/`optionalAttrs` that discards the definitions before module evaluation is equally correct; list-level gating is chosen for symmetry with `guestModuleFor`.
 
-2. **Gating happens outside the module system.** `microvm.volumes` does not exist in a qemuGuest's option tree, and an unmatched definition is raised while building that tree — before any config read, and not catchable by `tryEval`. `lib.mkIf` does not help: it defers the value, not the definition. So the volume modules are appended with `lib.optional (runtime == "microvm")` on the builder's module list, using the `runtime` value the builder already holds. The same applies to the `fileSystems` entry: `fileSystems` does exist under qemuGuest, so an ungated home entry would not error — it would silently render a bogus mount.
+   The same gating applies to the `fileSystems` entry for a different reason: `fileSystems` *does* exist under qemuGuest, so an ungated home entry would not error — it would silently render a bogus mount.
 
-3. **The home volume sets `neededForBoot` itself.** Upstream adds it only for the mount equal to `microvm.writableStoreOverlay` (`mounts.nix:102-117`). Archetypes sets `fileSystems."/home/<username>".neededForBoot = true`. It composes cleanly — upstream never defines the option for a non-overlay volume, so there is no conflict and no `mkForce`.
+3. **Two distinct error classes, and only one escapes `tryEval`.** An unmatched option definition produced by `evalModules` *is* catchable by `tryEval`, including under `mkIf false`. A raw projection of an absent attribute — `config.microvm` on a libvirt machine — is not. An earlier draft conflated them. Consequence for the tests: probe the libvirt boundary with `lib.hasAttrByPath`, never by trying to catch `config.microvm`, which is the idiom the hypervisor guard already uses.
 
-4. **The home mount point is the user's actual home.** `users.users.<username>.home` resolves to `/home/<username>` from nixpkgs' `isNormalUser` default; nothing in this repo set overrides it. The username comes from the identity the builder already has, not from a literal. Privacy usernames are per-machine, dev usernames are not, so read it per machine rather than assuming one value.
+4. **Every load-bearing volume field is stated, not inherited.** Upstream defaults are not a contract; a default that moves silently changes what the deployer must produce. Each entry declares:
+   - `readOnly = false` — load-bearing, and the launcher's writability probe keys on it.
+   - `fsType = "ext4"` — this is the deployer's formatting contract, and the value the fstab entry renders.
+   - `label` — `nix-state` for the state volume, `home` for home.
+   - `autoCreate = false` — contract 13.
+   - `size` — upstream makes the field mandatory but consumes it only inside the `autoCreate` path, so under `autoCreate = false` it is ignored. Set it to `0` and say so in a comment. Do not derive a fake capacity from `disk_gb`; a number that looks like a size but provisions nothing is worse than an obvious zero.
 
-5. **Volumes are labelled, and the label is the deployer's contract.** Without a label upstream mounts by `/dev/vd<letter>` assigned by list position, so adding a second volume silently renumbers devices. Labelling both makes the device path stable and order-independent. The framework declares the label it expects; contract 13 already makes applying it the deployer's job when formatting. `label = "nix-state"` matches what allod/vm's own fstab check greps for; home takes `label = "home"`.
+5. **Volumes are labelled, and the label is the deployer's contract.** Without a label upstream mounts by `/dev/vd<letter>` assigned by list position. The risk is not that appending a volume renumbers an existing one — it may not. It is that any later reorder or insertion silently remaps two valid ext4 images onto each other's mount points, corrupting state with no error. A wrong or missing label fails loudly at boot instead. Loud beats silent, so both volumes are labelled and the deployer applies those labels when formatting, which contract 13 already makes their job. `allod/nexus`'s unlabelled single-volume host fixture sets no policy for a two-volume archetype.
 
-6. **Image paths are derived, unique per machine, and never per-machine data.** `<imageRoot>/<machine>/<volume>.img`, with `imageRoot` a builder argument defaulting to `/var/lib/allod-microvm-volumes` — the root `allod/nexus` already uses in its own fixtures. It is overridable the same way `runtime` is, so a deploy can move it through `profileData` without a second declaration. `allod/nexus` `nix/microvm/host.nix:165` rejects duplicate image paths across all VMs on the host, which the `<machine>` component satisfies; `:393-402` requires absolute, outside the Nix store, and outside `/run/allod`.
+6. **The home mount point is the user's actual home.** `users.users.<username>.home` resolves to `/home/<username>` from nixpkgs' `isNormalUser` default; nothing in this repo set overrides it. Read the username from the identity the builder holds, per machine — privacy usernames are per-machine even though dev usernames currently are not.
 
-7. **The archetypes-side assertion names the missing mount.** Every required mount for the archetype has exactly one `microvm.volumes` entry, or evaluation fails naming the path. This is the diagnostic issue #25 asks for, replacing allod/vm's lower-level store-volume message as the first thing a misconfigured machine reports.
+7. **The image root is validated before any path is built from it.** Derived shape is `<imageRoot>/<machine>/<volume>.img`, defaulting to `/var/lib/allod-microvm-volumes` — the root `allod/nexus` already uses. Prefer a typed, microvm-only NixOS option over a bare builder argument: `runtime` had to be a builder argument because it selects the option tree before the module system exists, and that reason does not apply here. If `profileData` overridability requires a builder argument instead, it carries the same validation.
+
+   Reject, with a named error, a value that is a Nix path, relative, non-normalized, contains `..` or a trailing slash, is under the Nix store, or is under `/run/allod`. `allod/nexus` `nix/microvm/host.nix:393-402` enforces the last two, but only after host composition, which this slice excludes — so archetypes cannot lean on it and must assert them itself.
+
+8. **Assertions read the merged result, not the inputs.** Every check is over the final `config.microvm.volumes`, so a profile that overrides an entry is caught. Each required mount has exactly one entry; no two entries share a mount point; each is writable, not auto-created, and carries the expected label and filesystem type; every image path passes the root validation above.
 
 ## Agent Gates
 
-None for implementation. Every acceptance test below runs locally without host access or real credentials.
-
-One sequencing note that is not a gate: nothing here makes a microVM bootable. Image creation, formatting, labelling and ownership are deployer actions on the hypervisor, and the store-lifecycle boots that settle contract 6a are a later slice.
+None for implementation. Every acceptance test runs locally without host access or real credentials.
 
 ## Acceptance Tests
 
@@ -86,7 +95,7 @@ for m in allod-dev privacy-1 nexus installer; do
 done
 ```
 
-Must be byte-identical before and after. Expected values are the current ones:
+Must be byte-identical before and after:
 
 | Machine | drvPath hash |
 |---|---|
@@ -95,29 +104,31 @@ Must be byte-identical before and after. Expected values are the current ones:
 | `nexus` | `fad4pq24f8iavzr3q369alz8932jq9q3` |
 | `installer` | `2yj5038jnsgzbv6ghhmyafs5kspn9jrg` |
 
-Full check set, and the extended selection check:
+Then the whole set, which already builds every check on this system:
 
 ```sh
 nix flake check --print-build-logs
-nix build .#checks.x86_64-linux.runtime-module-selection --print-build-logs
 ```
 
 `runtime-module-selection` must additionally assert, each with a paired sabotage fixture failing for the diagnostic it names:
 
-1. **A dev microvm fixture evaluates with no placeholder.** The fixture from allod/archetypes#23 that supplied its own `/nix/var/nix` volume is deleted; the builder's declarations must carry it. This is the positive proof the whole PR exists for.
-2. **Its generated `/etc/fstab` marks both volumes `x-initrd.mount`.** Read the built system's fstab rather than the `fileSystems` attribute — `neededForBoot` renders to that option, and it is what allod/vm's own check greps for. Sabotage: drop `neededForBoot` from the home entry and require the fstab assertion to fail. This is the silent-data-loss guard and the single most important test here.
-3. **A privacy microvm fixture evaluates with exactly one volume**, at `/nix/var/nix`, with no home volume.
-4. **A dev microvm with the home volume removed fails**, pinned to the archetypes-side diagnostic naming the home path — not to allod/vm's store message, which would not fire for a missing home.
-5. **A dev microvm with the state volume removed fails**, pinned to the archetypes-side diagnostic naming `/nix/var/nix`, and specifically *before* allod/vm's contract 6a message, since contract 7 makes archetypes the first reporter.
-6. **Both volumes carry distinct labels and distinct image paths**, and both image paths contain the machine name.
-7. **A libvirt machine composes no `microvm` option at all** — the existing hypervisor-boundary idiom, extended. Reading `config.microvm` on a libvirt machine must stay an undeclared-option error, proving the gating is outside the module system.
-
-The existing `microvmWithoutVolume` negative fixture inverts once the builder declares volumes: it currently proves allod/vm's contract 6a fires. Rework it to force `microvm.volumes = lib.mkForce []` so it still proves that, rather than deleting the only coverage of allod/vm's own assertion.
+1. **A dev microvm fixture evaluates with no placeholder.** The allod/archetypes#23 fixture that supplied its own `/nix/var/nix` volume is deleted; the builder's declarations must carry it. This is the positive proof the PR exists for.
+2. **Its merged `config.microvm.volumes` is exactly right** — two entries; mount points the home path and `/nix/var/nix`; distinct labels `home` and `nix-state`; `fsType = "ext4"`; `readOnly = false`; `autoCreate = false`; distinct image paths both containing the machine name.
+3. **Its generated `/etc/fstab` marks both volumes `x-initrd.mount`.** Read the built system's fstab, not the `fileSystems` attribute — that option is what `neededForBoot` renders to. Sabotage: drop `neededForBoot` from the home entry and require the fstab assertion to fail.
+4. **A privacy microvm fixture evaluates with exactly one volume**, at `/nix/var/nix`, with no home volume.
+5. **A dev microvm with volumes forced empty fails, and both diagnostics appear** — the archetypes mount-specific message and allod/vm's contract 6a message. NixOS collects every failed assertion into one combined throw, so neither precedes the other; assert both are present and make no ordering claim. This reuses the reworked `microvmWithoutVolume` fixture rather than adding another.
+6. **A dev microvm missing only the home volume fails**, pinned to the archetypes diagnostic naming the home path. allod/vm has no home assertion, so archetypes is the only reporter here.
+7. **Per-field sabotage on the home volume**, each pinned to its own diagnostic: a duplicate entry for the same mount point, `autoCreate = true`, and `readOnly = true`.
+8. **A non-default image root moves both images**, and the derived paths still contain the machine name.
+9. **Invalid image roots are rejected**, each pinned: a Nix path, a relative path, a store-backed path, one under `/run/allod`, and a non-normalized one containing `..`.
+10. **A libvirt machine composes no `microvm` option at all** — `lib.hasAttrByPath` is false for `microvm` on a libvirt machine, proving the gating is outside the module system.
 
 Pin diagnostics with the `config.assertions` idiom already in the check — readable without forcing the toplevel, so a mismatch reports as itself rather than as whatever the wrong composition breaks on first.
+
+The existing `microvmWithoutVolume` fixture inverts once the builder declares volumes: it currently proves allod/vm's contract 6a fires. Rework it to `microvm.volumes = lib.mkForce []` so it still proves that, and reuse it for test 5.
 
 ## Rollback Plan
 
 Revert the PR. The declarations are additive and gated on a runtime no public machine selects, so a revert restores the exact prior derivations for every libvirt machine and returns a microvm machine to failing on allod/vm's contract 6a — the state allod/archetypes#23 deliberately left.
 
-No rollback step touches a disk image. Nothing in this PR creates, formats, relabels or removes one, so there is no partial state to unwind on the host. A machine already provisioned with images keeps them; they simply stop being referenced.
+No rollback step touches a disk image. Nothing here creates, formats, relabels or removes one, so there is no partial state to unwind on the host. A machine already provisioned with images keeps them; they simply stop being referenced.
