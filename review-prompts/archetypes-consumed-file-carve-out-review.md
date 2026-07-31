@@ -32,19 +32,9 @@ Before diving into focus areas, verify the plan includes all required sections f
 
 ## Focus Areas
 
-Concentrate your review on these areas where the plan is most likely to have problems. These are lenses, not checklists — follow the thread wherever it leads.
+Plan-text review is closed after pass 3. The first stopping condition is met: review-introduced findings outnumbered original-plan findings in both pass 2 and pass 3. Do not run another plan review; proceed to implementation and execute acceptance tests 1–7 literally before the human rollout gate.
 
-The six standing lenses in `dev-plans.md` (internal consistency, operational sequencing, risk calibration, acceptance-test coverage, rollback fidelity, generated lifecycle behavior) apply as defaults on top of the plan-specific areas below.
-
-1. **Scoped stability of the pass-2 script repairs** (`e600c7d`, `499af7f`, `80462ea`). Re-run the repaired instruments verbatim rather than reading them: the test 6 interpolation projection against the composed public `allod-dev`, the test 5 scratch-copy/sed/expect-fail/restore flow (both exit paths must restore; the sed assumes one-line carves), and the test 7 `attrNames` loop. Pass 2 verified these on Nix 2.31.5; confirm nothing regressed against the tree at review time.
-
-2. **Failure output must name the failing target.** Test 5 greps the check's build output for the sabotaged target, so the `consumed-file-carve-out` assert messages must carry per-target labels, and a malformed mutation's eval error must land in the wrong-reason branch rather than masquerade as the intended rejection. Verify the plan's check contract implies this and, once implementation exists, that the messages satisfy the filter.
-
-3. **The fixture paragraph's three moves hold together** (`b7b3407`). Direct function application of `github-credentials.nix`, the substituted-`lib` synthetic secrets input, and the `builtins.path` rename mutation were validated shape-by-shape in pass 2. Verify the wording still matches the module if the module changes before implementation, and that the invalid-consumer fixture asserts on the returned `assertions` list rather than re-entering the NixOS module system.
-
-Preserved results a later pass must not undo: do not collapse the exact-source allowlist into the closure denylist — they catch different security failures (wrong single-file content vs retained root); test 1 and test 2 stay separate (premise tripwire vs regression proof); the token files stay un-wrapped, and any projection of `age.secrets.<name>.file` coerces by interpolation, never `toString`; the allod-tools cut is justified by absent ciphertext, not by `dev-home-shared.nix` — that consumer pads only the build closure.
-
-Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
+Preserved implementation results: do not collapse the exact-source allowlist into the closure denylist — they catch different security failures (wrong single-file content vs retained root); test 1 and test 2 stay separate (premise tripwire vs regression proof); the token files stay un-wrapped, and any projection of `age.secrets.<name>.file` coerces by interpolation, never `toString`; the allod-tools cut is justified by absent ciphertext, not by `dev-home-shared.nix` — that consumer pads only the build closure.
 
 ## Review Guidelines
 
@@ -124,4 +114,6 @@ Pass 1 — reviewed by `gpt-5.6-sol`: 1 BLOCKER and 4 GAP findings, all original
 
 Pass 2 — reviewed by `claude-fable-5`, full stability review of d52c40a: 2 BLOCKER and 3 GAP findings, all introduced by the pass-1 repair. Pass 1's detections were themselves correct. Its token-file reversal (`./secrets + "/<name>.age"` is a path value that interpolates to an individual store file) was re-verified empirically on Nix 2.31.5 and stands; its allod-tools reversal was right to cut the scope but wrong on the closure mechanics — `dev-home-shared.nix:25` pads only the build closure, corrected in `79030e5`. First pass toward the review-introduced stopping rule (review-introduced 5, original-plan 0).
 
-Fix stability: `gpt-5.6-sol` — pass-1 findings all valid, but four of its five repair areas needed re-fixing in pass 2 (test 6 instrument, test 5 script, allod-tools justification, script coverage claims). `claude-opus-5` — pass-0 text produced no new pass-2 findings beyond what pass 1 already repaired.
+Pass 3 — reviewed by `gpt-5.6-sol`, scoped review of e600c7d..334733e: 3 BLOCKER and 2 GAP findings, all introduced by earlier review repairs. Test 2 accepted a failed closure query as absence; test 5's generic target match accepted unrelated eval traces and its scratch restore changed mode 0644 to 0600; test 7 could run zero iterations after failed configuration discovery; and the invalid-consumer fixture did not explicitly require inspecting the directly returned assertions. The interpolation repair, allod-tools runtime-closure correction, and eval-time fixture bytes all stand. Second consecutive pass with review-introduced findings (5) outnumbering original-plan findings (0), so the first stopping condition is met; the second condition is not met because this pass found BLOCKERs.
+
+Fix stability: `gpt-5.6-sol` — pass-1 findings all valid, but every repair area required at least one later correction; pass 3 found the remaining fail-open edge in the realized-output closure script. `claude-fable-5` — the interpolation repair, allod-tools closure correction, and eval-time fixture-byte shape survived pass 3; the test 5, test 7, and invalid-consumer fixture instructions needed immediate correction. `claude-opus-5` — pass-0 text produced no new original-plan findings in pass 2 or pass 3.
