@@ -21,7 +21,7 @@ Key repos in play:
 
 Current state (verify against the tree before trusting it; line numbers drift):
 
-- Interpolating a flake input and appending a path yields a string naming a file *inside* the input's store directory, so the derivation depends on the whole directory. This is the defect under repair.
+- Interpolating a flake input and appending a path yields a string naming a file *inside* the input's store directory, so the derivation depends on the whole directory. This is the defect under repair. By contrast, `./secrets + "/<name>.age"` evaluates to a Nix path and is already copied as an individual file when coerced.
 - `modules/agent-hooks.nix` and `modules/github-credentials.nix` are imported only from `mkDevVm`. Privacy VMs and the hypervisor do not use them.
 - `nix flake check` over the composition root peaks near 7 GiB and is OOM-killed on an 8 GiB VM. Use per-configuration `nix eval` instead.
 - Agents run in dev VMs and cannot merge, rebuild a machine, provision, or touch keys.
@@ -36,15 +36,15 @@ Concentrate your review on these areas where the plan is most likely to have pro
 
 The six standing lenses in `dev-plans.md` (internal consistency, operational sequencing, risk calibration, acceptance-test coverage, rollback fidelity, generated lifecycle behavior) apply as defaults on top of the plan-specific areas below.
 
-1. **The token-file claim is the plan's biggest bet — test it.** The plan asserts that `secrets/flake.nix:49-56`'s `./secrets + "/<name>.age"` resolves to a path *inside* the secrets flake's store directory, and therefore that `agent-forgejo-token.nix:5` and `flake.nix:199` must also be carved or the closure test can never pass. The tracking issue does not name these sites at all. If this claim is wrong, the plan's scope is inflated and one of its acceptance tests is unreachable. Evaluate it against the real tree and say which way it falls.
+1. **Can the generated-value check be implemented without becoming self-referential?** The repaired plan requires a `consumed-file-carve-out` check over the four real Home Manager sources plus a synthetic non-empty GitHub target. Verify the actual option paths are forceable from `machineConfigurations`, the synthetic module evaluation needs no broad builder refactor, and the matcher fixture does not derive both actual and expected values through the same helper. Sabotage both a policy source and a same-basename/different-content GitHub source; each must fail for the intended reason.
 
-2. **Is the enumeration of sites complete?** The plan lists eight. Sweep `mkDevVm`'s full module list — `home-shared.nix`, `ai-agents.nix`, `dev-home-shared.nix`, `preferences`, `vm.homeModules.base`, and anything in `sharedModules` — for any other construction that interpolates an input root and appends a path. A site missed here is a site the closure test will catch late and expensively, or worse, one that makes the closure test's premise unreachable and sends someone hunting.
+2. **Run the built-output closure procedure literally.** The repaired plan replaced the `.drv` requisites query with a realised toplevel output query. Verify the `path:` overrides preserve the deploy flake's `secrets`/`profiles`/`inventory` follows, `SECRETS_STORE` resolves to the exact composed input root, the baseline is genuinely pre-change, and the runtime closure contains the root before but not after. If the command sequence still conflates build and runtime closure or cannot be executed cold, fix it.
 
-3. **Does loosening the GitHub matcher weaken a real guard?** The plan adds a `-<basename>` suffix alternative to `githubTargetMatchesGeneratedAgeSecret` (`flake.nix:494,499`) so a carved path binds, mirroring the Forgejo matcher. A basename suffix is weaker than a full relative-path suffix. Can two distinct declared targets now both match the same generated secret, or a target match a secret it should not? If the loosening is unsafe, what binds a carved secret to its target instead?
+3. **Audit exact GitHub binding end to end.** The matcher now reconstructs the expected `builtins.path` and requires equality instead of accepting a basename suffix. Check that this independently binds source content and metadata, does not introduce the secrets root into a machine closure, works for nested `consumer.secret` paths, and is exercised even though the public secrets template has no GitHub targets and the deploy template does not re-export `credential-profiles`.
 
-4. **Is the closure query the right instrument?** The plan uses `nix-store -q --requisites <drvPath>` to prove the source directory is gone without building the system. Does that actually reveal source paths referenced by an activation script, or does it report build-time inputs in a way that either misses the reference or reports it even after a correct carve? If it is the wrong instrument, name the right one — this test carries all of the plan's confidence, and a test that cannot distinguish success from failure makes the whole plan hollow.
+4. **Generated lifecycle and rollback must agree with rollout reality.** Trace a carved GitHub file through agenix's generated activation, a carved policy file through Home Manager placement, the absent-target and invalid-consumer paths, and the human throwaway-VM gate. Verify the private deploy pin advance and its reversal are assigned to the human and that a failed activation's partial derivative state is recoverable exactly as the rollback section claims.
 
-5. **SIMPLIFY: does the `allod-tools` carve belong here at all?** `agent-hooks.nix:11` carries no ciphertext and no exposure argument; its justification is purely that commits to `allod/tools` move every dev machine's derivation. It rides along because it is the same edit in the same file. Argue it either way, but argue it: if it belongs in a separate change, say so and cut it.
+5. **SIMPLIFY the repaired test surface.** The plan added an exact generated-value check, a runtime closure build, a regular-file projection, existing checks, sabotage, per-configuration evaluation, and a human activation gate. Delete any test that no longer distinguishes a separate failure mode, but do not collapse the exact-source allowlist into the closure denylist: both are required to catch different security failures.
 
 Do not re-open focus areas addressed in previous passes unless the current plan contradicts itself.
 
@@ -57,7 +57,7 @@ Do not re-open focus areas addressed in previous passes unless the current plan 
 - **Security matters, ceremony does not.** The privacy and security boundaries must be airtight. Everything else can be pragmatic.
 - **Solve problems as they come.** If the plan front-loads work for hypothetical future needs, flag it.
 - **Think operationally.** Consider what happens when someone executes this plan with incomplete context or in the wrong order.
-- **Calibrate residual risk.** The plan claims R3 and argues explicitly against R4 on the grounds that a mistake fails loud or leaves today's exposure, never silently exposing more. Attack that argument. Construct the mistake that exposes more, if one exists.
+- **Calibrate residual risk.** The plan claims R3 because the exact-source allowlist, built-output closure denylist, disposable rollout, and pin-aware rollback reduce a credible silent-exposure mistake. Attack that combined argument: prove each control catches a distinct failure and that the remaining worst case is recoverable without touching authoritative secrets or keys.
 - **Inspect generated lifecycle artifacts.** Do not stop at source evaluation. Consider the agenix activation script, the home-manager file placements, and the negative paths — a machine with `forgeAccess = false` and therefore a null token file, a credential target with no matching consumer, an absent optional secret.
 
 The person implementing this is technically sharp. They do not need hand-holding; they need the sharp edges they missed.
@@ -121,3 +121,5 @@ Stop the plan-text review when either condition holds:
 ## Pass History
 
 Pass 0 — plan authored by `claude-opus-5`. No review yet.
+
+Pass 1 — reviewed by `gpt-5.6-sol`: 1 BLOCKER and 4 GAP findings, all original-plan defects. The plan was repaired; the next pass is a full stability review of the repaired plan.
