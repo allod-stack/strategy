@@ -16,11 +16,11 @@ In scope, all in `allod/archetypes`:
 
 - `allod.microvm.guestCredentialRoot`: a typed, validated, microvm-only option (default `/run/allod/credentials`) that every consumer path derives from.
 - A closed credential-name set per machine, derived from the credentials that machine actually declares.
-- A materializer systemd service that loads the delivered system credentials, validates each one, and writes the consumer files atomically with declared owner and mode.
-- Microvm-only rewiring of six consumers: sshd's `HostKey`, the Nix netrc path, root's Git credential store, the user's Git credential store, the Forge API token path, and the Forge SSH `IdentityFile` in the generated Home Manager output.
+- Two materializer systemd services — one for the SSH host key, one for every other credential — that load the delivered system credentials, validate each one, and write the consumer files atomically with declared owner and mode.
+- Microvm-only rewiring of six consumers: sshd's `HostKey`, the Nix netrc path, root's Git credential store, the user's Git credential store, the Forge API token path, and the Forge SSH `IdentityFile` in the generated Home Manager output. Both Git rewirings reset the inherited helper rather than adding a second one.
 - Microvm-only removal of agenix wiring: no `age.secrets` definition, no `age.identityPaths` definition, no `modules/netrc.nix`.
 - Assertions over the merged configuration for every rule above, each with a paired sabotage fixture pinned to the diagnostic it names.
-- Generated-artifact checks: the rendered materializer unit and its ordering edges, the rendered `sshd_config`, the rendered `nix.conf`, the generated `gitconfig`, the generated Home Manager `programs.ssh` result, and a closure scan of a microvm guest.
+- Generated-artifact checks: the rendered materializer units, their ordering edges and the `Requires=` edges their consumers carry, the rendered `sshd_config`, the rendered `nix.conf`, the generated `/etc/gitconfig` and the generated user `git/config`, the generated Home Manager `programs.ssh` result, and a closure scan of a microvm guest.
 - Whatever rework the existing `credential-profiles`, `netrc-activation` and `dev-forge-opt-out` checks need to stay true, which is to become explicitly libvirt-scoped rather than accidentally so.
 
 Out of scope, other slices of milestone 4: contract 8b's `extendModules` host integration that supplies the actual `microvm.credentialFiles` *values*; contract 15's guest networking and `microvm.socket`; contract 1's `vmFacts.<name>.runtime`; contract 18's runtime-dispatched rotation in `allod/nexus`; and the nested-boot lifecycle tests.
@@ -39,18 +39,19 @@ This is a security boundary change: it moves where a VM's private key material c
 - No public machine selects microvm, so the new path's coverage is fixtures only.
 - Rollback is a straight revert of one PR in one repo, and nothing here creates, moves or deletes key material.
 
-What keeps it R3 is what the validation cannot reach. Nothing in this slice boots a guest. Every claim about credential *receipt* — that PID 1 imports the fw_cfg credentials, that `LoadCredential=` finds them, that the materializer runs early enough, that sshd starts with a `HostKey` under `/run` — is an inference from pinned upstream source, not a measurement. The parent plan's acceptance test 9 and the nested-boot slice are what settle those, and this PR must not be read as evidence for them.
+What keeps it R3 is what the validation cannot reach. Nothing in this slice boots a guest. Every claim about credential *receipt* — that PID 1 imports the fw_cfg credentials, that `LoadCredential=` finds them, that the materializers run early enough, that sshd starts with a `HostKey` under `/run` — is an inference from pinned upstream source, not a measurement. The parent plan's acceptance test 9 and the nested-boot slice are what settle those, and this PR must not be read as evidence for them.
 
 **The gate:** no machine is enabled on the microvm runtime on the strength of this change. A guest whose materializer is subtly mis-ordered comes up with sshd failed and no way in; a guest whose materializer is mis-ordered the *other* way comes up with a working sshd and a stale or absent credential, which is worse because it looks fine. Neither is detectable from this repo's checks.
 
-**The worst credible failure after this plan's validation passes** is a microvm guest that evaluates and builds cleanly but, on a real boot, either strands with sshd failed, or starts sshd against a credential the materializer wrote with the wrong owner or mode. Both are contained to a machine nothing depends on, per the parent plan's rule that the first microvm machine is purpose-made. Neither can affect a libvirt machine, a host, or any encrypted source.
+**The worst credible failure after this plan's validation passes** is a microvm guest that evaluates and builds cleanly but, on a real boot, either strands with sshd failed, or starts sshd against a credential a materializer wrote with the wrong owner or mode. Both are contained to a machine nothing depends on, per the parent plan's rule that the first microvm machine is purpose-made. Neither can affect a libvirt machine, a host, or any encrypted source.
 
 Human scrutiny, in order:
 
-1. The rendered materializer unit: its `LoadCredential=` list, its `Before=`/`After=`/`RequiredBy=` edges, and the exact `install` invocations in its script.
-2. The rendered `sshd_config` for a microvm fixture: exactly one `HostKey` line, pointing under the credential root, and the rendered `sshd-keygen.service` script empty.
-3. The rendered `nix.conf`: exactly one `netrc-file =` line.
-4. The four libvirt derivation paths.
+1. The two rendered materializer units: each `LoadCredential=` source path, their `Before=`/`After=`/`RequiredBy=` edges, the `Requires=` edges their consumers carry, and the exact `install`/`mv -T` invocations in their scripts.
+2. The rendered `sshd_config` for a microvm fixture: exactly one `HostKey` line, pointing under the credential root, and `sshd-keygen.service` rendered as a mask.
+3. The rendered `nix.conf`: the last `netrc-file =` line, and that no unrelated `nix.extraOptions` line disappeared.
+4. The two Git helper stacks — `/etc/gitconfig` and the user's `git/config` — each resetting the inherited `store` helper before naming the runtime one.
+5. The four libvirt derivation paths.
 
 ## Contract contradictions found
 
@@ -70,9 +71,17 @@ Inherited and not restated: contracts 2, 6, 13, 21.
 
 Type is `lib.types.either lib.types.str lib.types.path`, for the reason stated at `flake.nix:248-252`: a bare `str` makes a Nix path fail with nixpkgs' generic type error while the option tree is built, pinnable to nothing, whereas accepting it lets a named assertion be the reporter. This deliberately diverges from `nexus.microvm.hostPlaintextRoot`'s `types.strMatching` (`nix/microvm/host.nix:321`), because acceptance test rule "every assertion has a paired sabotage fixture pinned to its diagnostic" cannot be satisfied by a type-check failure.
 
-Reuse `microvmVolumesModule`'s `pathErrors` validator rather than writing a second one — it already rejects a Nix path, a relative path, a trailing or doubled slash, a `.`/`..` segment, and a store-prefixed path. Add one rule for this option: the value must be strictly below `/run/allod`, i.e. equal to neither `/run/allod` nor anything outside it. Contract 8a requires that, and it is the only rule the two options do not share.
+**The existing `pathErrors` cannot be reused whole, and reusing it whole is an evaluation failure on the default value.** Its sixth rule (`flake.nix:179-180`) rejects any path equal to or under `/run/allod`, because a volume image on the host's tmpfs runtime root cannot hold persistent state. This option's default *is* `/run/allod/credentials`, and contract 8b's supplied values are host paths under `/run/allod/microvm`. Reused unchanged, that rule rejects every correct value this slice produces.
 
-Hoisting `pathErrors` out of `microvmVolumesModule` to a shared `let` binding is in scope and is the point: two copies of a six-rule path validator in one file is the drift this contract exists to prevent.
+So split it. Hoist only the five generic rules into a shared validator: the value is a plain string and not a Nix path, is absolute, has no empty segment (no trailing or doubled slash), has no `.` or `..` segment, and is not under the store. Those five are what the volume image root, the credential root and every supplied `microvm.credentialFiles` value genuinely share.
+
+The `/run/allod` prohibition stays inside `microvmVolumesModule`, where it is one `lib.optional` on top of the shared list rather than a shared rule with an exception.
+
+The credential root then adds the *opposite* rule, and only it has it: the value must be strictly below `/run/allod` — neither `/run/allod` itself nor anything outside it. Contract 8a requires that, and `allod/nexus` states the same shape for its host-side root as `types.strMatching "^/run/allod/[^/]+(/[^/]+)*$"` (`nix/microvm/host.nix:321`).
+
+Supplied `microvm.credentialFiles` values get the generic rules plus one of their own (contract 3), and never the volume rule.
+
+Hoisting the generic rules out of `microvmVolumesModule` to a shared `let` binding is in scope and is the point: two copies of a five-rule path validator in one file is the drift this contract exists to prevent. Copying the sixth rule along with them is the drift it would cause.
 
 ### 2. The credential-name set is closed and derived, never restated
 
@@ -97,9 +106,11 @@ Assertions, all over the merged configuration:
 
 - Every declared name is non-empty and at most 28 characters. Contract 7's bound is measured, not asserted by prose: pinned QEMU 10.1.5 `include/standard-headers/linux/qemu_fw_cfg.h:49-50` defines `FW_CFG_MAX_FILE_PATH 56`, and `system/vl.c:1163-1167` rejects `strlen(name) > FW_CFG_MAX_FILE_PATH - 1`. The name QEMU sees is the whole `opt/io.systemd.credentials/<cred>` string that `lib/runners/qemu.nix:156` builds; the prefix is 27 bytes, so `55 - 27 = 28`. A 29-character name makes QEMU exit at startup with `name too long (max. 55 char)` and `Restart=always` turns that into a restart loop with no framework diagnostic — the assertion is the only thing that reports it.
 - **Names match `[A-Za-z0-9_-]+` and contain no `.`.** Two separate reasons, both measured. systemd's `credential_name_valid` (`src/shared/creds-util.c:49-53`) requires `filename_is_valid` and `fdname_is_valid`, so `/`, `:`, control bytes, `.` and `..` are out; a name failing it is **silently dropped** with only a `log_warning` in the guest journal, which is the worst possible failure shape. Independently, `,` and `=` would mis-split QEMU's own `name=…,file=…` option string. Forbidding `.` outright is what makes the rule cheap *and* closes the reserved-name hazard: every system credential systemd itself acts on is dotted — `ssh.authorized_keys.root`, `passwd.hashed-password.root`, `system.machine_id`, `tmpfiles.extra`, `sysusers.extra`, `fstab.extra`, `systemd.extra-unit.*`, `network.*`, `udev.rules.*` — and a host that supplied one of those names would silently reconfigure the guest rather than deliver a file the materializer reads. A dotless closed set cannot collide with any of them.
-- Names are unique after normalization.
+- The two name rules above apply to the **union** of the declared set and the keys of a non-empty `config.microvm.credentialFiles`, not to the declared set alone. The declared set is four literals in one builder and a read-only option, so a violation of it is a code change and no fixture can reach one; the supplied map is the untrusted half and is where a bad name actually arrives. Applying the rules to both is one `lib.unique` and is what gives every name rule a reachable sabotage.
 - `config.microvm.credentialFiles` is either `{}` or has exactly the declared name set as its keys. `{}` is the standalone shape contract 8b requires; anything else must agree with the guest's own declaration, and a superset or subset fails.
-- Every value in a non-empty `config.microvm.credentialFiles` is a plain string (not a Nix path), absolute, normalized, and not under `builtins.storeDir`. `microvm.credentialFiles` is typed `attrsOf path` upstream (`nixos-modules/microvm/options.nix:1070-1071`), which accepts a Nix path literal and would copy it into the world-readable store on interpolation at `lib/runners/qemu.nix:156`. The same `pathErrors` validator covers all four rules.
+- Every value in a non-empty `config.microvm.credentialFiles` is a plain string (not a Nix path), absolute, normalized, not under `builtins.storeDir`, **and contains no comma**. `microvm.credentialFiles` is typed `attrsOf path` upstream (`nixos-modules/microvm/options.nix:1070-1071`), which accepts a Nix path literal and would copy it into the world-readable store on interpolation at `lib/runners/qemu.nix:156`. The shared generic validator covers the first four. The comma rule is this option's own, for the same reason the name rules forbid one: `qemu.nix:156` interpolates the value straight into QEMU's comma-delimited `name=opt/io.systemd.credentials/<name>,file=<path>` string with no escaping, so one comma splits it into two options and QEMU exits at startup under `Restart=always`. `allod/nexus`' `hostPlaintextRoot` regex (`nix/microvm/host.nix:321`) permits commas in every segment, so a host-integrated configuration can pass every host-side check and still produce this; nexus rejecting it at the root is recorded for the 8b slice, and the guest asserting it is not redundant with a check that does not exist yet.
+
+One value rule has no reachable fixture and stays anyway. `types.path` is `pathWith { absolute = true; }` (nixpkgs `lib/types.nix:671-673`, check at `:710-729`), so a *relative* value is rejected by the option's own type with nixpkgs' generic error before any assertion runs. The absolute rule stays in the shared validator because the credential root — typed to accept anything string-like precisely so a named assertion can report it — does need it. The value-side sabotage simply carries no relative case, and the plan does not claim one.
 
 Values are only ever supplied by fixtures in this slice; contract 8b is where a real host supplies them. That is not a reason to defer the value rules — the assertion is the guest's half of contract 17 and the fixtures are how it is proved.
 
