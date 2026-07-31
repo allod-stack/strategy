@@ -62,7 +62,7 @@ The six standing lenses in `dev-plans.md` apply as defaults. Concentrate here:
 
 | Pass | Model | Effort | Reviewed commit | Findings | Fixing commit | Survived later passes |
 |---|---|---|---|---|---|---|
-| 1 | `gpt-5.6-sol` | `high` | `56adbfc` | 3 high, 1 medium — all accepted | `d1a1c1c` | — |
+| 1 | `gpt-5.6-sol` | `high` | `56adbfc` | 3 high, 1 medium — all accepted | `69d2e76` | — |
 
 Plan authored by `claude-opus-5`. Pass 1 is a cross-vendor rotation, the strongest available.
 
