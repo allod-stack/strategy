@@ -16,7 +16,8 @@ A VM composes the guest module its inventory `runtime` fact names, so `runtime` 
 
 In scope:
 
-- `allod/archetypes` `flake.nix:60-71` — `sharedModules` selects `vm.nixosModules.qemuGuest` or `vm.nixosModules.microvmGuest` from `machines.${name}.runtime`, replacing the hard-coded `qemuGuest` at `flake.nix:61`.
+- `allod/archetypes` `flake.nix:60-71` — `sharedModules` selects `vm.nixosModules.qemuGuest` or `vm.nixosModules.microvmGuest` from the machine's runtime, replacing the hard-coded `qemuGuest` at `flake.nix:61`.
+- `allod/archetypes` `flake.nix:159`, `:219` — `mkDevVm` and `mkPrivacyVm` gain one optional argument, `runtime ? machines.${name}.runtime`, threaded to `sharedModules`. This is the seam that lets a check drive the production selector with a runtime no real machine declares. See contract 2.
 - `allod/archetypes` `flake.lock` — bump `inventory` `efe4a7c` → `15ad552` and `vm` `2acc559` → `8a1eb0f`. Both are prerequisites, not incidental refreshes: see Sequencing.
 - `allod/archetypes` — a new `runtime-module-selection` check pairing each machine's declared runtime against its built system's `allod.vm.guestRuntimes`, with paired sabotage fixtures.
 
@@ -58,7 +59,7 @@ Why:
 - Both guest modules are already contract-checked in `allod/vm` (`checks/guest-module-contracts.nix`, 24 mutation fixtures). This PR selects between two proven modules; it does not define guest behavior.
 - Rollback is a straight revert of one commit pair in one repo. No secrets, host-only commands, provisioning, activation, or persistent state.
 
-This is deliberately scored below the parent plan's R3 row for "archetypes guest integration", because that row covers all of milestone 4 — credentials, volumes, networking, `extendModules`, nested boot. **Challenge this if the reviewer disagrees**: the argument rests on the fleet-wide no-op being empirically proven and the microvm branch being unreachable from real data, and it fails if either premise is wrong.
+This is deliberately scored below the parent plan's R3 row for "archetypes guest integration", because that row covers all of milestone 4 — credentials, volumes, networking, `extendModules`, nested boot. Review pass 1 accepted R2 conditional on the check actually being able to fail: with the pass-by-construction avenues in the original draft, the score was not earned. Contracts 2, 4, and 5 and the rewritten acceptance tests are what close that gap. R2 flips to R3 if a fresh evaluation moves any current derivation, or if real inventory data ever makes the microvm branch reachable before contract 13's volumes land.
 
 Human scrutiny:
 
@@ -72,15 +73,23 @@ Inherited from the parent plan and not restated: contract 1 (runtime is a requir
 
 This PR adds:
 
-1. **Selection is total and defaulted nowhere.** `sharedModules` maps `machines.${name}.runtime` to exactly one of `vm.nixosModules.qemuGuest` (`"libvirt"`) or `vm.nixosModules.microvmGuest` (`"microvm"`). An unrecognized value throws a named archetypes-side error. There is no `or "libvirt"`, no `if runtime == "microvm" then … else qemuGuest`, and no fallback branch — a fallback would re-create the silent-label failure the issue exists to remove.
+1. **Selection is total and defaulted nowhere.** `sharedModules` maps the runtime to exactly one of `vm.nixosModules.qemuGuest` (`"libvirt"`) or `vm.nixosModules.microvmGuest` (`"microvm"`). An unrecognized value throws a named archetypes-side error. There is no `or "libvirt"`, no `if runtime == "microvm" then … else qemuGuest`, and no fallback branch — a fallback would re-create the silent-label failure the issue exists to remove.
 
-2. **Inventory's assertions stay the fail-closed path for bad data.** A missing, non-string, or unknown `runtime` must surface `allod/inventory`'s own diagnostic, not an archetypes default. Reading `machines.${name}.runtime` forces the full four-assertion chain through inventory's `checkedMachines` trip-wire (`inventory/flake.nix:183-192`), so archetypes gets this by reading the fact. The archetypes-side throw in (1) covers only a value inventory's enum admits but archetypes has no module for — i.e. it fires when the two repos disagree, which is the case inventory cannot catch.
+2. **Fixtures drive the production selector, not a copy of it.** `machines` is closed over lexically at `flake.nix:39`, so a separately constructed `nixosSystem` would exercise a fixture helper and prove nothing about `machineConfigurations`. Instead `mkDevVm` and `mkPrivacyVm` take `runtime ? machines.${name}.runtime`, threaded into `sharedModules`; the default preserves production behavior exactly and a check overrides only that one value. This matches the existing idiom in `mkDevVm`, whose `runtimeIdentity`, `tokenFile`, and `httpsTokenFile` arguments are already optional-with-default precisely so `dev-forge-opt-out` (`flake.nix:823-828`) can vary one field against the real builder.
 
-3. **Hypervisors are not guests.** `mkHypervisor` does not call `sharedModules` and hypervisor machines carry no `runtime` by inventory's design (`inventory/flake.nix:40-49`, actively asserted). The selection must not introduce a `runtime` read on the hypervisor path. Because `checkedMachines` returns machines unfiltered — `nexus` included — a future refactor routing the hypervisor through `sharedModules` would hit `attribute 'runtime' missing`. Guard it or assert it; do not leave it to call-site discipline.
+   A heavier refactor — passing whole machine records, or extracting a `machineConfigurationsFor machines` constructor — was considered and rejected as ceremony for this scope. One optional argument reaches the same code path.
 
-4. **The check compares two independently derived facts.** It reads `config.allod.vm.guestRuntimes` off the built system and compares it to `machines.<name>.runtime`. It must not restate the builder's own conditional — that would pass by construction. `allod/vm` `checks/guest-module-contracts.nix:123-124` reads the same option back and is the idiom to follow.
+3. **The marker is derived independently of the selector's input.** The check compares `config.allod.vm.guestRuntimes` against the runtime the machine declares. These are not the same value threaded twice: the marker is set by the guest module itself (`vm/modules/qemu-guest.nix:14` sets `[ "libvirt" ]`, `vm/modules/microvm-guest.nix:35` sets `[ "microvm" ]`), so a selector that ignored its input and returned `qemuGuest` would report `[ "libvirt" ]` against a declared `"microvm"` and fail. That is exactly today's bug, and it is what the check detects.
 
-5. **The microvm fixture supplies its own volume.** Composing `microvmGuest` requires a `microvm.volumes` entry at `/nix/var/nix` with `autoCreate = false` (allod/vm `modules/microvm-store.nix:121-127`), which this PR does not add to the builder. The fixture therefore declares a placeholder, mirroring `allod/vm` `checks/examples.nix:34-54`. This is the seam between "the selection works" and "a machine can carry state", and the fixture is what lets the first be proven without the second.
+4. **Every fixture forces `system.build.toplevel`.** Reading `config.allod.vm.guestRuntimes` alone does **not** force NixOS module assertions — at the pinned nixpkgs they are reached only through `baseSystemAssertWarn` on the toplevel path. A fixture that read the marker alone would report `[ "microvm" ]` while allod/vm's contract 6a volume assertions and `guest-base.nix`'s exclusivity assertion went unevaluated, so a broken or absent volume would pass. Positive fixtures force `config.system.build.toplevel.drvPath`; negative fixtures `tryEval` a forced toplevel and `deepSeq` the assertion messages. `allod/vm` `checks/examples.nix:301-317` (`probe`) is the established idiom and does both — follow it rather than inventing a variant.
+
+5. **Hypervisors are not guests, and the check must exclude them.** `mkHypervisor` does not call `sharedModules`, and hypervisor machines carry no `runtime` by inventory's design (`inventory/flake.nix:40-49`, actively asserted). `nexus` therefore composes no guest module and does not declare `allod.vm.guestRuntimes` at all — reading it is an undeclared-option error, verified against the tree. The check iterates `lib.filterAttrs (_: m: m.type != "hypervisor") machines`. Because `checkedMachines` returns machines unfiltered, a future refactor routing the hypervisor through `sharedModules` would hit `attribute 'runtime' missing`; guard or assert that, do not leave it to call-site discipline.
+
+6. **The microvm fixture supplies its own volume.** Composing `microvmGuest` requires a `microvm.volumes` entry at `/nix/var/nix` with `autoCreate = false` (allod/vm `modules/microvm-store.nix:121-127`), which this PR does not add to the builder. The fixture therefore appends a placeholder module declaring one, mirroring `allod/vm` `checks/examples.nix:34-54`. This is the seam between "the selection works" and "a machine can carry state", and it is what lets the first be proven without the second. When contract 13's real volume declarations land, this placeholder becomes redundant and should be deleted rather than left to shadow them.
+
+7. **Enum validation belongs to inventory; archetypes owns only the mapping gap.** A missing, non-string, or unknown `runtime` surfaces `allod/inventory`'s own diagnostic — reading `machines.${name}.runtime` forces the full four-assertion chain through the `checkedMachines` trip-wire (`inventory/flake.nix:183-192`). Archetypes must add no default that could mask it.
+
+   Archetypes cannot *re-prove* that from its own side, and must not pretend to: `runtimeDiagnostics` and `mkVmSpecs` are lexical internals of inventory (`inventory/flake.nix:139`, `:158`), and overriding `inventory.machines` downstream with `//` lands after the `builtins.seq` trip-wire has already run, so a mutated value reaches only the archetypes selector. The archetypes-side throw in contract 1 therefore covers exactly one case — a value inventory's enum admits but archetypes has no module for, i.e. the two repos disagreeing, which is the case inventory cannot catch. Enum coverage is `inventory.checks.<system>.runtime-fact-mutations`'s job; bind it as a build dependency of the archetypes check so the linkage is real rather than asserted in prose.
 
 ## Agent Gates
 
@@ -115,15 +124,21 @@ nix flake check --print-build-logs
 nix build .#checks.x86_64-linux.runtime-module-selection --print-build-logs
 ```
 
-`runtime-module-selection` must assert, each with a paired sabotage fixture that fails for the reason it names:
+`runtime-module-selection` must assert the following. Every fixture forces `config.system.build.toplevel.drvPath` per contract 4 — reading the marker alone proves nothing about the assertions.
 
-1. Every machine in `machineConfigurations` reports `config.allod.vm.guestRuntimes == [ machines.<name>.runtime ]`. Positive control: the current fleet is all `libvirt` and passes.
-2. A synthetic machine with `runtime = "microvm"` composes the microvm guest and reports `[ "microvm" ]`. Built by overriding the runtime on an existing fixture, with the placeholder `microvm.volumes` entry from contract 5 above. This is the branch no real machine covers.
-3. Sabotage: a fixture whose declared runtime and composed guest module disagree fails, pinned to that specific diagnostic. Use `allod/inventory` `flake.nix:339-346`'s `pinnedTo` idiom — `attrNames hit == [ machine ] && all (others == {})` — rather than a bare "evaluation failed", for the reason recorded at `inventory/flake.nix:126-138`.
-4. Sabotage: an unknown `runtime` value fails through inventory's `unknownRuntime` assertion, and a value inventory admits but archetypes cannot map fails through contract 1's archetypes-side throw. These are different diagnostics and must be shown to be.
-5. Sabotage: removing the selection — restoring a hard-coded `qemuGuest` — makes fixture 2 fail. Without this the check passes on a builder that ignores the fact, which is exactly today's bug.
+1. **Fleet positive control.** For every non-hypervisor machine — `lib.filterAttrs (_: m: m.type != "hypervisor") machines`, per contract 5 — `machineConfigurations.<name>.config.allod.vm.guestRuntimes == [ machines.<name>.runtime ]`. Today that is `allod-dev` and `privacy-1`, both `[ "libvirt" ]`, read off the real production configurations. `nexus` is excluded and covered by the derivation-path comparison instead.
 
-Known harness bound, carried forward from `allod/inventory` commit `530073c`: `tryEval` catches `AssertionError` and `ThrownError` but not a raw `EvalError`, so a missing-attribute case aborts evaluation rather than reporting. Loud rather than silent, but it bounds what fixture 4 can assert — state which cases are `tryEval`-observable and which abort.
+2. **The microvm branch.** `mkDevVm { name = "allod-dev"; runtime = "microvm"; … }` — the real builder, one overridden argument per contract 2, plus the placeholder volume module from contract 6 — composes the microvm guest, forces its toplevel, and reports `[ "microvm" ]`. This is the branch no real machine covers, and it is the fixture that fails today: a hard-coded `qemuGuest` returns `[ "libvirt" ]` against a declared `"microvm"`. No separate "restore the hard-code" sabotage is needed, because this fixture *is* that sabotage's inverse — state that explicitly so a later reader does not add a redundant one.
+
+3. **Unmapped-but-admitted runtime.** A runtime inventory's enum admits but archetypes has no module for fails through contract 1's named archetypes-side throw, observed via `tryEval`. This is the repos-disagree case and the only enum-adjacent failure archetypes owns.
+
+4. **Enum coverage is delegated, not duplicated.** The check takes `inventory.checks.${system}.runtime-fact-mutations` as a build dependency so inventory's missing/non-string/unknown diagnostics are actually exercised in this repo's check run. Per contract 7, archetypes cannot re-prove them locally, and a fixture that appeared to would be testing its own mutation rather than inventory's validator.
+
+5. **Exclusivity still fires.** Composing both guest modules fails on `guest-base.nix`'s exclusivity assertion, observed through a forced toplevel. This guards the selector against ever returning both — the failure mode parent contract 2 names.
+
+Where a fixture pins to a specific diagnostic, use `allod/inventory` `flake.nix:339-346`'s `pinnedTo` shape — `attrNames hit == [ machine ] && all (others == {})` — rather than a bare "evaluation failed", for the reason recorded at `inventory/flake.nix:126-138`.
+
+Known harness bound, carried forward from `allod/inventory` commit `530073c`: `tryEval` catches `AssertionError` and `ThrownError` but not a raw `EvalError`, so a missing-attribute case aborts evaluation rather than reporting. Loud rather than silent, but it bounds what fixtures 3 and 5 can assert — state which cases are `tryEval`-observable and which abort.
 
 ## Rollback Plan
 

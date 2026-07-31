@@ -62,6 +62,17 @@ The six standing lenses in `dev-plans.md` apply as defaults. Concentrate here:
 
 | Pass | Model | Effort | Reviewed commit | Findings | Fixing commit | Survived later passes |
 |---|---|---|---|---|---|---|
-| 1 | `gpt-5.6-sol` | `high` | (this pass) | | | |
+| 1 | `gpt-5.6-sol` | `high` | `56adbfc` | 3 high, 1 medium — all accepted | `d1a1c1c` | — |
 
 Plan authored by `claude-opus-5`. Pass 1 is a cross-vendor rotation, the strongest available.
+
+Pass 1 findings, all four confirmed against the tree before folding:
+
+1. **High.** The fleet assertion covered every machine in `machineConfigurations`, including `nexus`, which composes no guest module and does not declare `allod.vm.guestRuntimes`. Verified: reading it errors with an undeclared-attribute failure. Fixed by filtering to non-hypervisor machines — plan contract 5.
+2. **High.** Fixtures built as standalone `nixosSystem` calls would have exercised a fixture helper rather than the production `sharedModules` selector, so the check could pass while `flake.nix:61` stayed hard-coded. Fixed by threading an optional `runtime` argument through the real builders — plan contract 2. The reviewer's proposed fix (whole machine records plus a `machineConfigurationsFor` constructor) was **rejected as ceremony**; one optional argument reaches the same code path and matches `mkDevVm`'s existing optional-argument idiom.
+3. **High.** Reading `config.allod.vm.guestRuntimes` does not force NixOS module assertions — they are reached only through `system.build.toplevel`. A microvm fixture could report `[ "microvm" ]` with its contract 6a volume assertions unevaluated. Fixed by requiring every fixture to force the toplevel — plan contract 4. Verified that `allod/vm` `checks/examples.nix:301-317` already uses exactly this idiom.
+4. **Medium.** Archetypes cannot manufacture an unknown-runtime case that traverses inventory's validator: its diagnostics are lexical internals and a downstream `//` override lands after the `builtins.seq` trip-wire. Fixed by delegating enum coverage to `inventory.checks.<system>.runtime-fact-mutations` as a build dependency and keeping only the archetypes-side mapping-gap throw — plan contract 7, acceptance tests 3 and 4.
+
+The reviewer could not run fresh evaluations (its sandbox refused Nix's fetcher-cache writes) and corroborated the derivation-path table from the evaluation cache. Those three paths were measured directly before the plan was written and re-confirmed independently; the positive control `allod-dev` → `[ "libvirt" ]` was also measured at the bumped inputs.
+
+Pass 2 is **not** scheduled. The four findings were structural gaps in how the check could fail, not disagreements about the change itself, and all four have concrete closed fixes. Rotate to a different model if implementation contradicts a contract above.
