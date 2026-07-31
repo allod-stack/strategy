@@ -112,7 +112,8 @@ base_out=$(nix build --no-link --print-out-paths \
   "$DEPLOY#nixosConfigurations.$M.config.system.build.toplevel" \
   --override-input archetypes "path:$BASE_ARCHETYPES")
 nix-store -q --requisites "$base_out" \
-  | grep -F -x -- "$SECRETS_STORE" >/dev/null
+  | grep -F -x -- "$SECRETS_STORE" >/dev/null \
+  || { echo "ERROR: baseline closure lacks $SECRETS_STORE — the baseline is not pre-change or the premise is wrong; stop here" >&2; exit 1; }
 
 # 2. AFTER: the same runtime closure no longer contains the secrets source root.
 candidate_out=$(nix build --no-link --print-out-paths \
@@ -124,8 +125,9 @@ if nix-store -q --requisites "$candidate_out" \
   exit 1
 fi
 
-# Repeat test 2 for every composed dev configuration. At minimum, exercise the
-# public allod-dev and every private dev configuration with a GitHub target.
+# Repeat test 2 for every composed dev configuration. The public template
+# composes exactly one (allod-dev, covered above); the private composition runs
+# this same block once per dev machine, including every one with a GitHub target.
 
 # 3. The generated-value check proves the four policy sources and the synthetic
 #    GitHub file/path/owner/group/mode projection exactly, including empty,
@@ -198,9 +200,13 @@ done <<< "$secret_files"
 
 # 7. Every configuration still evaluates, one process per configuration. Never
 #    run nix flake check on the composition root: it peaks near 7 GiB on an 8 GiB VM.
-nix eval --raw \
-  "$DEPLOY#nixosConfigurations.$M.config.system.build.toplevel.drvPath" \
-  --override-input archetypes "path:$ARCHETYPES"
+for cfg in $(nix eval --json "$DEPLOY#nixosConfigurations" \
+    --apply builtins.attrNames | jq -r '.[]'); do
+  nix eval --raw \
+    "$DEPLOY#nixosConfigurations.$cfg.config.system.build.toplevel.drvPath" \
+    --override-input archetypes "path:$ARCHETYPES"
+  echo
+done
 ```
 
 8. **Human generated-lifecycle gate:** after merge, the human advances the private deploy pin and rebuilds a disposable dev VM that has its real GitHub target. Confirm agenix activation decrypts the declared credential to the unchanged destination and home-manager installs all four policy files with readable targets. Reboot once, then rebuild the working VM only if both activation and reboot are clean.
