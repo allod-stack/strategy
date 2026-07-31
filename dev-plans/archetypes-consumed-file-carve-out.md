@@ -62,7 +62,7 @@ This yields a content-addressed store path holding the single file, with no refe
 - interpolating that result produces `/nix/store/<hash>-agent-pr-token.age`;
 - interpolating `./secrets` first and then appending the filename produces `/nix/store/<hash>-secrets/agent-pr-token.age`.
 
-The first form is what the identity template exports, so `modules/agent-forgejo-token.nix:5` and `flake.nix:199` already consume a single-file store object. Do not wrap them in a second `builtins.path`.
+The first form is what the identity template exports, so `modules/agent-forgejo-token.nix:5` and `flake.nix:199` already consume a single-file store object. Do not wrap them in a second `builtins.path`. Note that `toString` performs no copy at all: on these path values it names the child inside the source root (`/nix/store/<hash>-source/secrets/<name>.age`), so any check that projects `age.secrets.<name>.file` must coerce with interpolation — the coercion agenix itself performs when it embeds the file in the activation script — never `toString`.
 
 **`credential-profiles` must bind the GitHub target to the exact carved file.** This is the one place where following the issue literally breaks a check once non-empty GitHub target data is composed.
 
@@ -146,14 +146,20 @@ if nix build "$ARCHETYPES#checks.$SYSTEM.consumed-file-carve-out" --no-link; the
   exit 1
 fi
 
-# 6. Inspect each composed dev machine's age secret paths. Every non-null file is
-#    a regular store-root file (/nix/store/<hash>-<basename>, with no child path);
-#    compare the exact destination/owner/group/mode projection through test 3 or
-#    the private composition's corresponding credential contract check.
+# 6. Inspect each composed dev machine's age secret paths, coerced the way
+#    agenix embeds them (string interpolation). A correct consumer — a token
+#    path value or a carved file — materialises as a regular store-root file
+#    (/nix/store/<hash>-<basename>, no child path); an uncarved
+#    "${secrets}/..." string keeps its in-root spelling and fails. toString
+#    would misreport the token files' pre-coercion location
+#    (/nix/store/<hash>-source/secrets/<name>.age) and fail every
+#    forge-access machine spuriously. Compare the exact
+#    destination/owner/group/mode projection through test 3 or the private
+#    composition's corresponding credential contract check.
 secret_files=$(nix eval --json \
   "$DEPLOY#nixosConfigurations.$M.config.age.secrets" \
   --override-input archetypes "path:$ARCHETYPES" \
-  --apply 's: builtins.mapAttrs (_: v: toString v.file) s' \
+  --apply 's: builtins.mapAttrs (_: v: "${v.file}") s' \
   | jq -r '.[]')
 while IFS= read -r file; do
   case "$file" in
