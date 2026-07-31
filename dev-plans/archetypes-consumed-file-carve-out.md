@@ -213,7 +213,7 @@ done
 
 8. **Human generated-lifecycle gate:** after merge, the human advances the private deploy pin and rebuilds a disposable dev VM that has its real GitHub target. Confirm agenix activation decrypts the declared credential to the unchanged destination and home-manager installs all four policy files with readable targets. Reboot once, then rebuild the working VM only if both activation and reboot are clean.
 
-Test 3 is what proves the carved GitHub source is still bound to the declared target. The public `credential-profiles` target list is empty today, and the deploy template re-exports only `composed-layer`, so `nix build "$DEPLOY#checks.$SYSTEM.credential-profiles"` is not a substitute. Test 1 is not ceremony: if it comes back zero, the premise for the four policy consumers is wrong and implementation should stop rather than proceed to a vacuously passing test 2.
+Test 3 is what proves the carved GitHub source is still bound to the declared target. The public `credential-profiles` target list is empty today, and the deploy template re-exports only `composed-layer`, so `nix build "$DEPLOY#checks.$SYSTEM.credential-profiles"` is not a substitute. Test 1 is not ceremony: its tripwire firing means the premise for the four policy consumers is wrong, or the baseline already carries the change, and implementation should stop rather than proceed to a vacuously passing test 2.
 
 ## Rollback Plan
 
