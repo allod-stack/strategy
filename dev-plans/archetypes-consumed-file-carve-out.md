@@ -84,7 +84,7 @@ Require `toString ageSecret.file == toString expectedFile`; remove the old relat
 
 **The name argument is part of the exact contract.** Every carve uses the source basename. Two same-named files with different content have different store hashes; identical content may share a store object. Either way, exact expected-path equality needs no uniquification.
 
-**The regression check exercises generated values, not source spelling.** For the four policy files, assert that the generated `home.file` sources equal independently constructed single-file paths for the declared policy files. Lift the GitHub file/metadata comparison into a small local predicate that accepts a target, consumer, generated secret and secrets source; the real matcher resolves those inputs from `machineConfigurations`, and the fixture calls the same predicate directly. Evaluate `modules/github-credentials.nix` with a synthetic non-empty credential/target input, assert the exact generated file/path/owner/group/mode, and feed that result through the predicate. The module takes no `config` and uses no `mkIf`, so the fixture is direct function application — `(import ./modules/github-credentials.nix { secrets = <synthetic>; machineName = <fixture>; }) { inherit lib; }` — with no builder refactor. A same-basename, different-content carved file must be a failing mutation. Also cover an empty target list and a target with no unique agenix consumer, so the optional and fail-loud paths do not go vacuous. This catches concatenation or variable-renaming regressions that a grep for `"${secrets}/..."` would miss.
+**The regression check exercises generated values, not source spelling.** For the four policy files, assert that the generated `home.file` sources equal independently constructed single-file paths for the declared policy files. Each policy-source assertion must identify its target with the exact prefix `consumed-file-carve-out: policy source mismatch: <home.file target>`; test 5 uses that check-specific marker to distinguish the intended rejection from an unrelated parse or evaluation failure that merely echoes the sabotaged source line. Lift the GitHub file/metadata comparison into a small local predicate that accepts a target, consumer, generated secret and secrets source; the real matcher resolves those inputs from `machineConfigurations`, and the fixture calls the same predicate directly. Evaluate `modules/github-credentials.nix` with a synthetic non-empty credential/target input, assert the exact generated file/path/owner/group/mode, and feed that result through the predicate. The module takes no `config` and uses no `mkIf`, so the fixture is direct function application — `(import ./modules/github-credentials.nix { secrets = <synthetic>; machineName = <fixture>; }) { inherit lib; }` — with no builder refactor. For the invalid-consumer fixture, inspect and assert the returned `assertions` list directly; do not re-enter the NixOS module system or force its `age.secrets`, because constructing that attrset dereferences the deliberately missing consumer before the module assertion can report it. A same-basename, different-content carved file must be a failing mutation. Also cover an empty target list and a target with no unique agenix consumer, so the optional and fail-loud paths do not go vacuous. This catches concatenation or variable-renaming regressions that a grep for `"${secrets}/..."` would miss.
 
 The fixture's secret bytes must exist at evaluation time: `builtins.path` reads its source during eval, so a derivation-built fixture is import-from-derivation and fails. Build the synthetic input as the real `secrets` input with a substituted `lib` — interpolation still resolves through `outPath` — and point the consumer at an existing template ciphertext such as `secrets/agent-pr-token.age`. The same-basename wrong-content mutation then needs no new file either: `builtins.path { path = "${secrets}/secrets/forgejo-https-token-allod-dev.age"; name = "agent-pr-token.age"; }` carves different bytes under the colliding name.
 
@@ -121,8 +121,8 @@ nix-store -q --requisites "$base_out" \
 candidate_out=$(nix build --no-link --print-out-paths \
   "$DEPLOY#nixosConfigurations.$M.config.system.build.toplevel" \
   --override-input archetypes "path:$ARCHETYPES")
-if nix-store -q --requisites "$candidate_out" \
-  | grep -F -x -- "$SECRETS_STORE"; then
+candidate_requisites=$(nix-store -q --requisites "$candidate_out")
+if grep -F -x -- "$SECRETS_STORE" <<< "$candidate_requisites"; then
   echo "ERROR: candidate system closure still contains $SECRETS_STORE" >&2
   exit 1
 fi
@@ -144,12 +144,13 @@ nix build "$ARCHETYPES#checks.$SYSTEM.dev-forge-opt-out" --no-link
 
 # 5. Prove the new check rejects a real consumer regression: un-carve one policy
 #    source in place, require the check build to fail naming that target, then
-#    restore. Restore from the scratch copy, never `git checkout --`, which
-#    would clobber uncommitted implementation work. The sed assumes each carved
-#    consumer stays on one line; if the sabotage instead produces an eval error,
-#    the wrong-reason branch below catches it.
+#    restore. Restore from the mode-preserving scratch copy, never
+#    `git checkout --`, which would clobber uncommitted implementation work.
+#    The sed assumes each carved consumer stays on one line; the exact
+#    check-specific marker below keeps an eval error from masquerading as the
+#    intended rejection even if its trace echoes the sabotaged target.
 orig=$(mktemp)
-cp modules/agent-hooks.nix "$orig"
+cp -p modules/agent-hooks.nix "$orig"
 sed -i 's|home\.file\.".config/git/protected-branches"\.source = .*|home.file.".config/git/protected-branches".source = "${gitPolicySource}/git/protected-branches";|' \
   modules/agent-hooks.nix
 if out=$(nix build "$ARCHETYPES#checks.$SYSTEM.consumed-file-carve-out" --no-link 2>&1); then
@@ -159,7 +160,7 @@ if out=$(nix build "$ARCHETYPES#checks.$SYSTEM.consumed-file-carve-out" --no-lin
 fi
 mv "$orig" modules/agent-hooks.nix
 case "$out" in
-  *protected-branches*) ;;
+  *"consumed-file-carve-out: policy source mismatch: .config/git/protected-branches"*) ;;
   *)
     echo "ERROR: consumed-file check failed, but not on the sabotaged target:" >&2
     printf '%s\n' "$out" >&2
@@ -202,13 +203,14 @@ done <<< "$secret_files"
 
 # 7. Every configuration still evaluates, one process per configuration. Never
 #    run nix flake check on the composition root: it peaks near 7 GiB on an 8 GiB VM.
-for cfg in $(nix eval --json "$DEPLOY#nixosConfigurations" \
-    --apply builtins.attrNames | jq -r '.[]'); do
+configs=$(nix eval --json "$DEPLOY#nixosConfigurations" \
+  --apply builtins.attrNames | jq -er '.[]')
+while IFS= read -r cfg; do
   nix eval --raw \
     "$DEPLOY#nixosConfigurations.$cfg.config.system.build.toplevel.drvPath" \
     --override-input archetypes "path:$ARCHETYPES"
   echo
-done
+done <<< "$configs"
 ```
 
 8. **Human generated-lifecycle gate:** after merge, the human advances the private deploy pin and rebuilds a disposable dev VM that has its real GitHub target. Confirm agenix activation decrypts the declared credential to the unchanged destination and home-manager installs all four policy files with readable targets. Reboot once, then rebuild the working VM only if both activation and reboot are clean.
