@@ -177,6 +177,8 @@ The two files render the same two settings **differently**, which is a trap for 
 
 Root needs no user-side reset because Home Manager manages only the dev user; `/etc/gitconfig` is the whole of root's Git configuration.
 
+**The Nix netrc path is appended for the same reason, by the same mechanism.** `allod/vm` `modules/guest-base.nix` defines `nix.extraOptions = "netrc-file = /etc/nix/netrc"`, and `nix.extraOptions` is `types.lines`. Append `netrc-file = <root>/netrc` with `lib.mkAfter`; do not `mkForce` the option. Nix takes the last occurrence of a repeated setting, so appending is sufficient, and it leaves every inherited line intact instead of discarding an unknown set of them. Acceptance test 18 carries the full argument, including why `nix.settings.netrc-file` does not work here and what the preservation control has to prove.
+
 ### 5. Contract 14 is a property of the table, and is asserted as one
 
 No path in the table above may be equal to, or nested under, any `mountPoint` in the merged `config.microvm.volumes`. Assert it over the merged volumes list rather than over the required set the volumes module declares, so a profile that adds a volume at `/run/allod` is caught. Assert it over the whole table, not over the root alone: a root outside the volumes with one consumer path re-anchored elsewhere is the failure this is for.
