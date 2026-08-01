@@ -16,11 +16,11 @@ In scope, all in `allod/archetypes`:
 
 - `allod.microvm.guestCredentialRoot`: a typed, validated, microvm-only option (default `/run/allod/credentials`) that every consumer path derives from.
 - A closed credential-name set per machine, derived from the credentials that machine actually declares.
-- Two materializer systemd services — one for the SSH host key, one for every other credential — that load the delivered system credentials, validate each one, and write the consumer files atomically with declared owner and mode.
-- Microvm-only rewiring of six consumers: sshd's `HostKey`, the Nix netrc path, root's Git credential store, the user's Git credential store, the Forge API token path, and the Forge SSH `IdentityFile` in the generated Home Manager output. Both Git rewirings reset the inherited helper rather than adding a second one.
+- A materializer systemd service that loads the delivered system credentials, validates each one, and writes the consumer files atomically with declared owner and mode.
+- Microvm-only rewiring of six consumers: sshd's `HostKey`, the Nix netrc path, root's Git credential store, the user's Git credential store, the Forge API token path, and the Forge SSH `IdentityFile` in the generated Home Manager output.
 - Microvm-only removal of agenix wiring: no `age.secrets` definition, no `age.identityPaths` definition, no `modules/netrc.nix`.
 - Assertions over the merged configuration for every rule above, each with a paired sabotage fixture pinned to the diagnostic it names.
-- Generated-artifact checks: the rendered materializer units, their ordering edges and the `Requires=` edges their consumers carry, the rendered `sshd_config`, the rendered `nix.conf`, the generated `/etc/gitconfig` and the generated user `git/config`, the generated Home Manager `programs.ssh` result, and a closure scan of a microvm guest.
+- Generated-artifact checks: the rendered materializer unit, its ordering edges and the `Requires=` edge sshd carries, the rendered `sshd_config`, the rendered `nix.conf`, the generated `gitconfig`, the generated Home Manager `programs.ssh` result, and a closure scan of a microvm guest.
 - Whatever rework the existing `credential-profiles`, `netrc-activation` and `dev-forge-opt-out` checks need to stay true, which is to become explicitly libvirt-scoped rather than accidentally so.
 
 Out of scope, other slices of milestone 4: contract 8b's `extendModules` host integration that supplies the actual `microvm.credentialFiles` *values*; contract 15's guest networking and `microvm.socket`; contract 1's `vmFacts.<name>.runtime`; contract 18's runtime-dispatched rotation in `allod/nexus`; and the nested-boot lifecycle tests.
@@ -39,19 +39,18 @@ This is a security boundary change: it moves where a VM's private key material c
 - No public machine selects microvm, so the new path's coverage is fixtures only.
 - Rollback is a straight revert of one PR in one repo, and nothing here creates, moves or deletes key material.
 
-What keeps it R3 is what the validation cannot reach. Nothing in this slice boots a guest. Every claim about credential *receipt* — that PID 1 imports the fw_cfg credentials, that `LoadCredential=` finds them, that the materializers run early enough, that sshd starts with a `HostKey` under `/run` — is an inference from pinned upstream source, not a measurement. The parent plan's acceptance test 9 and the nested-boot slice are what settle those, and this PR must not be read as evidence for them.
+What keeps it R3 is what the validation cannot reach. Nothing in this slice boots a guest. Every claim about credential *receipt* — that PID 1 imports the fw_cfg credentials, that `LoadCredential=` finds them, that the materializer runs early enough, that sshd starts with a `HostKey` under `/run` — is an inference from pinned upstream source, not a measurement. The parent plan's acceptance test 9 and the nested-boot slice are what settle those, and this PR must not be read as evidence for them.
 
 **The gate:** no machine is enabled on the microvm runtime on the strength of this change. A guest whose materializer is subtly mis-ordered comes up with sshd failed and no way in; a guest whose materializer is mis-ordered the *other* way comes up with a working sshd and a stale or absent credential, which is worse because it looks fine. Neither is detectable from this repo's checks.
 
-**The worst credible failure after this plan's validation passes** is a microvm guest that evaluates and builds cleanly but, on a real boot, either strands with sshd failed, or starts sshd against a credential a materializer wrote with the wrong owner or mode. Both are contained to a machine nothing depends on, per the parent plan's rule that the first microvm machine is purpose-made. Neither can affect a libvirt machine, a host, or any encrypted source.
+**The worst credible failure after this plan's validation passes** is a microvm guest that evaluates and builds cleanly but, on a real boot, either strands with sshd failed, or starts sshd against a credential the materializer wrote with the wrong owner or mode. Both are contained to a machine nothing depends on, per the parent plan's rule that the first microvm machine is purpose-made. Neither can affect a libvirt machine, a host, or any encrypted source.
 
 Human scrutiny, in order:
 
-1. The two rendered materializer units: each `LoadCredential=` source path, their `Before=`/`After=`/`RequiredBy=` edges, the `Requires=` edges their consumers carry, and the exact `install`/`mv -T` invocations in their scripts.
+1. The rendered materializer unit: each `LoadCredential=` source path, its `Before=`/`After=`/`RequiredBy=` edges, the `Requires=` edge sshd carries, and the exact `install`/`mv -T` invocations in its script.
 2. The rendered `sshd_config` for a microvm fixture: exactly one `HostKey` line, pointing under the credential root, and `sshd-keygen.service` rendered as a mask.
-3. The rendered `nix.conf`: the last `netrc-file =` line, and that no unrelated `nix.extraOptions` line disappeared.
-4. The two Git helper stacks — `/etc/gitconfig` and the user's `git/config` — each resetting the inherited `store` helper before naming the runtime one.
-5. The four libvirt derivation paths.
+3. The rendered `nix.conf`: exactly one `netrc-file =` line.
+4. The four libvirt derivation paths.
 
 ## Contract contradictions found
 
