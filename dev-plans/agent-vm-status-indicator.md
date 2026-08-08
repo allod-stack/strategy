@@ -2,8 +2,8 @@
 
 ## Tracking Issue
 
-`allod/profiles#7` - https://forge.anarch.diy/allod/profiles/issues/7. Single-repo
-change; the one `allod/profiles` PR carries `Closes allod/profiles#7`.
+`allod/archetypes#7` - https://forge.anarch.diy/allod/archetypes/issues/7. Single-repo
+change; the one `allod/profiles` PR carries `Closes allod/archetypes#7`.
 
 ## Context
 
@@ -400,7 +400,7 @@ is confirmed it stays a VM-side step (Acceptance Tests 4-5).
   and merge scripts against fixtures, and run the Pi RPC render/sabotage tests on
   `allod-dev` - none of which require a rebuild.
 - No secrets, credentials, or provider API keys are involved; the tracking issue
-  (`allod/profiles#7`) already exists. No other gates apply.
+  (`allod/archetypes#7`) already exists. No other gates apply.
 
 ## Acceptance Tests
 

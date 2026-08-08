@@ -31,7 +31,7 @@ assembled from flake repos on a self-hosted Forgejo instance.
 Key repos in play:
 - `allod/profiles` - the implementation repo. Owns
   `modules/ai-agents.nix`, `hosts/dev/allod-dev/home.nix`, and the `flake.nix`
-  checks. The one implementation PR carries `Closes allod/profiles#7`.
+  checks. The one implementation PR carries `Closes allod/archetypes#7`.
 - `allod/strategy` - owns this dev plan and review prompt.
 - `allod/memory` - workspace policy, especially `dev-plans.md` risk levels and
   the generated-lifecycle review lens.
@@ -90,7 +90,7 @@ Before diving into focus areas, verify the plan includes all required sections
 from `dev-plans.md`: Tracking Issue, Goal, Scope, Risk Assessment, Interface
 Contracts, Agent Gates, Acceptance Tests, and Rollback Plan. This is intended as
 a single `allod/profiles` PR, so verify the closing-keyword story says that PR
-carries `Closes allod/profiles#7`. Agent Gates are required because live rebuild
+carries `Closes allod/archetypes#7`. Agent Gates are required because live rebuild
 and live TUI verification are human-only. Verify the plan's residual risk score
 is calibrated to generated Home Manager activation plus mutable operator state
 (`~/.claude/settings.json` and `~/.pi/agent/extensions/vm-status.ts`), not just
