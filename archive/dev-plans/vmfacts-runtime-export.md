@@ -4,7 +4,7 @@
 
 [allod/archetypes#27: Export the inventory runtime fact through vmFacts](https://forge.anarch.diy/allod/archetypes/issues/27)
 
-The remaining half of **contract 1** in [microvm-framework-adoption.md](microvm-framework-adoption.md), tracking [allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20). Inventory's half — the required fact, its enum, `lib.vmSpecsJson`, and the committed `scripts/vm-specs.json` — already landed; this slice adds the third source of truth that contract makes agree, `archetypes.vmFacts.<name>.runtime`.
+The remaining half of **contract 1** in [microvm-framework-adoption.md](../../dev-plans/microvm-framework-adoption.md), tracking [allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20). Inventory's half — the required fact, its enum, `lib.vmSpecsJson`, and the committed `scripts/vm-specs.json` — already landed; this slice adds the third source of truth that contract makes agree, `archetypes.vmFacts.<name>.runtime`.
 
 It is sequenced ahead of milestone 5 rather than bundled into milestone 4's other slices because **contract 18** makes both rotation tools dispatch on this exact attribute, so allod/nexus#21 and allod/nexus#22 cannot start until it exists. One PR in `allod/archetypes` carrying `Closes allod/archetypes#27` and `Refs allod/strategy#20`; it does not close allod/strategy#20.
 

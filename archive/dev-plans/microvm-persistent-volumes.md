@@ -4,7 +4,7 @@
 
 [allod/archetypes#25: Declare the persistent volumes a selected microvm archetype requires](https://forge.anarch.diy/allod/archetypes/issues/25)
 
-Second slice of milestone 4 in [microvm-framework-adoption.md](microvm-framework-adoption.md), tracking [allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20). It implements that plan's **contract 13** and the archetypes half of **contract 6a**, and inherits 2, 9, 14 and 21 as constraints. One PR in `allod/archetypes` carrying `Closes allod/archetypes#25` and `Refs allod/strategy#20`; it does not close allod/strategy#20.
+Second slice of milestone 4 in [microvm-framework-adoption.md](../../dev-plans/microvm-framework-adoption.md), tracking [allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20). It implements that plan's **contract 13** and the archetypes half of **contract 6a**, and inherits 2, 9, 14 and 21 as constraints. One PR in `allod/archetypes` carrying `Closes allod/archetypes#25` and `Refs allod/strategy#20`; it does not close allod/strategy#20.
 
 ## Goal
 

@@ -4,7 +4,7 @@
 
 [allod/archetypes#28: Declare the network interface a selected microvm archetype needs, and no address](https://forge.anarch.diy/allod/archetypes/issues/28)
 
-Third slice of milestone 4 in [microvm-framework-adoption.md](microvm-framework-adoption.md), tracking [allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20). It implements that plan's **contract 15** and inherits 2, 13, 16b and 21 as constraints. One PR in `allod/archetypes` carrying `Closes allod/archetypes#28` and `Refs allod/strategy#20`; it does not close allod/strategy#20.
+Third slice of milestone 4 in [microvm-framework-adoption.md](../../dev-plans/microvm-framework-adoption.md), tracking [allod/strategy#20](https://forge.anarch.diy/allod/strategy/issues/20). It implements that plan's **contract 15** and inherits 2, 13, 16b and 21 as constraints. One PR in `allod/archetypes` carrying `Closes allod/archetypes#28` and `Refs allod/strategy#20`; it does not close allod/strategy#20.
 
 ## Goal
 
