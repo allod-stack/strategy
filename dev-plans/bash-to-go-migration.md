@@ -68,9 +68,10 @@ In scope:
   implementations of the four tools, a dev-only `flake.nix` for local builds
   and checks, parameterizing existing bash test suites to accept a
   binary-under-test path, and eventual deletion of migrated bash sources.
-- `allod/profiles`: `hosts/dev/home-shared.nix` packaging switches
-  (writeShellApplication → buildGoModule per tool per phase); Go toolchain
-  added to dev VM packages.
+- `allod/archetypes`: `modules/dev-home-shared.nix` packaging switches
+  (writeShellApplication → buildGoModule per tool per phase). The dev-VM
+  wrapper moved here in the archetypes/profiles split; no Go toolchain is
+  added to VM packages (see the 2026-08-19 amendment under Sequencing).
 - `allod/nexus`: `nix/home.nix` same packaging switches for the host.
 - `allod/memory`: `vm-tooling.md` policy line for the Go toolchain;
   `allod.md` tool notes if command behavior notes change.
@@ -115,14 +116,14 @@ Human scrutiny:
   fidelity against real Forgejo responses.
 - Phase 2: `allod patch` remote protocol equivalence (SSH invocation shape,
   manifest schema, integrity failure exit codes 10-16).
-- Cutover PRs: confirm wrapper diffs in profiles/nexus touch only the
+- Cutover PRs: confirm wrapper diffs in archetypes/nexus touch only the
   intended tool and that the bash file is still shipped until Phase 4.
 - Phase 4: deletion ordering (see Sequencing) so a profiles flake update can
   never reference a deleted bash path.
 
 | PR or milestone | Risk | Reason | Human scrutiny |
 |---|---|---|---|
-| P0 toolchain + scaffold | R2 | Adds Go to dev VM closure and inert scaffolding; no tool behavior change | Package list diff; policy line in memory |
+| P0 scaffold (amended: no VM toolchain) | R1 | Inert repo scaffolding only; dev builds use the tools repo devShell | Policy line in memory |
 | P0 test parameterization | R1 | Bash suites gain env-var binary override, default unchanged | Suites still green on bash |
 | P1 forge in Go | R3 | Auth-bearing API client swap; all agent Forge ops | Token paths, scenario coverage vs docs/forge.md, live read-only diff |
 | P2 allod in Go | R3 | Daily change workflow plus patch protocol | Exit codes, begin/record/submit output, patch integrity checks |
@@ -180,8 +181,13 @@ What belongs here is what the suites cannot state:
 
 ## Sequencing
 
-1. Phase 0 lands and a human rebuilds dev VMs before any Go implementation
-   work is testable on-VM (no Go toolchain exists there today).
+1. Amendment (2026-08-19, owner ruling): no Go toolchain is added to dev
+   VMs, and no rebuild gates Go development. On-VM Go work uses the tools
+   repo devShell (`nix develop`, repo-pinned) or `nix shell nixpkgs#go`;
+   Phase 1 was implemented and validated entirely this way. A dedicated
+   go-dev VM profile is deferred until a need a shell cannot serve appears
+   (editor tooling baked into a closure, or an egress-restricted VM that
+   cannot reach the nix cache).
 2. Within each tool phase: tools implementation PR merges → profiles + nexus
    cutover PRs merge → human runs flake update + rebuild → acceptance passes
    on a rebuilt VM → next phase.
@@ -193,8 +199,8 @@ What belongs here is what the suites cannot state:
 
 ## Agent Gates
 
-- Adding Go to dev VMs is a package-policy change: human merges the profiles
-  PR and rebuilds. Blocks all on-VM Go work (Phase 0 exit gate).
+- (Removed by the 2026-08-19 amendment: no VM toolchain change exists, so
+  no gate blocks on-VM Go work.)
 - Every cutover requires a human flake update + `nixos-rebuild` on dev VMs
   and nexus. Blocks phase acceptance, which must run on the rebuilt VM.
 - The agent cannot rebuild VMs, touch privacy VMs, or verify nexus-side
@@ -207,10 +213,10 @@ What belongs here is what the suites cannot state:
 
 ## Acceptance Tests
 
-Phase 0 (on a rebuilt dev VM):
+Phase 0 (any dev VM, no rebuild):
 
 ```sh
-go version
+nix develop /home/allod/work/allod/tools -c go version   # repo-pinned toolchain
 cd /home/allod/work/allod/tools
 nix flake check
 bash tests/allod-change.sh && bash tests/allod-patch.sh   # still green on bash defaults
