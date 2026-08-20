@@ -1,0 +1,1724 @@
+<!doctype html>
+<html lang="en" data-rx-template="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>allod/archetypes PR #39 — Wire a microvm guest into the host that starts it</title>
+<style id="rx-template-css">
+:root {
+  color-scheme: light dark;
+  --rx-ink: #17202a;
+  --rx-muted: #52606b;
+  --rx-bg: #fdfcfa;
+  --rx-surface: #ffffff;
+  --rx-surface-2: #f3f6f7;
+  --rx-rule: #7a8992;
+  --rx-rule-strong: #586b76;
+  --rx-link: #075985;
+  --rx-focus: #075985;
+  --rx-good: #17623e;
+  --rx-bad: #8f2f35;
+  --rx-role-definition: #0e675e;
+  --rx-role-intuition: #0b5c97;
+  --rx-role-misconception: #73448a;
+  --rx-role-caution: #795400;
+  --rx-role-boundary: #4b5b66;
+  --rx-role-evidence: #17623e;
+  --rx-code-bg: #15222b;
+  --rx-code-ink: #edf3f6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --rx-ink: #e8edf1;
+    --rx-muted: #b5c0c7;
+    --rx-bg: #11181d;
+    --rx-surface: #182128;
+    --rx-surface-2: #202b32;
+    --rx-rule: #60727d;
+    --rx-rule-strong: #a8b7c0;
+    --rx-link: #8dc8f0;
+    --rx-focus: #8dc8f0;
+    --rx-good: #71d19e;
+    --rx-bad: #f2a0a5;
+    --rx-role-definition: #75d6ca;
+    --rx-role-intuition: #8dc8f0;
+    --rx-role-misconception: #d7a8ea;
+    --rx-role-caution: #efc36f;
+    --rx-role-boundary: #bac6cc;
+    --rx-role-evidence: #71d19e;
+    --rx-code-bg: #0c1216;
+    --rx-code-ink: #edf3f6;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-block-start: 1rem;
+}
+
+body {
+  margin: 0;
+  background: var(--rx-bg);
+  color: var(--rx-ink);
+  font: 1rem/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+a {
+  color: var(--rx-link);
+  text-underline-offset: 0.18em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--rx-focus);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+h1 {
+  max-inline-size: 24ch;
+  margin: 0.35rem 0 0.8rem;
+  font-size: clamp(2.15rem, 6vw, 4.6rem);
+  letter-spacing: -0.035em;
+}
+
+h2 {
+  margin: 3.8rem 0 0.75rem;
+  padding-block-end: 0.45rem;
+  border-block-end: 2px solid var(--rx-rule-strong);
+  font-size: clamp(1.65rem, 4vw, 2.35rem);
+}
+
+h3 {
+  margin: 2rem 0 0.55rem;
+  font-size: 1.25rem;
+}
+
+h4 {
+  margin: 1.35rem 0 0.4rem;
+  font-size: 1rem;
+}
+
+p,
+ul,
+ol,
+dl,
+blockquote {
+  margin-block: 0 1rem;
+}
+
+code,
+pre {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+:not(pre) > code {
+  padding: 0.08em 0.3em;
+  border-radius: 0.25rem;
+  background: var(--rx-surface-2);
+  font-size: 0.9em;
+}
+
+.rx-masthead,
+.rx-summary,
+.rx-toc,
+main,
+.rx-footer {
+  inline-size: min(calc(100% - 2rem), 72rem);
+  margin-inline: auto;
+}
+
+.rx-masthead {
+  padding-block: 3.5rem 1.4rem;
+}
+
+.rx-eyebrow {
+  margin: 0;
+  color: var(--rx-muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rx-lede {
+  max-inline-size: 66ch;
+  margin: 0;
+  color: var(--rx-muted);
+  font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+}
+
+.rx-cost {
+  margin: 0;
+  color: var(--rx-muted);
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.rx-objectives {
+  max-inline-size: 68ch;
+  margin-block: 0.6rem 1.3rem;
+  padding-inline-start: 1.4rem;
+}
+
+.rx-objectives li {
+  margin-block-end: 0.45rem;
+}
+
+.rx-skip {
+  position: fixed;
+  inset-block-start: 0.5rem;
+  inset-inline-start: 0.5rem;
+  z-index: 10;
+  padding: 0.55rem 0.75rem;
+  border: 2px solid var(--rx-focus);
+  background: var(--rx-bg);
+  color: var(--rx-ink);
+  translate: 0 -180%;
+}
+
+.rx-skip:focus {
+  translate: 0;
+}
+
+.rx-summary {
+  padding: 1.25rem;
+  border: 2px solid var(--rx-rule-strong);
+  border-radius: 0.8rem;
+  background: var(--rx-surface);
+}
+
+.rx-summary > h2 {
+  margin-block-start: 0;
+  font-size: 1.35rem;
+}
+
+.rx-decision {
+  max-inline-size: 78ch;
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.rx-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-card {
+  min-inline-size: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--rx-rule);
+  border-block-start: 0.3rem solid var(--rx-rule-strong);
+  border-radius: 0.55rem;
+  background: var(--rx-surface-2);
+  overflow-wrap: anywhere;
+}
+
+.rx-card h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.rx-card p:last-child {
+  margin-block-end: 0;
+}
+
+.rx-toc {
+  margin-block: 1.2rem 2rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.6rem;
+  background: var(--rx-surface);
+}
+
+.rx-toc ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.25rem 1.5rem;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
+main {
+  padding-block-end: 3rem;
+}
+
+main > section > p,
+main > section > ul,
+main > section > ol,
+main > section > dl,
+main > section > blockquote,
+main > section > details {
+  max-inline-size: 68ch;
+}
+
+.rx-claim {
+  margin-block: 0 1.3rem;
+  color: var(--rx-muted);
+  font-size: 1.08rem;
+  font-weight: 650;
+}
+
+.rx-figure {
+  container: rx-figure / inline-size;
+  max-inline-size: 100%;
+  margin: 1.35rem 0 1.6rem;
+  padding: 1rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.65rem;
+  background: var(--rx-surface);
+  break-inside: avoid;
+}
+
+.rx-caption {
+  margin-block-start: 0.9rem;
+  padding-block-start: 0.75rem;
+  border-block-start: 1px solid var(--rx-rule);
+  color: var(--rx-muted);
+  font-size: 0.92rem;
+}
+
+.rx-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  max-inline-size: none;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-stat {
+  padding: 0.85rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.5rem;
+  background: var(--rx-surface);
+}
+
+.rx-stat b,
+.rx-stat span {
+  display: block;
+}
+
+.rx-stat b {
+  font-size: 1.35rem;
+}
+
+.rx-stat span {
+  color: var(--rx-muted);
+  font-size: 0.88rem;
+}
+
+.rx-more,
+.rx-predict {
+  margin-block: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.5rem;
+  background: var(--rx-surface);
+}
+
+.rx-more > summary,
+.rx-predict > summary,
+.rx-choice > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.rx-more[open] > summary,
+.rx-predict[open] > summary,
+.rx-choice[open] > summary {
+  margin-block-end: 0.65rem;
+}
+
+.rx-more > :last-child,
+.rx-predict > :last-child,
+.rx-choice > :last-child {
+  margin-block-end: 0;
+}
+
+.rx-predict {
+  border-inline-start: 0.35rem solid var(--rx-role-intuition);
+}
+
+.rx-term {
+  font-weight: 750;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.16em;
+}
+
+.rx-termref {
+  font-weight: 650;
+}
+
+.rx-flow {
+  --rx-flow-gap: 2.25rem;
+  --rx-flow-axis: column;
+  --rx-flow-glyph: "\2193";
+  --rx-flow-conn-inline-start: 0;
+  --rx-flow-conn-inline-end: auto;
+  --rx-flow-conn-block-start: auto;
+  --rx-flow-conn-block-end: 100%;
+  --rx-flow-conn-inline-size: 100%;
+  --rx-flow-conn-block-size: var(--rx-flow-gap);
+  --rx-flow-node-flex: 0 1 auto;
+  display: flex;
+  flex-direction: var(--rx-flow-axis);
+  align-items: stretch;
+  gap: var(--rx-flow-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-flow > li {
+  position: relative;
+  flex: var(--rx-flow-node-flex);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 2px solid var(--rx-rule-strong);
+  border-radius: 0.6rem;
+  background: var(--rx-surface-2);
+  overflow-wrap: anywhere;
+}
+
+.rx-flow > li > b,
+.rx-flow > li > span {
+  display: block;
+}
+
+.rx-flow > li > span {
+  margin-block-start: 0.2rem;
+  color: var(--rx-muted);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.rx-flow > li + li::before {
+  content: var(--rx-flow-glyph);
+  position: absolute;
+  inset-inline-start: var(--rx-flow-conn-inline-start);
+  inset-inline-end: var(--rx-flow-conn-inline-end);
+  inset-block-start: var(--rx-flow-conn-block-start);
+  inset-block-end: var(--rx-flow-conn-block-end);
+  inline-size: var(--rx-flow-conn-inline-size);
+  block-size: var(--rx-flow-conn-block-size);
+  display: grid;
+  place-items: center;
+  color: var(--rx-rule-strong);
+  font-size: 1.15rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+@container rx-figure (min-inline-size: 34rem) {
+  .rx-flow[data-steps="2"],
+  .rx-flow[data-steps="3"],
+  .rx-flow[data-steps="4"] {
+    --rx-flow-axis: row;
+    --rx-flow-glyph: "\2192";
+    --rx-flow-conn-inline-start: auto;
+    --rx-flow-conn-inline-end: 100%;
+    --rx-flow-conn-block-start: 0;
+    --rx-flow-conn-block-end: auto;
+    --rx-flow-conn-inline-size: var(--rx-flow-gap);
+    --rx-flow-conn-block-size: 100%;
+    --rx-flow-node-flex: 1 1 0;
+  }
+
+  [dir="rtl"] .rx-flow[data-steps="2"],
+  [dir="rtl"] .rx-flow[data-steps="3"],
+  [dir="rtl"] .rx-flow[data-steps="4"] {
+    --rx-flow-glyph: "\2190";
+  }
+}
+
+@container rx-figure (min-inline-size: 48rem) {
+  .rx-flow[data-steps="5"] {
+    --rx-flow-axis: row;
+    --rx-flow-glyph: "\2192";
+    --rx-flow-conn-inline-start: auto;
+    --rx-flow-conn-inline-end: 100%;
+    --rx-flow-conn-block-start: 0;
+    --rx-flow-conn-block-end: auto;
+    --rx-flow-conn-inline-size: var(--rx-flow-gap);
+    --rx-flow-conn-block-size: 100%;
+    --rx-flow-node-flex: 1 1 0;
+  }
+
+  [dir="rtl"] .rx-flow[data-steps="5"] {
+    --rx-flow-glyph: "\2190";
+  }
+}
+
+.rx-branch {
+  display: grid;
+  gap: 1rem;
+}
+
+.rx-branch-test {
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 2px solid var(--rx-rule-strong);
+  border-radius: 0.55rem;
+  background: var(--rx-surface-2);
+  font-weight: 750;
+}
+
+.rx-branch-arms {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-branch-arm {
+  position: relative;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0.75rem 0.8rem 0.75rem 2.35rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.5rem;
+  background: var(--rx-surface);
+  overflow-wrap: anywhere;
+}
+
+.rx-branch-arm::before {
+  content: "\21b3";
+  position: absolute;
+  inset-block-start: 0.72rem;
+  inset-inline-start: 0.75rem;
+  color: var(--rx-rule-strong);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.rx-arm-label {
+  display: block;
+  margin-block-end: 0.2rem;
+  text-transform: uppercase;
+}
+
+@container rx-figure (min-inline-size: 38rem) {
+  .rx-branch-arms {
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 1rem;
+    padding-block-start: 1.5rem;
+  }
+
+  .rx-branch-arm {
+    padding: 0.85rem;
+  }
+
+  .rx-branch-arm::before {
+    content: "\2193";
+    inset-block-start: auto;
+    inset-block-end: 100%;
+    inset-inline-start: 0;
+    inline-size: 100%;
+    block-size: 1.5rem;
+    display: grid;
+    place-items: center;
+  }
+}
+
+.rx-lanes {
+  display: grid;
+  gap: 1rem;
+}
+
+.rx-lane {
+  display: grid;
+  gap: 0.65rem;
+  min-inline-size: 0;
+  padding-block-end: 1rem;
+  border-block-end: 1px solid var(--rx-rule);
+}
+
+.rx-lane:last-child {
+  padding-block-end: 0;
+  border-block-end: 0;
+}
+
+.rx-lane-label {
+  margin: 0;
+  align-self: center;
+  color: var(--rx-muted);
+  font-size: 0.92rem;
+}
+
+@container rx-figure (min-inline-size: 44rem) {
+  .rx-lane {
+    grid-template-columns: 9rem minmax(0, 1fr);
+    align-items: center;
+  }
+}
+
+.rx-sequence {
+  margin-block: 1.5rem;
+}
+
+.rx-seq-steps {
+  margin: 0;
+  padding-inline-start: 1.4rem;
+}
+
+.rx-seq-step {
+  padding: 0.25rem 0 1.2rem 0.45rem;
+}
+
+.rx-seq-title {
+  margin-block-start: 0;
+}
+
+.rx-seq-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  margin-block: 0.8rem 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.5rem;
+  background: var(--rx-surface);
+}
+
+.rx-seq-controls button {
+  min-block-size: 2.5rem;
+  padding: 0.45rem 0.75rem;
+  border: 2px solid var(--rx-rule-strong);
+  border-radius: 0.4rem;
+  background: var(--rx-bg);
+  color: var(--rx-ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rx-seq-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.rx-seq-prev,
+.rx-seq-next,
+.rx-seq-all {
+  touch-action: manipulation;
+}
+
+.rx-seq-status {
+  margin: 0 0 0 auto;
+  color: var(--rx-muted);
+  font-size: 0.9rem;
+}
+
+html[data-rx-js="on"] .rx-sequence[data-rx-mode="step"] .rx-seq-step:not([data-rx-current="true"]) {
+  display: none;
+}
+
+.rx-codewalk {
+  min-inline-size: 0;
+}
+
+.rx-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border-radius: 0.5rem;
+}
+
+.rx-code {
+  min-inline-size: max-content;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--rx-rule-strong);
+  border-radius: 0.5rem;
+  background: var(--rx-code-bg);
+  color: var(--rx-code-ink);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.rx-code > code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+}
+
+.rx-code[data-lang="text"] > code {
+  white-space: pre-wrap;
+}
+
+.rx-hl {
+  border-block-end: 2px solid #f0c36a;
+  background: #3d351f;
+  color: inherit;
+}
+
+.rx-hl[data-rx-lit="true"] {
+  outline: 3px solid #f0c36a;
+  outline-offset: 1px;
+}
+
+.rx-elide {
+  color: #b8c5cc;
+  font-style: italic;
+}
+
+.rx-notes {
+  display: grid;
+  gap: 0.55rem;
+  margin: 1rem 0 0;
+  padding-inline-start: 1.4rem;
+}
+
+.rx-note {
+  padding: 0.55rem 0.65rem;
+  border-inline-start: 0.25rem solid var(--rx-rule);
+}
+
+.rx-note[data-rx-lit="true"] {
+  border-inline-start-color: var(--rx-focus);
+  background: var(--rx-surface-2);
+}
+
+.rx-callout {
+  --rx-callout-rule: var(--rx-rule-strong);
+  max-inline-size: 72ch;
+  margin-block: 1.2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--rx-rule);
+  border-inline-start: 0.4rem solid var(--rx-callout-rule);
+  border-radius: 0.45rem;
+  background: var(--rx-surface);
+}
+
+.rx-callout[data-role="definition"] { --rx-callout-rule: var(--rx-role-definition); }
+.rx-callout[data-role="intuition"] { --rx-callout-rule: var(--rx-role-intuition); }
+.rx-callout[data-role="misconception"] { --rx-callout-rule: var(--rx-role-misconception); }
+.rx-callout[data-role="caution"] { --rx-callout-rule: var(--rx-role-caution); }
+.rx-callout[data-role="boundary"] { --rx-callout-rule: var(--rx-role-boundary); }
+.rx-callout[data-role="evidence"] { --rx-callout-rule: var(--rx-role-evidence); }
+
+.rx-callout-label {
+  margin: 0 0 0.3rem;
+  color: var(--rx-callout-rule);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.rx-callout > :last-child {
+  margin-block-end: 0;
+}
+
+.rx-compare {
+  min-inline-size: 42rem;
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+
+.rx-compare caption {
+  margin-block-end: 0.55rem;
+  color: var(--rx-muted);
+  font-weight: 700;
+  text-align: start;
+}
+
+.rx-compare th,
+.rx-compare td {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--rx-rule);
+  text-align: start;
+  vertical-align: top;
+}
+
+.rx-compare th {
+  background: var(--rx-surface-2);
+}
+
+.rx-mark {
+  font-weight: 750;
+}
+
+.rx-mark[data-state="yes"] { color: var(--rx-good); }
+.rx-mark[data-state="no"] { color: var(--rx-bad); }
+.rx-mark[data-state="partial"] { color: var(--rx-role-caution); }
+
+.rx-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-timeline > li {
+  --rx-timeline-state: var(--rx-rule-strong);
+  position: relative;
+  min-block-size: 4rem;
+  padding: 0 0 1.4rem 2.3rem;
+}
+
+.rx-timeline > li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 1rem;
+  inset-block-end: 0;
+  inset-inline-start: 0.52rem;
+  inline-size: 2px;
+  background: var(--rx-rule);
+}
+
+.rx-timeline > li::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0.35rem;
+  inset-inline-start: 0.15rem;
+  inline-size: 0.8rem;
+  block-size: 0.8rem;
+  border: 2px solid var(--rx-bg);
+  border-radius: 50%;
+  background: var(--rx-timeline-state);
+  outline: 2px solid var(--rx-timeline-state);
+}
+
+.rx-timeline > li[data-state="done"] { --rx-timeline-state: var(--rx-good); }
+.rx-timeline > li[data-state="now"] { --rx-timeline-state: var(--rx-role-intuition); }
+.rx-timeline > li[data-state="blocked"] { --rx-timeline-state: var(--rx-bad); }
+.rx-timeline > li[data-state="planned"] { --rx-timeline-state: var(--rx-muted); }
+.rx-timeline > li[data-state="correction"] { --rx-timeline-state: var(--rx-role-caution); }
+.rx-timeline > li[data-state="dead-end"] { --rx-timeline-state: var(--rx-role-misconception); }
+
+.rx-timeline h4 {
+  margin: 0;
+}
+
+.rx-state {
+  margin: 0.1rem 0 0.25rem;
+  color: var(--rx-timeline-state);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rx-quiz-item {
+  max-inline-size: 72ch;
+  margin-block: 1.3rem;
+  padding: 1rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.6rem;
+  background: var(--rx-surface);
+}
+
+.rx-quiz-item h3 {
+  margin-block-start: 0;
+}
+
+.rx-choices {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-choice {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.45rem;
+  background: var(--rx-bg);
+}
+
+.rx-choice[data-rx-selected="true"][data-correct="true"] {
+  border: 2px solid var(--rx-good);
+}
+
+.rx-choice[data-rx-selected="true"][data-correct="false"] {
+  border: 2px solid var(--rx-bad);
+}
+
+.rx-quiz-item[data-rx-answered="true"] .rx-choice[data-correct="true"] {
+  border: 2px solid var(--rx-good);
+}
+
+.rx-quiz-result {
+  min-block-size: 1.6rem;
+  margin: 0.75rem 0 0;
+  font-weight: 750;
+}
+
+.rx-quiz-score {
+  max-inline-size: 72ch;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--rx-rule-strong);
+  border-radius: 0.45rem;
+  background: var(--rx-surface-2);
+  font-weight: 750;
+}
+
+.rx-footer {
+  padding-block: 1.4rem 3rem;
+  border-block-start: 2px solid var(--rx-rule-strong);
+}
+
+.rx-provenance {
+  display: grid;
+  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
+  gap: 0.45rem 1rem;
+  margin: 0;
+}
+
+.rx-provenance dt {
+  color: var(--rx-muted);
+  font-weight: 750;
+}
+
+.rx-provenance dd {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rx-provenance dd ul {
+  margin-block: 0;
+  padding-inline-start: 1.2rem;
+}
+
+.rx-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+
+.rx-preview-grid > .rx-figure {
+  margin: 0;
+}
+
+.rx-preview-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  padding-block-end: 0.5rem;
+}
+
+.rx-preview {
+  max-inline-size: none;
+}
+
+.rx-preview[data-width="320"] { inline-size: 20rem; }
+.rx-preview[data-width="375"] { inline-size: 23.4375rem; }
+.rx-preview[data-width="768"] { inline-size: 48rem; }
+.rx-preview[data-width="1280"] { inline-size: 80rem; }
+
+.rx-preview-label {
+  margin: 0 0 0.6rem;
+  color: var(--rx-muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+@media (max-width: 38rem) {
+  .rx-masthead,
+  .rx-summary,
+  .rx-toc,
+  main,
+  .rx-footer {
+    inline-size: min(calc(100% - 1rem), 72rem);
+  }
+
+  .rx-masthead {
+    padding-block-start: 2.2rem;
+  }
+
+  .rx-summary,
+  .rx-figure {
+    padding: 0.75rem;
+  }
+
+  .rx-provenance {
+    grid-template-columns: 1fr;
+  }
+
+  .rx-provenance dd + dt {
+    margin-block-start: 0.45rem;
+  }
+
+  .rx-seq-status {
+    flex-basis: 100%;
+    margin-inline-start: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  :root {
+    color-scheme: light;
+    --rx-ink: #17202a;
+    --rx-muted: #52606b;
+    --rx-bg: #ffffff;
+    --rx-surface: #ffffff;
+    --rx-surface-2: #f3f6f7;
+    --rx-rule: #9ca9b0;
+    --rx-rule-strong: #43545e;
+    --rx-link: #17202a;
+    --rx-focus: #17202a;
+    --rx-good: #17623e;
+    --rx-bad: #8f2f35;
+    --rx-role-definition: #0e675e;
+    --rx-role-intuition: #0b5c97;
+    --rx-role-misconception: #73448a;
+    --rx-role-caution: #795400;
+    --rx-role-boundary: #4b5b66;
+    --rx-role-evidence: #17623e;
+    --rx-code-bg: #f3f6f7;
+    --rx-code-ink: #17202a;
+  }
+
+  body {
+    font-size: 10.5pt;
+  }
+
+  .rx-skip,
+  .rx-toc,
+  .rx-seq-controls {
+    display: none !important;
+  }
+
+  .rx-masthead,
+  .rx-summary,
+  main,
+  .rx-footer {
+    inline-size: 100%;
+  }
+
+  details:not([open]) > *:not(summary) {
+    display: block;
+  }
+
+  details::details-content {
+    content-visibility: visible;
+    display: block;
+  }
+
+  .rx-seq-step {
+    display: list-item !important;
+  }
+
+  .rx-figure,
+  .rx-callout,
+  .rx-quiz-item {
+    break-inside: avoid;
+  }
+
+  a {
+    color: inherit;
+  }
+}
+</style>
+</head>
+<body>
+<a class="rx-skip" href="#rx-main">Skip to content</a>
+<header class="rx-masthead">
+  <p class="rx-eyebrow">allod/archetypes · pull request #39</p>
+  <h1>A hypervisor now re-evaluates each microVM guest it starts, filling in the credential file paths the guest declared but never supplied</h1>
+  <p class="rx-lede">Two halves of a credential-delivery design lived in separate repositories with nothing between them: a guest listed the credentials it expects and left the values empty, while the host code asserted that both lists agree without ever being handed a guest. This change adds the connecting module, two evaluation-time checks, and one dependency-pinning line. It accepts host wiring and generated systemd and QEMU text that no machine has executed, because nothing in this fleet selects the microVM runtime yet.</p>
+  <p class="rx-cost">Summary: 1 minute. Concepts, enough to judge the design: 6 minutes. Full mechanism and receipts: 17 minutes.</p>
+</header>
+
+<section class="rx-summary" aria-labelledby="rx-summary-h">
+  <h2 id="rx-summary-h">If you read nothing else</h2>
+  <p class="rx-decision">Approving this accepts new host-side wiring, two evaluation-time checks, and one dependency redirect; it starts no virtual machine, moves no credential, and changes no existing machine&apos;s build output.</p>
+  <ul class="rx-summary-cards">
+    <li class="rx-card" data-q="what-changes-now"><h3>What merging changes now</h3><p>Nothing that runs. All four machine configurations this repository exports produce byte-identical build recipes before and after; I evaluated both commits.</p></li>
+    <li class="rx-card" data-q="what-exists-after"><h3>What exists afterward</h3><p>A hypervisor whose fleet contains a microVM machine composes two extra modules, re-evaluates each guest with its credential and control-socket paths filled in, and starts that evaluation.</p></li>
+    <li class="rx-card" data-q="evidence"><h3>What the tests actually prove</h3><p>That three synthetic hypervisors evaluate to buildable systems, and that the generated systemd text and QEMU arguments carry paths derived from the host&apos;s own setting. Nine deliberate breakages each produce their own named error.</p></li>
+    <li class="rx-card" data-q="residual-risk"><h3>What is still unproven</h3><p>Everything that only happens at runtime: whether a host rebuild leaves a running guest alone, whether the launcher and the generated unit cooperate, and whether the fleet-wide wiring rule ever refuses anything here.</p></li>
+    <li class="rx-card" data-q="how-to-reject"><h3>How to reject or roll back</h3><p>Revert the branch. No host was rebuilt, the change contains no credential source, and it touched nothing outside this repository.</p></li>
+  </ul>
+</section>
+
+<nav class="rx-toc" aria-label="Contents"><ol>
+  <li><a href="#objectives">What you can do after reading</a></li>
+  <li><a href="#microvm-background">How microvm.nix starts a guest, and where this framework&apos;s two halves live</a></li>
+  <li><a href="#assertions">Why a NixOS assertion does nothing until the machine is built</a></li>
+  <li><a href="#host-composition">Which guests a hypervisor composes, and the exactly-once fleet rule</a></li>
+  <li><a href="#join-module">The join module: credential paths, the control socket, and the overlap it refuses</a></li>
+  <li><a href="#restart-autostart">The restart and autostart settings on a wired guest</a></li>
+  <li><a href="#evidence">What the two new checks run, and what they leave untested</a></li>
+  <li><a href="#rx-provenance">Provenance</a></li>
+</ol></nav>
+
+<main id="rx-main">
+  <section id="objectives" aria-labelledby="objectives-h" data-layer="concept">
+    <h2 id="objectives-h">What you can do after reading</h2>
+    <p class="rx-claim">These seven abilities bound the report: every section, figure, and quiz item serves at least one.</p>
+    <ol class="rx-objectives">
+      <li id="obj-1">Follow one credential from the name the guest declares, through the host setting that turns it into a path, into the re-evaluated guest, and out as a QEMU argument.</li>
+      <li id="obj-2">Predict what a hypervisor builds with and without a microVM machine in its fleet, and say why an existing libvirt-only hypervisor produces the same build recipe.</li>
+      <li id="obj-3">Explain why the restart setting is left alone, what the system-switching program does when the key is missing, and why the check reads generated text.</li>
+      <li id="obj-4">Diagnose a host credential directory placed under the fixed control-socket directory: which checks still pass, which program destroys what, and which repository owns the guard.</li>
+      <li id="obj-5">Decide whether constraining the exported machine configurations, rather than the builder argument, closes the gap where a deployment quietly starts no guests.</li>
+      <li id="obj-6">Say why every positive test fixture is forced to a build recipe, and what the earlier check waved through.</li>
+      <li id="obj-7">Name the failures this change cannot observe, and weigh what that leaves on the merge decision.</li>
+    </ol>
+  </section>
+
+  <section id="microvm-background" aria-labelledby="microvm-background-h" data-layer="concept" data-objective="obj-1 obj-3">
+    <h2 id="microvm-background-h">How microvm.nix starts a guest, and where this framework&apos;s two halves live</h2>
+    <p class="rx-claim">A microVM guest is a complete machine description computed on the host before anything runs, which lets the host fill in facts only the host knows.</p>
+
+    <p>This change is written in Nix, whose programs compute build recipes rather than run anything. Evaluating an expression produces a <dfn class="rx-term" id="term-derivation">derivation</dfn>: a description of how to build one result, named by a content-addressed path such as <code>/nix/store/66i3c5xm…-nixos-system-allod-dev</code>. Identical output means an identical path, so comparing paths answers whether anything changed. NixOS builds a whole Linux machine this way: fragments called modules merge into one settings tree whose top is a <a class="rx-termref" href="#term-derivation">derivation</a> named <code>system.build.toplevel</code>.</p>
+
+    <p>microvm.nix, the outside project, ships two independent halves: a guest half that makes an ordinary NixOS machine bootable as a lightweight virtual machine, and a host half that generates the systemd services starting and stopping each guest. This repository, <code>allod/archetypes</code>, used the guest half and never the host half.</p>
+
+    <aside class="rx-callout" data-role="definition">
+      <p class="rx-callout-label">Definition</p>
+      <p>A hypervisor is the physical machine that runs virtual machines; a guest is one of the machines it runs. Here the example hypervisor is <code>nexus</code> and the example guest is <code>allod-dev</code>.</p>
+    </aside>
+
+    <h3>The three ways a host can name a guest</h3>
+    <p>microvm.nix lets a hypervisor describe each guest under <code>microvm.vms.&lt;name&gt;</code> and accepts three answers for what that guest is. Upstream computes some of its own defaults from which one you used.</p>
+
+    <figure class="rx-figure" data-objective="obj-1 obj-3">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="The three shapes microvm.nix accepts for a guest">
+        <table class="rx-compare">
+          <caption>The shape a host picks decides who evaluates the guest, and silently decides the restart default too.</caption>
+          <thead>
+            <tr><th scope="col">Shape</th><th scope="col">What you hand the host</th><th scope="col">Who evaluates the guest</th><th scope="col">Restart-on-change default</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row"><code>config</code></th><td>Fragments, not yet evaluated</td><td>The host, during its own evaluation</td><td><span class="rx-mark" data-state="yes">true</span></td></tr>
+            <tr><th scope="row"><code>flake</code></th><td>A reference to another project</td><td>That other project</td><td><span class="rx-mark" data-state="no">false</span></td></tr>
+            <tr><th scope="row"><code>evaluatedConfig</code></th><td>An already-evaluated guest system</td><td>Whoever evaluated it beforehand</td><td><span class="rx-mark" data-state="no">false</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption class="rx-caption">This change uses the third row exclusively, and the owner review kept that row&apos;s restart default.</figcaption>
+    </figure>
+
+    <p>This repository already exports every machine as a fully evaluated NixOS system, so <code>evaluatedConfig</code> fits: the guest is evaluated once, and both the flake output and the hypervisor point at that result.</p>
+
+    <h3>Extending an already-evaluated guest</h3>
+    <p>If the guest is already evaluated when the host sees it, how does the host add anything? nixpkgs attaches <code>extendModules</code> to every evaluated NixOS system: call it with extra fragments and it re-runs the evaluation with those fragments added, handing back a second, separate system. The original is untouched.</p>
+
+    <h3>How a credential actually reaches the guest</h3>
+    <p>QEMU has a small channel for handing a virtual machine data at boot, <code>fw_cfg</code>, short for firmware configuration. systemd inside the guest reads its entries and presents them as credentials: short-lived files in a memory-only directory. Upstream builds one QEMU argument per entry in the guest&apos;s <code>microvm.credentialFiles</code> setting.</p>
+
+    <figure class="rx-figure rx-codewalk" id="cw-fwcfg" data-objective="obj-1">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="One credential argument on the generated QEMU command line">
+        <pre class="rx-code" data-lang="text"><code><mark class="rx-hl" id="cw-fwcfg-h1">-fw_cfg 'name=opt/io.systemd.credentials/ssh-host-key,file=/run/allod/microvm/active/allod-dev/ssh-host-key'</mark>
+<mark class="rx-hl" id="cw-fwcfg-h2">-qmp unix:/run/allod/microvm-qmp/allod-dev/control.sock,server,nowait</mark></code></pre>
+      </div>
+      <ol class="rx-notes">
+        <li class="rx-note" data-hl="cw-fwcfg-h1"><a href="#cw-fwcfg-h1">The credential</a> — the name after <code>io.systemd.credentials/</code> is what the guest asks for; the path after <code>file=</code> is a host directory the guest never sees and must not guess.</li>
+        <li class="rx-note" data-hl="cw-fwcfg-h2"><a href="#cw-fwcfg-h2">The control socket</a> — a second host path, used to tell a running machine to shut down cleanly. QEMU calls it the QMP socket; the same new module sets it.</li>
+      </ol>
+      <figcaption class="rx-caption">Both lines come from the launch script this repository&apos;s own check produced, not a reconstruction.</figcaption>
+    </figure>
+
+    <p>This framework&apos;s guest half, <code>modules/microvm-credentials.nix</code>, derives the closed list of credential names from what the machine declares and supplies no values. The host half lives in <code>allod/nexus</code>, which owns <code>nexus.microvm.hostPlaintextRoot</code>: one host directory on a small memory-backed filesystem where the launcher stages each machine&apos;s credentials before starting it.</p>
+
+    <h3>One pinned copy of microvm.nix instead of two</h3>
+    <p>A Nix flake pins the revision of every project it depends on, and because dependencies have dependencies, one project can appear twice at two revisions. This repository reached microvm.nix through <code>allod/vm</code>, and again through <code>allod/nexus</code>, which resolved a second <code>allod/vm</code>; the two copies agreed by coincidence. The one-line <code>inputs.vm.follows = &quot;vm&quot;</code> makes the resolver reuse the first: 28 lock entries become 18, no revision moved. A future update cannot put the host half on a different revision than the guest half.</p>
+  </section>
+
+  <section id="assertions" aria-labelledby="assertions-h" data-layer="concept" data-objective="obj-6">
+    <h2 id="assertions-h">Why a NixOS assertion does nothing until the machine is built</h2>
+    <p class="rx-claim">A NixOS module can register a rule that looks like a check and is not one, and this change&apos;s most important test finding is the consequence.</p>
+
+    <p>A module can register an assertion: a condition plus a message. Evaluation appends it to a list under <code>config.assertions</code> and stops. One place in nixpkgs — the code producing <code>system.build.toplevel</code> — walks the list and turns failures into an error. Read any other setting and the list is never walked; Nix evaluates lazily, so reading one setting forces only what it needs.</p>
+
+    <details class="rx-predict">
+      <summary>Predict: a check reads settings off a synthetic hypervisor and compares the values it finds. What can that check not notice?</summary>
+      <p>It cannot notice that the configuration could never be built. A failing assertion stays a quiet entry in a list nobody walks, which is what happened here: an earlier version of this check passed on fixtures no host could build, because <code>allod/nexus</code> rejects upstream&apos;s default control-socket path and nothing set a valid one. The repair, labelled finding 0, forces <code>system.build.toplevel.drvPath</code> on every positive fixture and reports the failed assertions.</p>
+    </details>
+
+    <p>Forcing the build recipe is cheap in time and expensive in memory — each hypervisor fixture holds roughly a gigabyte of live data — which is why the second new check is a separate file.</p>
+
+    <article class="rx-quiz-item" id="q1" data-concept="assertions-need-toplevel" data-objective="obj-6">
+      <h3>A test builds a synthetic hypervisor, reads five settings off it, and finds all five correct. One module in that configuration registers an assertion that fails. What does the test report?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="believes an assertion is evaluated where it is declared"><summary>A. An error naming the assertion, because assertions are raised where they are declared</summary><p>Registering an assertion only appends it to a list; nothing inspects that list where it is declared.</p></details></li>
+        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="assumes reading any setting forces the whole configuration"><summary>B. An error, because reading a setting forces the merged configuration and its assertions</summary><p>Nix evaluates lazily, and the assertion list is a separate branch that stays uncomputed.</p></details></li>
+        <li><details class="rx-choice" name="q1" data-correct="true"><summary>C. Five correct settings and no error, on a configuration no host could actually build</summary><p>Only the code producing <code>system.build.toplevel</code> walks that list, so a test that never asks for it passes on an unbuildable configuration.</p></details></li>
+        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="confuses an option type error with an assertion"><summary>D. A type error, because a failing assertion invalidates the surrounding settings</summary><p>Type checking and assertions are separate mechanisms; an assertion is ordinary data, not a constraint.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+  </section>
+
+  <section id="host-composition" aria-labelledby="host-composition-h" data-layer="mechanism" data-objective="obj-2 obj-5">
+    <h2 id="host-composition-h">Which guests a hypervisor composes, and the exactly-once fleet rule</h2>
+    <p class="rx-claim">A hypervisor composes the microVM host machinery only when its fleet contains a microVM machine, and a new check refuses any fleet where a declared microVM machine is started by other than exactly one host.</p>
+
+    <p>Machine facts come from a fourth repository, <code>allod/inventory</code>, as plain data. Each guest entry carries a <code>runtime</code> fact of either <code>libvirt</code> or <code>microvm</code>; hypervisor entries carry none, and inventory rejects one that does. The example fleet is <code>allod-dev</code> and <code>privacy-1</code> on libvirt plus the hypervisor <code>nexus</code>. Nothing selects <code>microvm</code>.</p>
+
+    <p>The hypervisor builder, <code>mkHypervisor</code>, gained an argument <code>microvmGuests</code>: the guests this host starts, keyed by machine name. Its default is computed in three named steps: <code>microvmMachineNames</code> filters inventory data for microVM entries, <code>microvmGuestsFor</code> maps those names to the evaluated configurations this flake exports, and <code>builtins.removeAttrs</code> drops the host&apos;s own name. Nothing recurses: the names come from plain data holding no evaluated configuration, and a guest builder reads nothing back from a hypervisor.</p>
+
+    <h3>Gating on the module list rather than inside a module</h3>
+    <p>With an empty guest set the hypervisor&apos;s list of fragments is exactly what it was. Otherwise two are appended: <code>nexus.nixosModules.microvmHost</code>, <code>allod/nexus</code>&apos;s policy layer around upstream&apos;s host half, and the new join module.</p>
+
+    <figure class="rx-figure rx-codewalk" id="cw-gate" data-objective="obj-2">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="The conditional composition in mkHypervisor">
+        <pre class="rx-code" data-lang="nix"><code>        ]
+<span class="rx-elide">⋯ comment explaining the gate omitted ⋯</span>
+<mark class="rx-hl" id="cw-gate-h1">        ++ lib.optionals (microvmGuests != { }) [</mark>
+<mark class="rx-hl" id="cw-gate-h2">          nexus.nixosModules.microvmHost</mark>
+<mark class="rx-hl" id="cw-gate-h3">          (microvmJoinModule microvmGuests)</mark>
+        ]
+        ++ definition.nixosModules;</code></pre>
+      </div>
+      <ol class="rx-notes">
+        <li class="rx-note" data-hl="cw-gate-h1"><a href="#cw-gate-h1">The gate</a> — <code>lib.optionals</code> returns the two-element list or an empty one, so the modules are absent rather than present-but-disabled.</li>
+        <li class="rx-note" data-hl="cw-gate-h2"><a href="#cw-gate-h2">The host runtime</a> — importing this brings a <code>microvm</code> user and group, a <code>microvm</code> command, memory deduplication on by default, and the whole <code>microvm</code> settings tree.</li>
+        <li class="rx-note" data-hl="cw-gate-h3"><a href="#cw-gate-h3">The join</a> — the new module, applied to the guest set the builder was given.</li>
+      </ol>
+      <figcaption class="rx-caption">Omitting a module, rather than disabling it from inside, keeps a libvirt-only hypervisor free of settings it would otherwise answer for.</figcaption>
+    </figure>
+
+    <p>The alternative — importing always and wrapping the contents in a conditional — fails. A conditional defers a value but still produces a definition, and several of these settings are declared only by the gated modules, so a libvirt-only hypervisor gets an unknown-option error. Gating on the list also gives the stronger property: an unchanged module list, an unchanged build recipe.</p>
+
+    <aside class="rx-callout" data-role="evidence">
+      <p class="rx-callout-label">Evidence</p>
+      <p>I evaluated <code>system.build.toplevel.drvPath</code> for all four exported configurations at base <code>c02e4e9</code> and head <code>59cfc2c</code>. All four match exactly, including the hypervisor. No machine here selects the microVM runtime, so the gate never opens.</p>
+    </aside>
+
+    <h3>Why the free builder argument needed a second check</h3>
+    <p>The <code>microvmGuests</code> argument is deliberately overridable, because no inventory machine declares the microVM runtime and a test has no other way to drive the real builder with a real guest. The cost: builder arguments merge from profile data, so a deployment can hand a hypervisor an empty guest set for a machine inventory calls <code>microvm</code>. Nothing starts it, and every check supplying its own guests stays green.</p>
+
+    <details class="rx-predict">
+      <summary>Predict: the owner rejected &quot;record the gap and move on&quot;. Why constrain the exported machine configurations rather than reject an empty guest set in the builder?</summary>
+      <p>Because rejecting an empty guest set would break the seam the tests depend on, and would constrain the wrong object anyway. A hypervisor with no microVM guests is legitimate — every host in this fleet is one today. A deployment consumes the exported machine configurations, so that is where the rule belongs: the new check walks every exported hypervisor, reads back the guest set it composed, and requires the union to be exactly the machines inventory gives the microVM runtime.</p>
+    </details>
+
+    <figure class="rx-figure" data-objective="obj-5">
+      <div class="rx-branch">
+        <p class="rx-branch-test">For one machine whose inventory entry selects the microVM runtime, how many exported hypervisors composed it?</p>
+        <ul class="rx-branch-arms" data-arms="3">
+          <li class="rx-branch-arm"><b class="rx-arm-label">none</b>Refused, naming the empty-guest-set path through profile data.</li>
+          <li class="rx-branch-arm"><b class="rx-arm-label">exactly one</b>Accepted. This is the only shape the rule allows.</li>
+          <li class="rx-branch-arm"><b class="rx-arm-label">two or more</b>Refused, naming the hosts and the missing fact that would assign a guest to one.</li>
+        </ul>
+      </div>
+      <figcaption class="rx-caption">The third arm refuses a fleet that would otherwise ship: with two hypervisors the default hands every guest to both, and two hosts starting one machine share its state directory and control socket.</figcaption>
+    </figure>
+
+    <p>The diagnostic states the remediation: such a fleet must name the host it means by passing each hypervisor an explicit guest set. No inventory-level way to express that assignment exists today.</p>
+
+    <article class="rx-quiz-item" id="q2" data-concept="module-list-gating" data-objective="obj-2">
+      <h3>An engineer proposes replacing the list gate with an always-imported module whose body is wrapped in a conditional on the guest set. What happens to the existing libvirt-only hypervisor?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="assumes a deferred value equals an absent definition"><summary>A. Nothing changes, because a false condition means the settings are never defined</summary><p>A conditional defers the value but still contributes a definition, whether or not the condition holds.</p></details></li>
+        <li><details class="rx-choice" name="q2" data-correct="true"><summary>B. It fails to evaluate, because settings only the gated modules declare now get definitions</summary><p>The gated modules declare several of these settings, so defining them on a host that skipped those modules is an unknown-option error.</p></details></li>
+        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="treats added modules as free when their settings keep defaults"><summary>C. It evaluates with an identical build recipe, since every gated setting keeps its default</summary><p>Importing upstream&apos;s host half itself adds a system user and group, a command, and memory deduplication.</p></details></li>
+        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="expects the fleet rule to cover a module-composition mistake"><summary>D. It evaluates, and the fleet-wiring check reports the extra modules as an unwired guest</summary><p>That check compares guest-set membership against inventory, and a host with extra modules still has an empty guest set.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+
+    <article class="rx-quiz-item" id="q3" data-concept="fleet-wiring-exactly-once" data-objective="obj-5">
+      <h3>A deployment adds a second hypervisor and gives neither host an explicit guest set. What does the new rule produce, and why is that the design the change chose?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="reads the default as a per-host assignment"><summary>A. Each host starts roughly half the guests, because the default divides the fleet</summary><p>The default hands each hypervisor the fleet&apos;s microVM machines minus itself, so both guest sets are identical.</p></details></li>
+        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="assumes duplicate wiring is caught by runtime locking"><summary>B. Both hosts start every guest, and the duplicate is caught at runtime by a lock</summary><p>Nothing arbitrates between hosts; both would prepare the same state directory and control socket independently.</p></details></li>
+        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="expects a permissive rule because double-wiring is the rarer case"><summary>C. Both hosts start every guest and the rule allows it, being written for un-wiring</summary><p>The clause is exactly-once rather than at-least-once precisely so this case is covered.</p></details></li>
+        <li><details class="rx-choice" name="q3" data-correct="true"><summary>D. Evaluation is refused, naming both hosts and the missing guest-to-host fact</summary><p>Two hosts starting one machine share its state directory and control socket, which is worse than not starting it at all.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+  </section>
+
+  <section id="join-module" aria-labelledby="join-module-h" data-layer="mechanism" data-objective="obj-1 obj-4">
+    <h2 id="join-module-h">The join module: credential paths, the control socket, and the overlap it refuses</h2>
+    <p class="rx-claim"><code>microvmJoinModule</code> does the whole crossing: it reads the host&apos;s credential directory setting, builds one file path per credential name the guest declared, re-evaluates the guest with those paths and a control-socket path added, and hands that result to the host as the guest to start.</p>
+
+    <figure class="rx-figure rx-codewalk" id="cw-join" data-objective="obj-1 obj-4">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="The core of the join module in flake.nix">
+        <pre class="rx-code" data-lang="nix"><code>    microvmJoinModule = guests: { config, ... }:
+      let
+<mark class="rx-hl" id="cw-join-h1">        hostRoot = config.nexus.microvm.hostPlaintextRoot;</mark>
+<span class="rx-elide">⋯ the overlap guard, shown separately below ⋯</span>
+        credentialFilesFor = guestName: guest:
+          builtins.listToAttrs (map (credential: {
+            name = credential;
+<mark class="rx-hl" id="cw-join-h2">            value = "${hostRoot}/active/${guestName}/${credential}";</mark>
+<mark class="rx-hl" id="cw-join-h3">          }) guest.config.allod.archetypes.microvm.credentialNames);</mark>
+        extended = lib.mapAttrs (guestName: guest:
+<mark class="rx-hl" id="cw-join-h4">          guest.extendModules {</mark>
+            modules = [{
+              microvm.credentialFiles = credentialFilesFor guestName guest;
+<mark class="rx-hl" id="cw-join-h5">              microvm.socket = "${microvmQmpSocketRoot}/${guestName}/control.sock";</mark>
+            }];
+          }) guests;</code></pre>
+      </div>
+      <ol class="rx-notes">
+        <li class="rx-note" data-hl="cw-join-h1"><a href="#cw-join-h1">The host&apos;s own value</a> — read from the merged host configuration, so moving the directory moves every derived path.</li>
+        <li class="rx-note" data-hl="cw-join-h2"><a href="#cw-join-h2">The derived path</a> — an ordinary string, never a Nix path literal, which would copy the referenced file into the world-readable store.</li>
+        <li class="rx-note" data-hl="cw-join-h3"><a href="#cw-join-h3">The guest&apos;s own list</a> — the names come from the guest and are never restated, so <code>allod/nexus</code> stays unaware of them.</li>
+        <li class="rx-note" data-hl="cw-join-h4"><a href="#cw-join-h4">The second evaluation</a> — one extra fragment; the plain evaluation this flake also exports is left alone.</li>
+        <li class="rx-note" data-hl="cw-join-h5"><a href="#cw-join-h5">The control socket</a> — a host path declared inside the guest, for the same reason the credential paths are.</li>
+      </ol>
+      <figcaption class="rx-caption">Three repositories meet in these lines without any of them importing another: the setting comes from allod/nexus, the names from this repository&apos;s guest module, and the settings written belong to microvm.nix.</figcaption>
+    </figure>
+
+    <p>microvm.nix defaults the socket setting to a bare file name relative to the unit&apos;s working directory, putting every machine&apos;s socket in one shared state directory. <code>allod/nexus</code> refuses that and requires an absolute path in its own runtime area. Nothing else in the framework sets it, so before this change a hypervisor composing a guest did not evaluate.</p>
+
+    <section class="rx-sequence" id="seq-credential" aria-labelledby="seq-credential-h">
+      <h3 id="seq-credential-h">One credential, from declaration to QEMU argument</h3>
+      <ol class="rx-seq-steps">
+        <li class="rx-seq-step" id="seq-credential-1">
+          <h4 class="rx-seq-title">1. The guest names it and supplies nothing</h4>
+          <p>For <code>allod-dev</code> the derived list is four names: <code>forge-api-token</code>, <code>forge-https-token</code>, <code>forge-ssh-key</code>, and <code>ssh-host-key</code>. The plain evaluation carries an empty <code>microvm.credentialFiles</code>, and the guest&apos;s matching assertion fires only when that set is non-empty, so the plain guest is legal alone.</p>
+        </li>
+        <li class="rx-seq-step" id="seq-credential-2">
+          <h4 class="rx-seq-title">2. The host reads its own directory setting</h4>
+          <p>On the composed hypervisor <code>nexus.microvm.hostPlaintextRoot</code> resolves to its default, <code>/run/allod/microvm</code>, and the join reads that value rather than restating it.</p>
+        </li>
+        <li class="rx-seq-step" id="seq-credential-3">
+          <h4 class="rx-seq-title">3. The join builds one path per name</h4>
+          <p>For <code>ssh-host-key</code> the result is <code>/run/allod/microvm/active/allod-dev/ssh-host-key</code>: host directory, <code>active</code>, machine name, credential name. That shape belongs to <code>allod/nexus</code>, which asserts the same value from its own copy of the setting.</p>
+        </li>
+        <li class="rx-seq-step" id="seq-credential-4">
+          <h4 class="rx-seq-title">4. The guest is evaluated a second time</h4>
+          <p><code>extendModules</code> re-runs the evaluation with the four paths and the socket path added, and the host stores that result as this guest&apos;s <code>evaluatedConfig</code>.</p>
+        </li>
+        <li class="rx-seq-step" id="seq-credential-5">
+          <h4 class="rx-seq-title">5. The runner renders the argument, and the host installs that runner</h4>
+          <p>microvm.nix&apos;s QEMU renderer turns each entry into a <code>-fw_cfg</code> argument, and the generated <code>install-microvm-allod-dev</code> service points the host&apos;s <code>current</code> symlink at that runner&apos;s store path. Because the guest&apos;s own system is identical either way, this symlink is the only artifact distinguishing the extended guest from the plain one.</p>
+        </li>
+      </ol>
+    </section>
+
+    <h3>The overlap the join refuses</h3>
+    <p>This change introduces a second fixed host directory, <code>/run/allod/microvm-qmp</code>, holding one control-socket directory per machine. It is a literal rather than a setting, and the owner kept it so: a fixed value cannot be aimed at the wrong place, a guest must not know host filesystem layout, and exporting it from <code>allod/nexus</code> can follow.</p>
+
+    <p>That root introduced a hazard. <code>allod/nexus</code> checks one direction — that a machine&apos;s control-socket directory is not inside the host&apos;s credential directory — and not the reverse, because no fixed socket root existed to check against.</p>
+
+    <details class="rx-predict">
+      <summary>Predict: a deployment sets the credential directory to a path underneath the control-socket root. Which existing checks catch it?</summary>
+      <p>None of them. The value passes the setting&apos;s type, which only requires a normalized absolute path under <code>/run/allod</code>, and the normalization assertion. It passes the overlap assertion in <code>allod/nexus</code> too, because that one asks whether the socket directory sits inside the credential directory, and here the nesting runs the other way. The configuration evaluates clean and builds. The damage happens later: the launcher clears each machine&apos;s control-socket directory with <code>rm -rf</code> on every start and stop, taking any credential directory nested under it.</p>
+    </details>
+
+    <figure class="rx-figure rx-codewalk" id="cw-overlap" data-objective="obj-4">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="The overlap guard added by the join module">
+        <pre class="rx-code" data-lang="nix"><code><mark class="rx-hl" id="cw-overlap-h1">        isWithin = a: b: a == b || lib.hasPrefix "${b}/" a;</mark>
+        qmpOverlapErrors =
+<mark class="rx-hl" id="cw-overlap-h2">          lib.optional (isWithin hostRoot microvmQmpSocketRoot)</mark>
+            ("nexus.microvm.hostPlaintextRoot \"${hostRoot}\" is inside the microvm QMP socket root "
+             + "${microvmQmpSocketRoot}. The per-start launcher clears each VM's QMP directory with "
+             + "rm -rf, which would descend into the host plaintext tmpfs and destroy every VM's "
+             + "prepared credentials; the two roots must not nest in either direction")</code></pre>
+      </div>
+      <ol class="rx-notes">
+        <li class="rx-note" data-hl="cw-overlap-h1"><a href="#cw-overlap-h1">The test</a> — one path is within another when they are equal, or when the second plus a slash prefixes the first. The trailing slash stops <code>/run/allod/microvm-qmpx</code> from counting as nested.</li>
+        <li class="rx-note" data-hl="cw-overlap-h2"><a href="#cw-overlap-h2">The direction</a> — this asks whether the credential directory is inside the socket root, the direction <code>allod/nexus</code> leaves open.</li>
+      </ol>
+      <figcaption class="rx-caption">The guard refuses the whole nesting relationship rather than the specific paths that would be destroyed, so no future guest name can turn a surviving configuration into a destructive one.</figcaption>
+    </figure>
+
+    <p>The module also reads back over every machine the merged host configuration declares — not only the ones it extended — and requires each one&apos;s credential-file keys to equal its declared credential names. <code>allod/nexus</code> cannot state that, because it must not learn the names. Wiring the plain unextended guest trips it by name.</p>
+
+    <article class="rx-quiz-item" id="q4" data-concept="credential-fw-cfg-delivery" data-objective="obj-1">
+      <h3>A deployment sets the host credential directory to <code>/run/allod/moved-microvm</code>. Which value ends up in the QEMU argument for the guest <code>allod-dev</code>&apos;s <code>ssh-host-key</code> credential?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q4" data-correct="true"><summary>A. <code>/run/allod/moved-microvm/active/allod-dev/ssh-host-key</code>, built from the host setting</summary><p>The join interpolates the host setting, so moving the directory moves every path; the check requires no default-directory path to survive.</p></details></li>
+        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="believes the guest holds a fallback copy of the host path"><summary>B. <code>/run/allod/microvm/active/allod-dev/ssh-host-key</code>, from the guest&apos;s own default</summary><p>The guest supplies no values, and its own runtime directory has no bearing on the host paths QEMU is given.</p></details></li>
+        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="assumes the machine segment belongs only to the default layout"><summary>C. <code>/run/allod/moved-microvm/active/ssh-host-key</code>, without the machine segment</summary><p>The machine segment keeps two guests&apos; credentials apart, and <code>allod/nexus</code> asserts that four-part shape.</p></details></li>
+        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="expects an evaluated value to be a store path"><summary>D. A path under <code>/nix/store</code>, because the value is computed during evaluation</summary><p>The value is an ordinary interpolated string, and the guest module rejects a store-prefixed one as world-readable and permanent.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+
+    <article class="rx-quiz-item" id="q5" data-concept="qmp-socket-root-overlap" data-objective="obj-4">
+      <h3>Why does the guard against nesting the credential directory under the control-socket root belong in this repository rather than in <code>allod/nexus</code>, which owns the setting and the launcher that deletes at that path?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="treats assertion placement as a matter of where evaluation occurs"><summary>A. Because assertions only run on the hypervisor, and only this repository builds hypervisors</summary><p>Both repositories contribute modules to one hypervisor and their assertions merge into a single list.</p></details></li>
+        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="assumes a composing repository may not add rules about an upstream setting"><summary>B. Because a repository may only assert about settings it declares, and this one declares it</summary><p>The setting is declared by <code>allod/nexus</code>, and a composing layer is allowed to add rules about settings it reads.</p></details></li>
+        <li><details class="rx-choice" name="q5" data-correct="true"><summary>C. Because this change introduced the fixed socket root, so the overlap did not exist to check</summary><p>The reverse direction became possible only when this change fixed a socket root outside that repository&apos;s knowledge, so the party creating the hazard states the rule.</p></details></li>
+        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="believes the destructive command is issued by this repository"><summary>D. Because the launcher performing the destructive removal is generated by the join module</summary><p>The launcher is generated by <code>allod/nexus</code>; this change contributes only the socket path it is pointed at.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+  </section>
+
+  <section id="restart-autostart" aria-labelledby="restart-autostart-h" data-layer="mechanism" data-objective="obj-3">
+    <h2 id="restart-autostart-h">The restart and autostart settings on a wired guest</h2>
+    <p class="rx-claim">The join leaves the restart setting at upstream&apos;s value and forces the autostart setting off; in both cases the test pins the observable consequence rather than the setting.</p>
+
+    <p>When a NixOS machine is rebuilt, a program called <code>switch-to-configuration</code> compares old and new systemd units and decides which services to restart. A unit opts out with a marker, <code>X-RestartIfChanged</code>. The default matters: when the marker is absent, the program restarts the service. Absent and <code>false</code> are one setting on the Nix side and opposite behaviours on the systemd side.</p>
+
+    <p>Upstream&apos;s autostart setting defaults to on, which makes the host&apos;s <code>microvms.target</code> want the unit, so a host rebuild would start the guest. This fleet treats arming a real machine as a deliberate human decision, so the join sets it off. That was measured: deleting the line brings the host&apos;s autostart list back holding <code>allod-dev</code>, and a deliberate breakage requires it.</p>
+
+    <p>The restart setting changed during review. Upstream computes its default from which shape the host used, and for <code>evaluatedConfig</code> that default is off. The first version of this branch overrode it to on, reasoning that a host rebuild is how a guest gets updated.</p>
+
+    <details class="rx-predict">
+      <summary>Predict: in a fleet where each machine is its own deployment target, what should a host rebuild do to a running guest whose system has changed?</summary>
+      <p>Stage the new one and leave the running one alone. A microVM guest here is deployed the way the existing libvirt machines are: a rebuild inside the guest switches it in place and restarts only the services that changed. A host that restarted every changed guest would reboot machines out from under whoever was working in them. The owner review reversed the original override on that reasoning, and the plan document in <code>allod/strategy</code> was rewritten to match.</p>
+    </details>
+
+    <p>So the join sets nothing and takes upstream&apos;s off by default — relying on someone else&apos;s default, which this repository normally refuses. microvm.nix writes the marker as a two-element list whose first element is empty, and an empty assignment in unit text resets any earlier value, so the pair renders as a reset line then the real value. The check reads that text and requires <code>X-RestartIfChanged=false</code> present and <code>X-RestartIfChanged=true</code> absent.</p>
+
+    <figure class="rx-figure rx-codewalk" id="cw-restart" data-objective="obj-3">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="The upstream source line and the unit text it renders to">
+        <pre class="rx-code" data-lang="nix"><code>serviceConfig.X-RestartIfChanged = [ "" microvmConfig.restartIfChanged ];
+<span class="rx-elide">⋯ and the generated microvm@allod-dev.service fragment ⋯</span>
+[Service]
+<span class="rx-elide">⋯ ExecStart, ExecStopPost, User, Group omitted ⋯</span>
+<mark class="rx-hl" id="cw-restart-h1">X-RestartIfChanged=</mark>
+<mark class="rx-hl" id="cw-restart-h2">X-RestartIfChanged=false</mark></code></pre>
+      </div>
+      <ol class="rx-notes">
+        <li class="rx-note" data-hl="cw-restart-h1"><a href="#cw-restart-h1">The reset</a> — the empty assignment clears whatever the shared template said, so the next line is the only value in force.</li>
+        <li class="rx-note" data-hl="cw-restart-h2"><a href="#cw-restart-h2">The value</a> — the text the check requires, copied from the unit derivation the check produced on this machine.</li>
+      </ol>
+      <figcaption class="rx-caption">Reading the rendered text catches an upstream that stops emitting the key, which reading the Nix setting cannot distinguish from an upstream that emits false.</figcaption>
+    </figure>
+
+    <aside class="rx-callout" data-role="evidence">
+      <p class="rx-callout-label">Evidence</p>
+      <p>I read the generated unit fragments the check left on this machine. Both positive fixtures render <code>X-RestartIfChanged=</code> followed by <code>X-RestartIfChanged=false</code>; the broken fixture renders the same two lines with <code>true</code>. The Nix reading is kept alongside the text reading so the two cannot drift apart.</p>
+    </aside>
+
+    <article class="rx-quiz-item" id="q6" data-concept="restart-if-changed-semantics" data-objective="obj-3">
+      <h3>A future microvm.nix release stops writing the <code>X-RestartIfChanged</code> key into the generated fragment. The join still sets nothing. What happens on the next host rebuild, and which reading catches it?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="assumes an absent systemd key means the conservative behaviour"><summary>A. Nothing restarts, because an absent key leaves the previous behaviour in force</summary><p>The program restarts a changed unit unless the key says otherwise, so absent is the permissive value.</p></details></li>
+        <li><details class="rx-choice" name="q6" data-correct="true"><summary>B. Changed guests restart, and only the reading of the generated text catches it</summary><p>With the key gone the program restarts each changed guest, while the Nix setting still reports off, so only the literal <code>=false</code> requirement turns this red.</p></details></li>
+        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="believes reading the Nix setting equals reading the rendered unit"><summary>C. Changed guests restart, and the Nix setting catches it because the default moved</summary><p>The default did not move here; the renderer stopped emitting it, so the setting reads unchanged.</p></details></li>
+        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="expects a missing generated key to be an evaluation error"><summary>D. Evaluation fails, because the join asserts the key is present in the fragment</summary><p>The join asserts nothing about the fragment; the requirement lives in the check, which reports a finding.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+  </section>
+
+  <section id="evidence" aria-labelledby="evidence-h" data-layer="receipts" data-objective="obj-6 obj-7">
+    <h2 id="evidence-h">What the two new checks run, and what they leave untested</h2>
+    <p class="rx-claim">The gate now proves that a composed hypervisor is buildable and that its generated text carries the right paths, nothing about a host rebuild or a booted guest; and one of the two new rules walks an empty fleet.</p>
+
+    <ul class="rx-stats">
+      <li class="rx-stat"><b>21 steps</b><span>counts the machines, checks and passive outputs the gate walks, not assertions inside them</span></li>
+      <li class="rx-stat"><b>9 breakages</b><span>counts deliberate sabotages pinned to their own error text, excluding positive controls</span></li>
+      <li class="rx-stat"><b>18 lock entries</b><span>counts dependency nodes after the redirect, down from 28; no revision moved</span></li>
+    </ul>
+
+    <p>The join check builds three hypervisors from the real builders, never by importing the module under test: one at the default credential directory, one at a moved directory, one with no guests. Each is forced to a build recipe first, then read for three generated artifacts no option read can see — the systemd fragment, the service that installs the runner, and the QEMU command line.</p>
+
+    <p>That command line is reconstructed rather than built, because building the real launch script would build the whole guest system and its disk image. A change to the renderer&apos;s call signature fails the import loudly, and a reconstruction from the wrong configuration is caught by a guard requiring this guest&apos;s own disk and kernel parameters. A change in the meaning of the surrounding launch script is left to a later slice that boots a machine.</p>
+
+    <figure class="rx-figure" data-objective="obj-6 obj-7">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="What each witness in this change establishes">
+        <table class="rx-compare">
+          <caption>Each witness proves a narrower claim than the change as a whole appears to make.</caption>
+          <thead>
+            <tr><th scope="col">Claim</th><th scope="col">Witnessed here</th><th scope="col">Left to a later slice</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">A composed hypervisor is buildable</th><td><span class="rx-mark" data-state="yes">Yes, forced on three fixtures</span></td><td>Nothing</td></tr>
+            <tr><th scope="row">Credential paths follow the host setting</th><td><span class="rx-mark" data-state="yes">Yes, at two directories</span></td><td>That the launcher stages a file there</td></tr>
+            <tr><th scope="row">The host starts the extended guest</th><td><span class="rx-mark" data-state="yes">Yes, runner path read off the install service</span></td><td>That the service runs and the symlink lands</td></tr>
+            <tr><th scope="row">A rebuild leaves a running guest alone</th><td><span class="rx-mark" data-state="partial">Partial, the generated marker is pinned</span></td><td>The restart behaviour, which needs a booted machine</td></tr>
+            <tr><th scope="row">Every declared microVM machine is started once</th><td><span class="rx-mark" data-state="partial">Partial, exercised on synthetic data</span></td><td>The fleet walk, which needs a fleet declaring one</td></tr>
+            <tr><th scope="row">Credentials reach the guest and are usable</th><td><span class="rx-mark" data-state="no">No, nothing is booted</span></td><td>The whole runtime path</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption class="rx-caption">The two partial rows are where the merge decision rests: both behaviours are pinned in generated text, and neither has been observed happening.</figcaption>
+    </figure>
+
+    <p>The fleet rule is a function over plain data — microVM machine names against a table of which host composed which guests — so it can be shown to fail; three deliberate breakages cover its three violations, with two positive controls. The walk itself compares the empty set against the empty set, because this repository declares no microVM machine. Teeth come from the separate deploy flake, which re-runs this suite against real machine data; the author also doctored the check&apos;s inputs both ways, saw red, and reverted.</p>
+
+    <aside class="rx-callout" data-role="boundary">
+      <p class="rx-callout-label">Evidence boundary</p>
+      <p>Two limits I derived from reading the checks, which the change does not state. The fleet rule compares guest-set membership by name only, so a hypervisor wiring the name <code>beta-dev</code> to some other machine&apos;s configuration would satisfy it. And the join check builds its synthetic host sources from the same restated name list it compares them against, so that comparison round-trips its own input; agreement still holds through the set-equality assertion in <code>allod/nexus</code>, but the reading is weaker than it looks.</p>
+    </aside>
+
+    <h3>Where the review changed the design</h3>
+    <figure class="rx-figure" data-objective="obj-7">
+      <ol class="rx-timeline">
+        <li data-state="correction"><h4>The check passed on unbuildable fixtures</h4><p class="rx-state">correction</p><p>A pre-implementation review found that reading settings never enforces assertions; forcing the build recipe exposed the missing control-socket path.</p></li>
+        <li data-state="correction"><h4>The restart override was reversed</h4><p class="rx-state">correction</p><p>The owner rejected the reasoning that host rebuilds are how guests get updated, so the override was dropped and the generated text pinned instead.</p></li>
+        <li data-state="correction"><h4>The empty-guest-set gap was closed at the output</h4><p class="rx-state">correction</p><p>Recorded as a known gap at first; the owner ruled that a hazard does not stay open because it makes testing easier.</p></li>
+        <li data-state="done"><h4>The destructive overlap was guarded</h4><p class="rx-state">done</p><p>An implementation review found the unchecked nesting direction, and the join now refuses it with a paired deliberate breakage.</p></li>
+        <li data-state="planned"><h4>Runtime behaviour</h4><p class="rx-state">planned</p><p>A later slice boots a guest, rebuilds the host, and asserts the running machine keeps its process while the new runner is staged.</p></li>
+        <li data-state="blocked"><h4>A cross-vendor review pass</h4><p class="rx-state">blocked</p><p>The second-vendor reviewer was unauthenticated, so the rotation was single-vendor and the two most recent commits had no independent pass.</p></li>
+      </ol>
+      <figcaption class="rx-caption">Three of the four substantive design decisions were reversed or added during review, which argues for reading the two unreviewed commits.</figcaption>
+    </figure>
+
+    <p>The worst credible failure is not a wrong credential path: <code>allod/nexus</code> derives its expected value from the host setting and asserts equality, so a wrong-directory extension is refused when a real deployment evaluates. What remains is what this slice cannot observe — whether the system-switching program leaves a changed guest running, and how the launcher and the generated unit interact on a real host. Rollback bounds it: no host was rebuilt, no deployed state is touched, and reverting removes the change.</p>
+
+    <article class="rx-quiz-item" id="q7" data-concept="sabotage-paired-validation" data-objective="obj-7">
+      <h3>A reviewer says the nine deliberate breakages make the runtime restart behaviour safe to rely on. What is wrong with that inference?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q7" data-correct="true"><summary>A. Each breakage shows a rule can fail at evaluation; none of them runs a host or a guest</summary><p>A deliberate breakage separates a live rule from a permanently green one, but says nothing about behaviour that exists only once systemd runs.</p></details></li>
+        <li><details class="rx-choice" name="q7" data-correct="false" data-misconception="believes pinning generated text equals observing behaviour"><summary>B. Nothing is wrong, because the restart breakage pins the generated text both ways</summary><p>Pinning the text establishes what the unit will say; how the program then behaves on a live host is a separate claim.</p></details></li>
+        <li><details class="rx-choice" name="q7" data-correct="false" data-misconception="assumes forcing a build recipe means the system was built and run"><summary>C. Nothing is wrong, because every positive fixture is forced to a build recipe and built</summary><p>Forcing a build recipe computes the instructions without executing them, so nothing ran.</p></details></li>
+        <li><details class="rx-choice" name="q7" data-correct="false" data-misconception="treats the count of breakages as a coverage measure"><summary>D. The count is too low, and more breakages would establish the runtime claim</summary><p>More breakages of the same kind stay evaluation-time; the limit is the kind of witness, not the number.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+  </section>
+</main>
+
+<footer class="rx-footer" id="rx-provenance">
+  <dl class="rx-provenance" data-repository="allod/archetypes" data-pr="39" data-pr-url="https://forge.anarch.diy/allod/archetypes/pulls/39" data-base-sha="c02e4e95bbcd0f9a1616d477d4c96c15c6f14e3a" data-head-sha="59cfc2c49f43cbc8fa3066c7c96ae8d6d78a869a" data-runner="claude">
+    <dt data-field="repo">Repository</dt><dd>allod/archetypes</dd>
+    <dt data-field="pr">Pull request</dt><dd>#39</dd>
+    <dt data-field="url">Pull request URL</dt><dd>https://forge.anarch.diy/allod/archetypes/pulls/39</dd>
+    <dt data-field="title">Pull request title</dt><dd>Wire a microvm guest into the host that starts it</dd>
+    <dt data-field="base">Base commit</dt><dd><code>c02e4e95bbcd0f9a1616d477d4c96c15c6f14e3a</code></dd>
+    <dt data-field="head">Head commit</dt><dd><code>59cfc2c49f43cbc8fa3066c7c96ae8d6d78a869a</code></dd>
+    <dt data-field="diffstat">Diff</dt><dd>6 files, 1122 additions, 296 deletions</dd>
+    <dt data-field="runner">Runner</dt><dd>claude subscription CLI</dd>
+    <dt data-field="generator">Generator</dt><dd>allod pr explain, template 1</dd>
+    <dt data-field="generated">Generated</dt><dd><time datetime="2026-08-20">2026-08-20</time></dd>
+    <dt data-field="sources">Sources read</dt><dd>complete diff, surrounding repository code, the pinned microvm.nix and allod/nexus and allod/inventory sources in the local store, generated derivations left by the checks, pull-request body, and full review discussion</dd>
+    <dt data-field="limits">Not verified by this report</dt>
+    <dd><ul>
+      <li>No guest was booted and no host was rebuilt, so the claim that a host rebuild leaves a running guest alone is pinned in generated text only and has never been observed.</li>
+      <li>The fleet-wiring rule&apos;s walk over exported hypervisors compares an empty set against an empty set here; its behaviour against a fleet that declares a microVM machine rests on the author&apos;s reported doctoring of the check&apos;s inputs, which I did not reproduce.</li>
+      <li>The claim that the credential-directory overlap would destroy every machine&apos;s prepared credentials was not executed; my reading of the launcher indicates it holds for a credential directory nested below a machine&apos;s own socket directory, and not for every value the guard refuses.</li>
+      <li>The rewritten contract text in allod/strategy is reported in the discussion and was not read.</li>
+    </ul></dd>
+  </dl>
+</footer>
+
+<script id="rx-template-js">
+(() => {
+  document.documentElement.dataset.rxJs = "on";
+  const reduce = typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function sequence() {
+    const plans = Array.from(document.querySelectorAll(".rx-sequence"))
+      .filter((root) => root.dataset.rxEnhanced !== "true")
+      .map((root) => {
+        const list = root.querySelector(":scope > .rx-seq-steps");
+        if (!list) throw new Error("sequence steps");
+        const steps = Array.from(list.children);
+        if (!steps.length || steps.some((step) => !step.classList.contains("rx-seq-step"))) {
+          throw new Error("sequence shape");
+        }
+        const titles = steps.map((step) => step.querySelector(".rx-seq-title"));
+        if (titles.some((title) => !title)) throw new Error("sequence title");
+
+        const controls = document.createElement("div");
+        controls.className = "rx-seq-controls";
+        const previous = document.createElement("button");
+        previous.className = "rx-seq-prev";
+        previous.type = "button";
+        previous.textContent = "Previous";
+        const next = document.createElement("button");
+        next.className = "rx-seq-next";
+        next.type = "button";
+        next.textContent = "Next";
+        const all = document.createElement("button");
+        all.className = "rx-seq-all";
+        all.type = "button";
+        all.textContent = "Show all";
+        const status = document.createElement("p");
+        status.className = "rx-seq-status";
+        status.setAttribute("aria-live", "polite");
+        controls.append(previous, next, all, status);
+        return { root, list, steps, titles, controls, previous, next, all, status };
+      });
+
+    plans.forEach((plan) => {
+      let index = 0;
+
+      function render(mode, focusTitle) {
+        plan.root.dataset.rxMode = mode;
+        plan.steps.forEach((step, stepIndex) => {
+          if (mode === "step" && stepIndex === index) step.dataset.rxCurrent = "true";
+          else delete step.dataset.rxCurrent;
+        });
+        const showingAll = mode === "all";
+        plan.previous.disabled = showingAll || index === 0;
+        plan.next.disabled = !showingAll && index === plan.steps.length - 1;
+        plan.next.textContent = showingAll ? "Start steps" : "Next";
+        plan.all.disabled = showingAll;
+        plan.status.textContent = showingAll
+          ? `All ${plan.steps.length} steps shown`
+          : `Step ${index + 1} of ${plan.steps.length}`;
+        if (focusTitle && !showingAll) {
+          const title = plan.titles[index];
+          title.tabIndex = -1;
+          title.focus({ preventScroll: true });
+          title.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+        }
+      }
+
+      plan.previous.addEventListener("click", () => {
+        if (index > 0) index -= 1;
+        render("step", true);
+      });
+      plan.next.addEventListener("click", () => {
+        if (plan.root.dataset.rxMode === "all") index = 0;
+        else if (index < plan.steps.length - 1) index += 1;
+        render("step", true);
+      });
+      plan.all.addEventListener("click", () => render("all", false));
+      plan.list.before(plan.controls);
+      plan.root.dataset.rxEnhanced = "true";
+      render(reduce ? "all" : "step", false);
+    });
+  }
+
+  function quiz() {
+    const roots = Array.from(document.querySelectorAll("section"))
+      .filter((root) => root.querySelector(":scope > .rx-quiz-item"));
+    const plans = roots.map((root) => {
+      const items = Array.from(root.querySelectorAll(":scope > .rx-quiz-item"));
+      const itemPlans = items.map((item) => {
+        const choices = Array.from(item.querySelectorAll(".rx-choice"));
+        const result = item.querySelector(".rx-quiz-result");
+        if (!choices.length || !result || choices.some((choice) => !choice.querySelector("summary"))) {
+          throw new Error("quiz shape");
+        }
+        return { item, choices, result };
+      });
+      let score = root.querySelector(":scope > .rx-quiz-score");
+      if (!score) {
+        score = document.createElement("p");
+        score.className = "rx-quiz-score";
+        score.setAttribute("aria-live", "polite");
+      }
+      return { root, itemPlans, score };
+    });
+
+    plans.forEach((plan) => {
+      function updateScore() {
+        const answered = plan.itemPlans.filter(({ item }) => item.dataset.rxAnswered === "true");
+        const correct = answered.filter(({ item }) => item.dataset.rxCorrect === "true");
+        plan.score.textContent = `${correct.length} correct out of ${answered.length} answered`;
+      }
+
+      plan.itemPlans.forEach(({ item, choices, result }) => {
+        choices.forEach((choice) => {
+          choice.addEventListener("toggle", () => {
+            if (!choice.open || item.dataset.rxAnswered === "true") return;
+            const correct = choice.dataset.correct === "true";
+            item.dataset.rxAnswered = "true";
+            item.dataset.rxCorrect = String(correct);
+            choice.dataset.rxSelected = "true";
+            // Record the first answer, then set the explanations free. The
+            // shared name attribute is what makes the browser close one
+            // choice when another opens; removing it after the first answer
+            // lets the reader open and close every explanation at their
+            // leisure. Nothing is locked and correction is never withheld.
+            choices.forEach((entry) => {
+              entry.removeAttribute("name");
+            });
+            result.textContent = correct
+              ? "Correct. Your first answer is recorded; open any choice to compare explanations."
+              : "Not quite. Your first answer is recorded; open the other choices for the misconception and the governing rule.";
+            updateScore();
+          });
+        });
+      });
+      if (!plan.score.isConnected) plan.root.append(plan.score);
+      updateScore();
+    });
+  }
+
+  function codewalk() {
+    const plans = Array.from(document.querySelectorAll(".rx-codewalk"))
+      .filter((root) => root.dataset.rxEnhanced !== "true")
+      .map((root) => {
+        const notes = Array.from(root.querySelectorAll(".rx-note[data-hl]"));
+        const pairs = notes.map((note) => {
+          const mark = document.getElementById(note.dataset.hl);
+          if (!mark || !mark.classList.contains("rx-hl")) {
+            throw new Error("code highlight");
+          }
+          return { note, mark };
+        });
+        return { root, pairs };
+      });
+
+    plans.forEach(({ root, pairs }) => {
+      pairs.forEach(({ note, mark }) => {
+        function light(on) {
+          if (on) {
+            note.dataset.rxLit = "true";
+            mark.dataset.rxLit = "true";
+          } else {
+            delete note.dataset.rxLit;
+            delete mark.dataset.rxLit;
+          }
+        }
+        note.addEventListener("mouseenter", () => light(true));
+        note.addEventListener("mouseleave", () => light(false));
+        note.addEventListener("focusin", () => {
+          light(true);
+          mark.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+        });
+        note.addEventListener("focusout", () => light(false));
+        mark.tabIndex = 0;
+        mark.addEventListener("mouseenter", () => light(true));
+        mark.addEventListener("mouseleave", () => light(false));
+        mark.addEventListener("focus", () => {
+          light(true);
+          note.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+        });
+        mark.addEventListener("blur", () => light(false));
+      });
+      root.dataset.rxEnhanced = "true";
+    });
+  }
+
+  function print() {
+    if (document.documentElement.dataset.rxPrintEnhanced === "true") return;
+    let opened = [];
+    window.addEventListener("beforeprint", () => {
+      opened = Array.from(document.querySelectorAll("details:not([open])"));
+      opened.forEach((detail) => { detail.open = true; });
+    });
+    window.addEventListener("afterprint", () => {
+      opened.forEach((detail) => { detail.open = false; });
+      opened = [];
+    });
+    document.documentElement.dataset.rxPrintEnhanced = "true";
+  }
+
+  const enhancers={quiz, sequence, codewalk, print};
+  Object.entries(enhancers).forEach(([name, run]) => {
+    try {
+      run();
+    } catch (error) {
+      console.warn(`rx ${name}`, error);
+    }
+  });
+})();
+</script>
+</body>
+</html>

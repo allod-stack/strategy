@@ -1,0 +1,1695 @@
+<!doctype html>
+<html lang="en" data-rx-template="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>allod/archetypes PR #43 — Render harness memory pointers from one table and one template</title>
+<style id="rx-template-css">
+:root {
+  color-scheme: light dark;
+  --rx-ink: #17202a;
+  --rx-muted: #52606b;
+  --rx-bg: #fdfcfa;
+  --rx-surface: #ffffff;
+  --rx-surface-2: #f3f6f7;
+  --rx-rule: #7a8992;
+  --rx-rule-strong: #586b76;
+  --rx-link: #075985;
+  --rx-focus: #075985;
+  --rx-good: #17623e;
+  --rx-bad: #8f2f35;
+  --rx-role-definition: #0e675e;
+  --rx-role-intuition: #0b5c97;
+  --rx-role-misconception: #73448a;
+  --rx-role-caution: #795400;
+  --rx-role-boundary: #4b5b66;
+  --rx-role-evidence: #17623e;
+  --rx-code-bg: #15222b;
+  --rx-code-ink: #edf3f6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --rx-ink: #e8edf1;
+    --rx-muted: #b5c0c7;
+    --rx-bg: #11181d;
+    --rx-surface: #182128;
+    --rx-surface-2: #202b32;
+    --rx-rule: #60727d;
+    --rx-rule-strong: #a8b7c0;
+    --rx-link: #8dc8f0;
+    --rx-focus: #8dc8f0;
+    --rx-good: #71d19e;
+    --rx-bad: #f2a0a5;
+    --rx-role-definition: #75d6ca;
+    --rx-role-intuition: #8dc8f0;
+    --rx-role-misconception: #d7a8ea;
+    --rx-role-caution: #efc36f;
+    --rx-role-boundary: #bac6cc;
+    --rx-role-evidence: #71d19e;
+    --rx-code-bg: #0c1216;
+    --rx-code-ink: #edf3f6;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-block-start: 1rem;
+}
+
+body {
+  margin: 0;
+  background: var(--rx-bg);
+  color: var(--rx-ink);
+  font: 1rem/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+a {
+  color: var(--rx-link);
+  text-underline-offset: 0.18em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--rx-focus);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+h1 {
+  max-inline-size: 24ch;
+  margin: 0.35rem 0 0.8rem;
+  font-size: clamp(2.15rem, 6vw, 4.6rem);
+  letter-spacing: -0.035em;
+}
+
+h2 {
+  margin: 3.8rem 0 0.75rem;
+  padding-block-end: 0.45rem;
+  border-block-end: 2px solid var(--rx-rule-strong);
+  font-size: clamp(1.65rem, 4vw, 2.35rem);
+}
+
+h3 {
+  margin: 2rem 0 0.55rem;
+  font-size: 1.25rem;
+}
+
+h4 {
+  margin: 1.35rem 0 0.4rem;
+  font-size: 1rem;
+}
+
+p,
+ul,
+ol,
+dl,
+blockquote {
+  margin-block: 0 1rem;
+}
+
+code,
+pre {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+:not(pre) > code {
+  padding: 0.08em 0.3em;
+  border-radius: 0.25rem;
+  background: var(--rx-surface-2);
+  font-size: 0.9em;
+}
+
+.rx-masthead,
+.rx-summary,
+.rx-toc,
+main,
+.rx-footer {
+  inline-size: min(calc(100% - 2rem), 72rem);
+  margin-inline: auto;
+}
+
+.rx-masthead {
+  padding-block: 3.5rem 1.4rem;
+}
+
+.rx-eyebrow {
+  margin: 0;
+  color: var(--rx-muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rx-lede {
+  max-inline-size: 66ch;
+  margin: 0;
+  color: var(--rx-muted);
+  font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+}
+
+.rx-cost {
+  margin: 0;
+  color: var(--rx-muted);
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.rx-objectives {
+  max-inline-size: 68ch;
+  margin-block: 0.6rem 1.3rem;
+  padding-inline-start: 1.4rem;
+}
+
+.rx-objectives li {
+  margin-block-end: 0.45rem;
+}
+
+.rx-skip {
+  position: fixed;
+  inset-block-start: 0.5rem;
+  inset-inline-start: 0.5rem;
+  z-index: 10;
+  padding: 0.55rem 0.75rem;
+  border: 2px solid var(--rx-focus);
+  background: var(--rx-bg);
+  color: var(--rx-ink);
+  translate: 0 -180%;
+}
+
+.rx-skip:focus {
+  translate: 0;
+}
+
+.rx-summary {
+  padding: 1.25rem;
+  border: 2px solid var(--rx-rule-strong);
+  border-radius: 0.8rem;
+  background: var(--rx-surface);
+}
+
+.rx-summary > h2 {
+  margin-block-start: 0;
+  font-size: 1.35rem;
+}
+
+.rx-decision {
+  max-inline-size: 78ch;
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.rx-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-card {
+  min-inline-size: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--rx-rule);
+  border-block-start: 0.3rem solid var(--rx-rule-strong);
+  border-radius: 0.55rem;
+  background: var(--rx-surface-2);
+  overflow-wrap: anywhere;
+}
+
+.rx-card h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.rx-card p:last-child {
+  margin-block-end: 0;
+}
+
+.rx-toc {
+  margin-block: 1.2rem 2rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.6rem;
+  background: var(--rx-surface);
+}
+
+.rx-toc ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.25rem 1.5rem;
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
+main {
+  padding-block-end: 3rem;
+}
+
+main > section > p,
+main > section > ul,
+main > section > ol,
+main > section > dl,
+main > section > blockquote,
+main > section > details {
+  max-inline-size: 68ch;
+}
+
+.rx-claim {
+  margin-block: 0 1.3rem;
+  color: var(--rx-muted);
+  font-size: 1.08rem;
+  font-weight: 650;
+}
+
+.rx-figure {
+  container: rx-figure / inline-size;
+  max-inline-size: 100%;
+  margin: 1.35rem 0 1.6rem;
+  padding: 1rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.65rem;
+  background: var(--rx-surface);
+  break-inside: avoid;
+}
+
+.rx-caption {
+  margin-block-start: 0.9rem;
+  padding-block-start: 0.75rem;
+  border-block-start: 1px solid var(--rx-rule);
+  color: var(--rx-muted);
+  font-size: 0.92rem;
+}
+
+.rx-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+  max-inline-size: none;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-stat {
+  padding: 0.85rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.5rem;
+  background: var(--rx-surface);
+}
+
+.rx-stat b,
+.rx-stat span {
+  display: block;
+}
+
+.rx-stat b {
+  font-size: 1.35rem;
+}
+
+.rx-stat span {
+  color: var(--rx-muted);
+  font-size: 0.88rem;
+}
+
+.rx-more,
+.rx-predict {
+  margin-block: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.5rem;
+  background: var(--rx-surface);
+}
+
+.rx-more > summary,
+.rx-predict > summary,
+.rx-choice > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.rx-more[open] > summary,
+.rx-predict[open] > summary,
+.rx-choice[open] > summary {
+  margin-block-end: 0.65rem;
+}
+
+.rx-more > :last-child,
+.rx-predict > :last-child,
+.rx-choice > :last-child {
+  margin-block-end: 0;
+}
+
+.rx-predict {
+  border-inline-start: 0.35rem solid var(--rx-role-intuition);
+}
+
+.rx-term {
+  font-weight: 750;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.16em;
+}
+
+.rx-termref {
+  font-weight: 650;
+}
+
+.rx-flow {
+  --rx-flow-gap: 2.25rem;
+  --rx-flow-axis: column;
+  --rx-flow-glyph: "\2193";
+  --rx-flow-conn-inline-start: 0;
+  --rx-flow-conn-inline-end: auto;
+  --rx-flow-conn-block-start: auto;
+  --rx-flow-conn-block-end: 100%;
+  --rx-flow-conn-inline-size: 100%;
+  --rx-flow-conn-block-size: var(--rx-flow-gap);
+  --rx-flow-node-flex: 0 1 auto;
+  display: flex;
+  flex-direction: var(--rx-flow-axis);
+  align-items: stretch;
+  gap: var(--rx-flow-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-flow > li {
+  position: relative;
+  flex: var(--rx-flow-node-flex);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 2px solid var(--rx-rule-strong);
+  border-radius: 0.6rem;
+  background: var(--rx-surface-2);
+  overflow-wrap: anywhere;
+}
+
+.rx-flow > li > b,
+.rx-flow > li > span {
+  display: block;
+}
+
+.rx-flow > li > span {
+  margin-block-start: 0.2rem;
+  color: var(--rx-muted);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.rx-flow > li + li::before {
+  content: var(--rx-flow-glyph);
+  position: absolute;
+  inset-inline-start: var(--rx-flow-conn-inline-start);
+  inset-inline-end: var(--rx-flow-conn-inline-end);
+  inset-block-start: var(--rx-flow-conn-block-start);
+  inset-block-end: var(--rx-flow-conn-block-end);
+  inline-size: var(--rx-flow-conn-inline-size);
+  block-size: var(--rx-flow-conn-block-size);
+  display: grid;
+  place-items: center;
+  color: var(--rx-rule-strong);
+  font-size: 1.15rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+@container rx-figure (min-inline-size: 34rem) {
+  .rx-flow[data-steps="2"],
+  .rx-flow[data-steps="3"],
+  .rx-flow[data-steps="4"] {
+    --rx-flow-axis: row;
+    --rx-flow-glyph: "\2192";
+    --rx-flow-conn-inline-start: auto;
+    --rx-flow-conn-inline-end: 100%;
+    --rx-flow-conn-block-start: 0;
+    --rx-flow-conn-block-end: auto;
+    --rx-flow-conn-inline-size: var(--rx-flow-gap);
+    --rx-flow-conn-block-size: 100%;
+    --rx-flow-node-flex: 1 1 0;
+  }
+
+  [dir="rtl"] .rx-flow[data-steps="2"],
+  [dir="rtl"] .rx-flow[data-steps="3"],
+  [dir="rtl"] .rx-flow[data-steps="4"] {
+    --rx-flow-glyph: "\2190";
+  }
+}
+
+@container rx-figure (min-inline-size: 48rem) {
+  .rx-flow[data-steps="5"] {
+    --rx-flow-axis: row;
+    --rx-flow-glyph: "\2192";
+    --rx-flow-conn-inline-start: auto;
+    --rx-flow-conn-inline-end: 100%;
+    --rx-flow-conn-block-start: 0;
+    --rx-flow-conn-block-end: auto;
+    --rx-flow-conn-inline-size: var(--rx-flow-gap);
+    --rx-flow-conn-block-size: 100%;
+    --rx-flow-node-flex: 1 1 0;
+  }
+
+  [dir="rtl"] .rx-flow[data-steps="5"] {
+    --rx-flow-glyph: "\2190";
+  }
+}
+
+.rx-branch {
+  display: grid;
+  gap: 1rem;
+}
+
+.rx-branch-test {
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 2px solid var(--rx-rule-strong);
+  border-radius: 0.55rem;
+  background: var(--rx-surface-2);
+  font-weight: 750;
+}
+
+.rx-branch-arms {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-branch-arm {
+  position: relative;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0.75rem 0.8rem 0.75rem 2.35rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.5rem;
+  background: var(--rx-surface);
+  overflow-wrap: anywhere;
+}
+
+.rx-branch-arm::before {
+  content: "\21b3";
+  position: absolute;
+  inset-block-start: 0.72rem;
+  inset-inline-start: 0.75rem;
+  color: var(--rx-rule-strong);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.rx-arm-label {
+  display: block;
+  margin-block-end: 0.2rem;
+  text-transform: uppercase;
+}
+
+@container rx-figure (min-inline-size: 38rem) {
+  .rx-branch-arms {
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 1rem;
+    padding-block-start: 1.5rem;
+  }
+
+  .rx-branch-arm {
+    padding: 0.85rem;
+  }
+
+  .rx-branch-arm::before {
+    content: "\2193";
+    inset-block-start: auto;
+    inset-block-end: 100%;
+    inset-inline-start: 0;
+    inline-size: 100%;
+    block-size: 1.5rem;
+    display: grid;
+    place-items: center;
+  }
+}
+
+.rx-lanes {
+  display: grid;
+  gap: 1rem;
+}
+
+.rx-lane {
+  display: grid;
+  gap: 0.65rem;
+  min-inline-size: 0;
+  padding-block-end: 1rem;
+  border-block-end: 1px solid var(--rx-rule);
+}
+
+.rx-lane:last-child {
+  padding-block-end: 0;
+  border-block-end: 0;
+}
+
+.rx-lane-label {
+  margin: 0;
+  align-self: center;
+  color: var(--rx-muted);
+  font-size: 0.92rem;
+}
+
+@container rx-figure (min-inline-size: 44rem) {
+  .rx-lane {
+    grid-template-columns: 9rem minmax(0, 1fr);
+    align-items: center;
+  }
+}
+
+.rx-sequence {
+  margin-block: 1.5rem;
+}
+
+.rx-seq-steps {
+  margin: 0;
+  padding-inline-start: 1.4rem;
+}
+
+.rx-seq-step {
+  padding: 0.25rem 0 1.2rem 0.45rem;
+}
+
+.rx-seq-title {
+  margin-block-start: 0;
+}
+
+.rx-seq-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  margin-block: 0.8rem 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.5rem;
+  background: var(--rx-surface);
+}
+
+.rx-seq-controls button {
+  min-block-size: 2.5rem;
+  padding: 0.45rem 0.75rem;
+  border: 2px solid var(--rx-rule-strong);
+  border-radius: 0.4rem;
+  background: var(--rx-bg);
+  color: var(--rx-ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rx-seq-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.rx-seq-prev,
+.rx-seq-next,
+.rx-seq-all {
+  touch-action: manipulation;
+}
+
+.rx-seq-status {
+  margin: 0 0 0 auto;
+  color: var(--rx-muted);
+  font-size: 0.9rem;
+}
+
+html[data-rx-js="on"] .rx-sequence[data-rx-mode="step"] .rx-seq-step:not([data-rx-current="true"]) {
+  display: none;
+}
+
+.rx-codewalk {
+  min-inline-size: 0;
+}
+
+.rx-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border-radius: 0.5rem;
+}
+
+.rx-code {
+  min-inline-size: max-content;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--rx-rule-strong);
+  border-radius: 0.5rem;
+  background: var(--rx-code-bg);
+  color: var(--rx-code-ink);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.rx-code > code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+}
+
+.rx-code[data-lang="text"] > code {
+  white-space: pre-wrap;
+}
+
+.rx-hl {
+  border-block-end: 2px solid #f0c36a;
+  background: #3d351f;
+  color: inherit;
+}
+
+.rx-hl[data-rx-lit="true"] {
+  outline: 3px solid #f0c36a;
+  outline-offset: 1px;
+}
+
+.rx-elide {
+  color: #b8c5cc;
+  font-style: italic;
+}
+
+.rx-notes {
+  display: grid;
+  gap: 0.55rem;
+  margin: 1rem 0 0;
+  padding-inline-start: 1.4rem;
+}
+
+.rx-note {
+  padding: 0.55rem 0.65rem;
+  border-inline-start: 0.25rem solid var(--rx-rule);
+}
+
+.rx-note[data-rx-lit="true"] {
+  border-inline-start-color: var(--rx-focus);
+  background: var(--rx-surface-2);
+}
+
+.rx-callout {
+  --rx-callout-rule: var(--rx-rule-strong);
+  max-inline-size: 72ch;
+  margin-block: 1.2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--rx-rule);
+  border-inline-start: 0.4rem solid var(--rx-callout-rule);
+  border-radius: 0.45rem;
+  background: var(--rx-surface);
+}
+
+.rx-callout[data-role="definition"] { --rx-callout-rule: var(--rx-role-definition); }
+.rx-callout[data-role="intuition"] { --rx-callout-rule: var(--rx-role-intuition); }
+.rx-callout[data-role="misconception"] { --rx-callout-rule: var(--rx-role-misconception); }
+.rx-callout[data-role="caution"] { --rx-callout-rule: var(--rx-role-caution); }
+.rx-callout[data-role="boundary"] { --rx-callout-rule: var(--rx-role-boundary); }
+.rx-callout[data-role="evidence"] { --rx-callout-rule: var(--rx-role-evidence); }
+
+.rx-callout-label {
+  margin: 0 0 0.3rem;
+  color: var(--rx-callout-rule);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.rx-callout > :last-child {
+  margin-block-end: 0;
+}
+
+.rx-compare {
+  min-inline-size: 42rem;
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+
+.rx-compare caption {
+  margin-block-end: 0.55rem;
+  color: var(--rx-muted);
+  font-weight: 700;
+  text-align: start;
+}
+
+.rx-compare th,
+.rx-compare td {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--rx-rule);
+  text-align: start;
+  vertical-align: top;
+}
+
+.rx-compare th {
+  background: var(--rx-surface-2);
+}
+
+.rx-mark {
+  font-weight: 750;
+}
+
+.rx-mark[data-state="yes"] { color: var(--rx-good); }
+.rx-mark[data-state="no"] { color: var(--rx-bad); }
+.rx-mark[data-state="partial"] { color: var(--rx-role-caution); }
+
+.rx-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-timeline > li {
+  --rx-timeline-state: var(--rx-rule-strong);
+  position: relative;
+  min-block-size: 4rem;
+  padding: 0 0 1.4rem 2.3rem;
+}
+
+.rx-timeline > li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 1rem;
+  inset-block-end: 0;
+  inset-inline-start: 0.52rem;
+  inline-size: 2px;
+  background: var(--rx-rule);
+}
+
+.rx-timeline > li::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0.35rem;
+  inset-inline-start: 0.15rem;
+  inline-size: 0.8rem;
+  block-size: 0.8rem;
+  border: 2px solid var(--rx-bg);
+  border-radius: 50%;
+  background: var(--rx-timeline-state);
+  outline: 2px solid var(--rx-timeline-state);
+}
+
+.rx-timeline > li[data-state="done"] { --rx-timeline-state: var(--rx-good); }
+.rx-timeline > li[data-state="now"] { --rx-timeline-state: var(--rx-role-intuition); }
+.rx-timeline > li[data-state="blocked"] { --rx-timeline-state: var(--rx-bad); }
+.rx-timeline > li[data-state="planned"] { --rx-timeline-state: var(--rx-muted); }
+.rx-timeline > li[data-state="correction"] { --rx-timeline-state: var(--rx-role-caution); }
+.rx-timeline > li[data-state="dead-end"] { --rx-timeline-state: var(--rx-role-misconception); }
+
+.rx-timeline h4 {
+  margin: 0;
+}
+
+.rx-state {
+  margin: 0.1rem 0 0.25rem;
+  color: var(--rx-timeline-state);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rx-quiz-item {
+  max-inline-size: 72ch;
+  margin-block: 1.3rem;
+  padding: 1rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.6rem;
+  background: var(--rx-surface);
+}
+
+.rx-quiz-item h3 {
+  margin-block-start: 0;
+}
+
+.rx-choices {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rx-choice {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--rx-rule);
+  border-radius: 0.45rem;
+  background: var(--rx-bg);
+}
+
+.rx-choice[data-rx-selected="true"][data-correct="true"] {
+  border: 2px solid var(--rx-good);
+}
+
+.rx-choice[data-rx-selected="true"][data-correct="false"] {
+  border: 2px solid var(--rx-bad);
+}
+
+.rx-quiz-item[data-rx-answered="true"] .rx-choice[data-correct="true"] {
+  border: 2px solid var(--rx-good);
+}
+
+.rx-quiz-result {
+  min-block-size: 1.6rem;
+  margin: 0.75rem 0 0;
+  font-weight: 750;
+}
+
+.rx-quiz-score {
+  max-inline-size: 72ch;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--rx-rule-strong);
+  border-radius: 0.45rem;
+  background: var(--rx-surface-2);
+  font-weight: 750;
+}
+
+.rx-footer {
+  padding-block: 1.4rem 3rem;
+  border-block-start: 2px solid var(--rx-rule-strong);
+}
+
+.rx-provenance {
+  display: grid;
+  grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
+  gap: 0.45rem 1rem;
+  margin: 0;
+}
+
+.rx-provenance dt {
+  color: var(--rx-muted);
+  font-weight: 750;
+}
+
+.rx-provenance dd {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rx-provenance dd ul {
+  margin-block: 0;
+  padding-inline-start: 1.2rem;
+}
+
+.rx-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+
+.rx-preview-grid > .rx-figure {
+  margin: 0;
+}
+
+.rx-preview-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  padding-block-end: 0.5rem;
+}
+
+.rx-preview {
+  max-inline-size: none;
+}
+
+.rx-preview[data-width="320"] { inline-size: 20rem; }
+.rx-preview[data-width="375"] { inline-size: 23.4375rem; }
+.rx-preview[data-width="768"] { inline-size: 48rem; }
+.rx-preview[data-width="1280"] { inline-size: 80rem; }
+
+.rx-preview-label {
+  margin: 0 0 0.6rem;
+  color: var(--rx-muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+@media (max-width: 38rem) {
+  .rx-masthead,
+  .rx-summary,
+  .rx-toc,
+  main,
+  .rx-footer {
+    inline-size: min(calc(100% - 1rem), 72rem);
+  }
+
+  .rx-masthead {
+    padding-block-start: 2.2rem;
+  }
+
+  .rx-summary,
+  .rx-figure {
+    padding: 0.75rem;
+  }
+
+  .rx-provenance {
+    grid-template-columns: 1fr;
+  }
+
+  .rx-provenance dd + dt {
+    margin-block-start: 0.45rem;
+  }
+
+  .rx-seq-status {
+    flex-basis: 100%;
+    margin-inline-start: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  :root {
+    color-scheme: light;
+    --rx-ink: #17202a;
+    --rx-muted: #52606b;
+    --rx-bg: #ffffff;
+    --rx-surface: #ffffff;
+    --rx-surface-2: #f3f6f7;
+    --rx-rule: #9ca9b0;
+    --rx-rule-strong: #43545e;
+    --rx-link: #17202a;
+    --rx-focus: #17202a;
+    --rx-good: #17623e;
+    --rx-bad: #8f2f35;
+    --rx-role-definition: #0e675e;
+    --rx-role-intuition: #0b5c97;
+    --rx-role-misconception: #73448a;
+    --rx-role-caution: #795400;
+    --rx-role-boundary: #4b5b66;
+    --rx-role-evidence: #17623e;
+    --rx-code-bg: #f3f6f7;
+    --rx-code-ink: #17202a;
+  }
+
+  body {
+    font-size: 10.5pt;
+  }
+
+  .rx-skip,
+  .rx-toc,
+  .rx-seq-controls {
+    display: none !important;
+  }
+
+  .rx-masthead,
+  .rx-summary,
+  main,
+  .rx-footer {
+    inline-size: 100%;
+  }
+
+  details:not([open]) > *:not(summary) {
+    display: block;
+  }
+
+  details::details-content {
+    content-visibility: visible;
+    display: block;
+  }
+
+  .rx-seq-step {
+    display: list-item !important;
+  }
+
+  .rx-figure,
+  .rx-callout,
+  .rx-quiz-item {
+    break-inside: avoid;
+  }
+
+  a {
+    color: inherit;
+  }
+}
+</style>
+</head>
+<body>
+<a class="rx-skip" href="#rx-main">Skip to content</a>
+
+<header class="rx-masthead">
+  <p class="rx-eyebrow">allod/archetypes · pull request #43</p>
+  <h1>Three agent instruction files and one system prompt now render from one table and one template, and a symlink collision stops the rebuild instead of passing silently</h1>
+  <p class="rx-lede">The module that sets up a developer virtual machine used to hand-write three near-identical blocks of instruction text and a fourth, differently worded prompt. It now keeps one three-row table of coding agents and one template for the sentence telling an agent to read its memory files, so the next rebuild gives every agent the same mandatory-read wording over absolute paths. Accepting it means new instruction text reaches every agent session on those machines at once, and one activation line that used to succeed wrongly now fails loudly.</p>
+  <p class="rx-cost">Summary: 1 minute. Background concepts: 5 minutes. Full mechanism and receipts: 12 minutes.</p>
+</header>
+
+<section class="rx-summary" aria-labelledby="rx-summary-h">
+  <h2 id="rx-summary-h">If you read nothing else</h2>
+  <p class="rx-decision">Approving this accepts rewritten agent-facing instruction text on every developer virtual machine at its next rebuild, and accepts that a real directory at one symlink path will now stop that rebuild rather than be worked around; nothing changes on any non-developer machine.</p>
+  <ul class="rx-summary-cards">
+    <li class="rx-card" data-q="what-changes-now">
+      <h3>What merging changes now</h3>
+      <p>On the next rebuild, three files that coding agents read at startup are rewritten from one template, and the extra prompt text given to Claude Code lists its two memory files by full path instead of relative to the working directory.</p>
+    </li>
+    <li class="rx-card" data-q="what-exists-after">
+      <h3>What exists afterward</h3>
+      <p>One table names the three coding agents; one template writes the mandatory-read sentence for all four artifacts. The instruction to read topic files no longer appears in this repository at all: allod/memory states it once, in its own memory.md.</p>
+    </li>
+    <li class="rx-card" data-q="evidence">
+      <h3>What the tests actually prove</h3>
+      <p>A build-time check reads the exact activation text and the exact prompt file that ship, and refuses to build unless both name the right files, carry the framing once per agent, keep the strict symlink flag, and never mention topic files. Building it succeeds at this commit.</p>
+    </li>
+    <li class="rx-card" data-q="residual-risk">
+      <h3>What is still unproven</h3>
+      <p>Nothing verifies that the files these instructions name exist on a running machine, or that a machine's copy of allod/memory is new enough to carry the topic-file rule that this change stopped stating. A Claude Code session now receives the framing twice over four files; that duplication was not tested.</p>
+    </li>
+    <li class="rx-card" data-q="how-to-reject">
+      <h3>How to reject or roll back</h3>
+      <p>Revert the single commit and rebuild. Every artifact here is regenerated from scratch on each activation, so the previous text returns with nothing left behind.</p>
+    </li>
+  </ul>
+</section>
+
+<nav class="rx-toc" aria-label="Contents">
+  <ol>
+    <li><a href="#objectives">What you can do after reading</a></li>
+    <li><a href="#nix-strings">Nix indented strings and quoted heredocs</a></li>
+    <li><a href="#activation">The Home Manager activation script and the order of its entries</a></li>
+    <li><a href="#string-context">Nix string context: how a file reference travels into a check</a></li>
+    <li><a href="#renderer">The harness table, the mandatoryRead template, and workFile</a></li>
+    <li><a href="#symlink">The memory symlink and the -T flag</a></li>
+    <li><a href="#check">What the pi-integration check pins, and what it leaves unpinned</a></li>
+    <li><a href="#rx-provenance">Provenance</a></li>
+  </ol>
+</nav>
+
+<main id="rx-main">
+  <section id="objectives" aria-labelledby="objectives-h" data-layer="concept">
+    <h2 id="objectives-h">What you can do after reading</h2>
+    <p class="rx-claim">Six abilities bound this report; every section, figure, and quiz item below serves at least one of them.</p>
+    <ol class="rx-objectives">
+      <li id="obj-1">You can predict the exact bytes of one rewritten instruction file — its header line, the mandatory-read sentence, the blank line, and the numbered full paths, with nothing indented — from the three-row table and the one template alone.</li>
+      <li id="obj-2">Given the strict symlink flag, you can decide whether it is safe to merge, because you can say what a failure on that line aborts and which later setup work never runs.</li>
+      <li id="obj-3">Tracing the check backwards, you can explain how it reaches the actual prompt file the shell alias delivers, and why that is the shipped artifact rather than a copy of it.</li>
+      <li id="obj-4">You can explain why the topic-file reading rule was deleted here, name the one file that now states it, and name the condition under which a machine would see it from neither source.</li>
+      <li id="obj-5">Shown a regression — the strict flag dropped, a topic-file sentence put back, a fourth agent added to the table — you can say which error message fires, and name regressions the check would miss entirely.</li>
+      <li id="obj-6">The blast radius becomes predictable: which machines rebuild differently, which agents see new instructions, and what a revert restores without residue.</li>
+    </ol>
+  </section>
+
+  <section id="nix-strings" aria-labelledby="nix-strings-h" data-layer="concept" data-objective="obj-1">
+    <h2 id="nix-strings-h">Nix indented strings and quoted heredocs</h2>
+    <p class="rx-claim">Two independent rules — one from Nix, one from the shell — decide the indentation of the shipped instruction files, and both put every line at the left margin even though the source is indented four spaces.</p>
+
+    <p><dfn class="rx-term" id="term-nix">Nix</dfn> is both a package manager and the small language it is configured in. A machine's configuration is a program in that language, and evaluating it produces, among other things, a plain shell script the machine runs to set itself up. This change is entirely about what text that program produces.</p>
+
+    <p>Nix has a multi-line string form written between two pairs of single quotes. It is called an <em>indented string</em>, and the name is the behavior: Nix finds the smallest leading whitespace shared by the lines inside and removes exactly that much from each. Source indented four spaces to sit inside a function body therefore produces text with no indentation.</p>
+
+    <p>Inside any Nix string you can splice in a computed value between a dollar sign and braces. Nix calls this <em>interpolation</em>, and the rule that matters is what it does <em>not</em> do: it inserts the value exactly as it is. Newlines go in untouched, and lines after the first do not inherit the indentation of the splice.</p>
+
+    <details class="rx-predict">
+      <summary>Predict where the numbered lines land before reading the answer</summary>
+      <p>A multi-line value is spliced into a source line indented four spaces. Its first line ends up at the left margin, because those four spaces are part of the shared indentation Nix strips. Every later line was never indented at all. Both rules point the same way: the whole block sits flush left.</p>
+    </details>
+
+    <p>The second rule comes from the shell. A <dfn class="rx-term" id="term-heredoc">heredoc</dfn> feeds literal text to a command: the command, then two less-than signs and a word, then the lines of text, then that word alone on a line to end the block. Here the command is <code>cat</code> writing to a file, and the word is <code>POINTER</code>.</p>
+
+    <p>The word is written in single quotes, as <code>&lt;&lt;'POINTER'</code>, and that quoting makes the shell copy the lines through byte for byte, expanding no dollar signs and running no backticks. That is what makes it safe to write file paths wrapped in backticks, which is what the instruction text does. The shell also strips nothing from the front of the lines — the dash form would strip leading tabs, and this is not that form.</p>
+
+    <figure class="rx-figure rx-codewalk" id="cw-block" data-objective="obj-1">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="The pointerBlock function in modules/ai-agents.nix">
+        <pre class="rx-code" data-lang="nix"><code>  pointerBlock = harness: ''
+<mark class="rx-hl" id="cw-block-h1">    mkdir -p "$HOME/${dirOf harness.pointer}"</mark>
+<mark class="rx-hl" id="cw-block-h2">    cat &gt; "$HOME/${harness.pointer}.tmp" &lt;&lt;'POINTER'</mark>
+    # ${harness.name} Adapter
+<mark class="rx-hl" id="cw-block-h3">    ${mandatoryRead (map (repo: workFile repo harness.adapter) memoryCheckouts)}</mark>
+    POINTER
+<mark class="rx-hl" id="cw-block-h4">    mv -f "$HOME/${harness.pointer}.tmp" "$HOME/${harness.pointer}"</mark>
+  '';</code></pre>
+      </div>
+      <ol class="rx-notes">
+        <li class="rx-note" data-hl="cw-block-h1"><a href="#cw-block-h1">Create the directory</a> — <code>dirOf</code> is a built-in Nix function returning the directory part of a path. Given <code>.pi/agent/AGENTS.md</code> it returns <code>.pi/agent</code>, so one source line produces the right directory for every row.</li>
+        <li class="rx-note" data-hl="cw-block-h2"><a href="#cw-block-h2">Write to a temporary name first</a> — the file being built is the real name with <code>.tmp</code> appended, so a reader of the real file never sees a half-written version.</li>
+        <li class="rx-note" data-hl="cw-block-h3"><a href="#cw-block-h3">Splice in the instruction text</a> — the interpolation described above. Its value is several lines long, and those lines arrive with no indentation.</li>
+        <li class="rx-note" data-hl="cw-block-h4"><a href="#cw-block-h4">Rename into place</a> — renaming a file over another on the same filesystem is a single indivisible step, so an agent reading at that instant gets either the old content or the new, never a mixture.</li>
+      </ol>
+      <figcaption class="rx-caption">One eight-line function produces all three instruction files; the directory to create, the file to write, and the paths to name all come from the row it is given.</figcaption>
+    </figure>
+
+    <aside class="rx-callout" data-role="evidence">
+      <p class="rx-callout-label">Evidence</p>
+      <p>Evaluating this function on its own with the real inputs produces a block whose lines are all flush left, and the file on disk is exactly five lines with a final newline. The same text appears verbatim inside a Home Manager generation already built on the machine that produced this report — a second, independent witness to the same bytes.</p>
+    </aside>
+  </section>
+
+  <section id="activation" aria-labelledby="activation-h" data-layer="concept" data-objective="obj-2">
+    <h2 id="activation-h">The Home Manager activation script and the order of its entries</h2>
+    <p class="rx-claim">Everything a rebuild does to a user's home runs as one bash script that stops at the first unguarded command failure, so the question "is this line allowed to fail?" is really the question "what comes after it?".</p>
+
+    <p><dfn class="rx-term" id="term-hm">Home Manager</dfn> is a companion project to NixOS that owns one user account's home directory: which programs that user has, what their configuration files contain, and small setup steps that cannot be expressed as a file. That last category is called <em>activation</em>. When a machine rebuilds, Home Manager generates a single bash script and runs it.</p>
+
+    <p>Modules contribute named chunks to that script, called <em>activation entries</em>. An entry declares only what it must run after — this module uses <code>lib.hm.dag.entryAfter</code> to place its entry, <code>llmMemoryLinks</code>, after the marker <code>writeBoundary</code>, past which it is safe to write into the home directory. Home Manager flattens those constraints into one linear order. The structure is a directed acyclic graph; the consequence is that entries end up concatenated into one script, each seeing the effects of every entry above it.</p>
+
+    <p>The generated script begins with <code>set -eu</code> and <code>set -o pipefail</code>. The first is what matters: any unguarded command that exits non-zero ends the entire script there. Nothing below runs — not the rest of its own entry, not any later entry.</p>
+
+    <figure class="rx-figure" data-objective="obj-2">
+      <ol class="rx-flow" data-steps="5">
+        <li><b>writeBoundary</b><span>writing to the home is now safe</span></li>
+        <li><b>agentVmStatus</b><span>agent status indicators, both guarded</span></li>
+        <li><b>linkGeneration</b><span>configuration files put in place</span></li>
+        <li><b>llmMemoryLinks</b><span>the entry this change rewrites</span></li>
+        <li><b>four later entries</b><span>file-change hooks, service reload, git hooks</span></li>
+      </ol>
+      <figcaption class="rx-caption">A failure inside the fourth box discards the fifth, so the cost of allowing a line to fail is measured in whatever the fifth box was going to do.</figcaption>
+    </figure>
+
+    <p>The order in that diagram is not a guess. A Home Manager generation built for this deployment's developer machine sorts its entries alphabetically after the shared boundary, and the four that follow <code>llmMemoryLinks</code> are <code>onFilesChange</code>, a hook for changed configuration files; <code>reloadSystemd</code>, which reloads background services; <code>setupTrackedHooks</code>, which installs git hooks; and <code>syncPrBranchProtection</code>, which synchronizes branch-protection settings. After all of them the script marks the new generation against Nix's garbage collector.</p>
+
+    <p>This module already treats the stop-on-failure rule as load-bearing. Its other entry, <code>agentVmStatus</code>, runs two helpers that can refuse to act: <code>piStatusInstall</code>, when the status file it would replace was written by the operator rather than the configuration, and <code>claudeStatusMerge</code>, when a settings file is not valid JSON. Both are invoked with a fallback that turns a refusal into a printed warning, and the source comment says why: a refusal must not abort activation or skip any entry sorted after this one.</p>
+  </section>
+
+  <section id="string-context" aria-labelledby="string-context-h" data-layer="concept" data-objective="obj-3">
+    <h2 id="string-context-h">Nix string context: how a file reference travels into a check</h2>
+    <p class="rx-claim">Nix quietly tracks which built files a string mentions, and that tracking is the entire reason a check running in an isolated sandbox can open the prompt file that a shell alias names.</p>
+
+    <p>Nix keeps every file it builds in one tree, conventionally <code>/nix/store</code>. Each entry is named by a hash and a label and is never modified once written. A path into that tree is a <em>store path</em>. Two helpers appear in this change: <code>writeText</code>, which writes text into the store as a file, and <code>runCommand</code>, which creates a build step that runs a shell script.</p>
+
+    <p>A build step runs in a <em>sandbox</em>: a stripped-down filesystem view in which the only store paths visible are the ones Nix decided the step depends on. A store path that the step merely mentions as text is not automatically there. This is the crux.</p>
+
+    <p>Splicing a built file into a Nix string does two things: it substitutes the store path, the visible part, and it attaches a hidden record of which built things that path came from. Nix calls that record the string's <em>context</em>, and it travels with the string through concatenation and through storage in a configuration option. When such a string is written out as a file, the context becomes a real dependency, and the mentioned file is pulled into the sandbox of anything using the result.</p>
+
+    <p>That was tested, not assumed. A small standalone build was written twice — context intact, then explicitly discarded. With the context intact it printed the file's contents; with the context discarded it failed with <code>No such file or directory</code> on a path it had just located by text search.</p>
+
+    <section class="rx-sequence" id="seq-context" aria-labelledby="seq-context-h">
+      <h3 id="seq-context-h">Tracing the prompt file from the module into the check's sandbox</h3>
+      <ol class="rx-seq-steps">
+        <li class="rx-seq-step" id="seq-context-1">
+          <h4 class="rx-seq-title">1. The module builds the prompt file</h4>
+          <p>The instruction text for Claude Code is written into the store under the label <code>claude-system-prompt-append</code> — an ordinary built file with a store path.</p>
+        </li>
+        <li class="rx-seq-step" id="seq-context-2">
+          <h4 class="rx-seq-title">2. The alias names that file</h4>
+          <p>The module defines a shell alias for the <code>claude</code> command that passes the prompt file with a flag. Building that string splices in the prompt file's store path, so the string carries a context recording that dependency.</p>
+        </li>
+        <li class="rx-seq-step" id="seq-context-3">
+          <h4 class="rx-seq-title">3. The check writes the alias out as a file</h4>
+          <p>The check reads the alias string out of the developer machine's evaluated configuration and writes it into the store. Because of the context, the prompt file becomes a recorded dependency of that new file rather than text inside it.</p>
+        </li>
+        <li class="rx-seq-step" id="seq-context-4">
+          <h4 class="rx-seq-title">4. The sandbox receives both files</h4>
+          <p>The check's build step uses the alias file, so Nix brings it and everything it depends on into the sandbox. The prompt file arrives with it.</p>
+        </li>
+        <li class="rx-seq-step" id="seq-context-5">
+          <h4 class="rx-seq-title">5. The check extracts the path and reads it</h4>
+          <p>A search pulls the first store path ending in <code>-claude-system-prompt-append</code> out of the alias file, and the check reads that file. It inspects the same file a developer's shell would hand to Claude Code, not a copy.</p>
+        </li>
+      </ol>
+    </section>
+  </section>
+
+  <section id="renderer" aria-labelledby="renderer-h" data-layer="mechanism" data-objective="obj-1 obj-4">
+    <h2 id="renderer-h">The harness table, the mandatoryRead template, and workFile</h2>
+    <p class="rx-claim">Four artifacts that used to be written by hand, in three different wordings, now come from one list of three rows and one function that writes the mandatory-read sentence.</p>
+
+    <p>The three programs this module configures are terminal coding agents: Claude Code, Codex, and Pi. Each reads a file at startup for standing instructions — <code>~/.claude/CLAUDE.md</code>, <code>~/.codex/AGENTS.md</code>, and <code>~/.pi/agent/AGENTS.md</code> respectively — and this module writes all three on every rebuild. They are called <em>pointer files</em> because they hold no instructions of their own: they point at files in the shared memory repositories, one <em>adapter file</em> per agent per repository.</p>
+
+    <p>Two memory repositories are checked out on a developer machine, listed in the module as <code>memoryCheckouts</code>: <code>allod/memory</code> and <code>agent-memory</code>. Each keeps an adapter file per agent under <code>adapters/</code> and a top-level <code>memory.md</code>. Claude Code also receives text appended to its system prompt, because the shell alias for the <code>claude</code> command passes a prompt file on every launch.</p>
+
+    <h3>What the four artifacts said before, and what they say now</h3>
+
+    <p>Before this change, each of the three pointer blocks was written out separately, each with its own hand-written sentence of the form "Read shared instructions from" followed by a path. Only the appended prompt for Claude Code carried the strong wording — the sentence beginning "MANDATORY: Before responding to any user message" — and a fourth, unrelated piece of code assembled it, with its own list of paths and two closing sentences no other artifact had.</p>
+
+    <figure class="rx-figure" data-objective="obj-1 obj-4">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="What each generated artifact contained before and after the change">
+        <table class="rx-compare">
+          <caption>Every artifact converges on one wording, and two sentences disappear from the system prompt entirely.</caption>
+          <thead>
+            <tr><th scope="col">Generated artifact</th><th scope="col">Before this change</th><th scope="col">After this change</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Claude Code pointer file</th><td>One informational sentence per memory checkout, naming an adapter file by full path</td><td><span class="rx-mark" data-state="yes">Mandatory-read framing, then numbered full paths</span></td></tr>
+            <tr><th scope="row">Codex pointer file</th><td>One informational sentence per memory checkout, naming an adapter file by full path</td><td><span class="rx-mark" data-state="yes">Mandatory-read framing, then numbered full paths</span></td></tr>
+            <tr><th scope="row">Pi pointer file</th><td>One informational sentence per memory checkout, naming an adapter file by full path</td><td><span class="rx-mark" data-state="yes">Mandatory-read framing, then numbered full paths</span></td></tr>
+            <tr><th scope="row">Claude Code appended prompt</th><td>Mandatory-read framing over working-directory-relative paths, plus a sentence explaining that the paths are relative and a sentence about reading topic files</td><td><span class="rx-mark" data-state="partial">Same framing over full paths; both trailing sentences removed</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption class="rx-caption">Codex and Pi are the two agents whose instructions change in force, not only in wording: they move from being offered a location to being told to read it before responding.</figcaption>
+    </figure>
+
+    <h3>Following one row through to the bytes it produces</h3>
+
+    <p>Take the Codex row from the table the source names <code>harnesses</code>. It gives three values: the display name <code>Codex</code>, the pointer file <code>.codex/AGENTS.md</code> relative to the home directory, and the adapter file <code>adapters/codex/AGENTS.md</code> relative to a memory checkout. A helper named <code>workFile</code> turns a checkout name and a file name into a full path by prefixing <code>/home/</code>, the account name, and <code>/work/</code>. Applied to both checkouts it yields two full paths.</p>
+
+    <p>Those two paths are handed to <code>mandatoryRead</code>, the single function that now writes the framing. It emits the mandatory-read sentence, then an empty line, then one numbered line per file with the path wrapped in backticks — and nothing else. Everything the old code had after the list is gone.</p>
+
+    <figure class="rx-figure rx-codewalk" id="cw-out" data-objective="obj-1">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="The resulting contents of the Codex pointer file">
+        <pre class="rx-code" data-lang="markdown"><code><mark class="rx-hl" id="cw-out-h1"># Codex Adapter</mark>
+<mark class="rx-hl" id="cw-out-h2">MANDATORY: Before responding to any user message, you MUST read ALL of the following files. Do NOT skip this step. Do NOT start working until every file is read.</mark>
+
+<mark class="rx-hl" id="cw-out-h3">1. `/home/allod/work/allod/memory/adapters/codex/AGENTS.md`</mark>
+2. `/home/allod/work/agent-memory/adapters/codex/AGENTS.md`</code></pre>
+      </div>
+      <ol class="rx-notes">
+        <li class="rx-note" data-hl="cw-out-h1"><a href="#cw-out-h1">The header</a> — the only line contributed by <code>pointerBlock</code> itself rather than by the template; the row's display name is spliced into it.</li>
+        <li class="rx-note" data-hl="cw-out-h2"><a href="#cw-out-h2">The framing</a> — identical bytes in all four artifacts, because all four call the same function. The blank line beneath it comes from the empty string the template places between the sentence and the list.</li>
+        <li class="rx-note" data-hl="cw-out-h3"><a href="#cw-out-h3">The list</a> — one line per entry in <code>memoryCheckouts</code>, numbered from one, each path complete from the filesystem root. No line is indented, for the two reasons the background section gave.</li>
+      </ol>
+      <figcaption class="rx-caption">Five lines and a final newline is the whole file; Claude Code and Pi get the same shape with only the header word and the two paths differing.</figcaption>
+    </figure>
+
+    <h3>Why the paths became absolute, and what that costs</h3>
+
+    <p>The appended prompt used to list <code>allod/memory/memory.md</code> and <code>agent-memory/memory.md</code>, followed by "Paths are relative to the primary working directory." Both the shell alias and the <code>yolo</code> wrapper change into <code>~/work</code> before launching, so those relative paths did resolve on the launch routes this module provides. No broken launch is recorded in the change or its discussion, and the module's comment states the goal generally: every rendered artifact should resolve whatever directory the agent was launched from. The failure closed is therefore latent — an agent started by some other route, or one whose working directory moves mid-session — not observed. Why now is not recorded, so treat the motive as unverified.</p>
+
+    <p>The cost is real. A full path contains the account name, so the prompt file's content and its store path now differ between accounts, and the text cannot be copied to a machine whose account is named differently. The old form bought portability and paid with a dependency on the launcher's working directory; the new form makes the opposite trade. Since this module already writes the account name into the pointer paths and the symlink path, the new form makes the four artifacts consistent rather than adding a coupling.</p>
+
+    <h3>Who states the topic-file reading rule</h3>
+
+    <p>A <em>topic file</em> is one of the subject-specific documents a memory repository keeps beside its <code>memory.md</code> — one on git workflow, one on testing policy, and so on. The top of <code>memory.md</code> lists them under a heading, and something has to tell an agent to read the relevant ones. Until this change, the appended prompt said so, explaining that each file contains a topic file index whose relevant entries should be read.</p>
+
+    <p>That sentence is deleted here, and its one remaining author is the <code>## Topic Files</code> section of <code>memory.md</code> in <code>allod/memory</code>, which since commit <code>b633926</code> reads "Read the topic files relevant to the current task." The rule still reaches every agent through the adapter files: each one in <code>allod/memory</code> says to read <code>memory.md</code> first, and the pointer files now command the agent to read those adapter files. The commit before <code>b633926</code> lacks the sentence — the condition under which the rule disappears entirely: a machine whose working copy was last pulled before it sees the rule from neither source once this merges. Nothing here inspects those working copies' revisions.</p>
+
+    <aside class="rx-callout" data-role="boundary">
+      <p class="rx-callout-label">Evidence boundary</p>
+      <p>The <code>allod/memory</code> facts above were read from a checkout on the machine that produced this report: <code>b633926</code> is the tip of its <code>master</code> branch and does add the sentence. The second checkout, <code>agent-memory</code>, is not present on this machine, so nothing here establishes what its adapter files or <code>memory.md</code> contain, or whether they exist at all on a developer machine.</p>
+    </aside>
+
+    <h3>The same framing arrives twice in one Claude Code session</h3>
+
+    <p>Under the shell alias, a Claude Code session picks up <code>~/.claude/CLAUDE.md</code>, which now carries the mandatory-read framing over two adapter files, and the appended prompt, which carries the same framing over two <code>memory.md</code> files. Four files are commanded before the first response, and the adapter files point back at the same <code>memory.md</code> files the prompt already named. Codex and Pi see the framing once, having no appended prompt. Whether the doubling was considered is not stated anywhere in the change; the source does say that every artifact telling an agent to read memory renders this one template over its own file list, making the doubling a consequence of the design.</p>
+
+    <aside class="rx-callout" data-role="caution">
+      <p class="rx-callout-label">Caution</p>
+      <p>The framing says not to start working until every file is read. If one of the four named files is missing on a machine, the instruction cannot be satisfied, and nothing here checks that the adapter files or the <code>memory.md</code> files exist. The paths are written into the artifacts unconditionally from the list of checkout names.</p>
+    </aside>
+
+    <article class="rx-quiz-item" id="q1" data-concept="mandatory-read-template" data-objective="obj-1">
+      <h3>A fourth memory checkout is added to the list and a fourth row is added to the table. What does the new agent's pointer file contain?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="believes the four spaces of source indentation survive into the generated file"><summary>A. A header line, the mandatory-read sentence, a blank line, then four numbered full paths, each indented four spaces</summary><p>Indentation is removed twice over: Nix strips the shared leading whitespace when it reads the source, and lines after the first in a spliced value were never indented. The quoted heredoc copies what it is given through unchanged.</p></details></li>
+        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="thinks the template is applied once per file rather than once per artifact"><summary>B. The same header, then the mandatory-read sentence repeated once above each of four numbered full paths</summary><p>The template takes the whole list of files and emits the sentence once, followed by the numbered list. It is called once per artifact, not once per file, which is why the sentence count across the activation text equals the number of table rows.</p></details></li>
+        <li><details class="rx-choice" name="q1" data-correct="true"><summary>C. Its header line, the mandatory-read sentence, a blank line, then four numbered full paths at the left margin</summary><p>The header comes from the block, the sentence and blank line from the template, and the list gets one numbered entry per checkout. Adding a checkout lengthens the list; adding a row adds a whole file of this shape.</p></details></li>
+        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="carries the old working-directory-relative path form into the new template"><summary>D. One header line, the mandatory-read sentence, a blank line, then four numbered paths relative to the working directory</summary><p>Relative paths were the old form, used by the appended prompt alone, and this change removed them. The helper that builds each entry prepends the home directory and the work directory, so every path is complete from the filesystem root.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+
+    <article class="rx-quiz-item" id="q2" data-concept="topic-file-rule-ownership" data-objective="obj-4">
+      <h3>Why is stating the topic-file reading rule in both repositories worse than stating it only in allod/memory?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q2" data-correct="true"><summary>A. This repository cannot see the index the rule refers to, so its copy would keep asserting a shape that allod/memory is free to change</summary><p>The rule describes how to use a list that lives in the other repository. A second author with no view of that list goes stale silently, and nothing would detect the disagreement. Keeping the rule beside the list makes the two change together.</p></details></li>
+        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="thinks regenerated files cannot carry text that changes elsewhere"><summary>B. The pointer files are regenerated on every activation, so they cannot carry a rule whose wording is owned elsewhere</summary><p>Regeneration is not the obstacle; these files are rewritten from source text on every rebuild and can carry any sentence. The problem is that the sentence would be authored here while the thing it describes is authored there.</p></details></li>
+        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="mistakes the check that enforces the decision for the reason behind it"><summary>C. The build check refuses any generated artifact containing the phrase, so a second copy would fail the gate</summary><p>The check enforces the decision but is not the reason for it — this same change added it to hold the decision in place. A check that forbids a phrase is downstream of the argument for forbidding it.</p></details></li>
+        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="invents agent behavior about repeated instructions"><summary>D. Claude Code discards an instruction that appears in both the user memory file and the appended system prompt</summary><p>No such behavior is documented or relied on anywhere in this change. The mandatory-read framing itself now reaches a Claude Code session from both of those places at once, which the change treats as acceptable.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+  </section>
+
+  <section id="symlink" aria-labelledby="symlink-h" data-layer="mechanism" data-objective="obj-2">
+    <h2 id="symlink-h">The memory symlink and the -T flag</h2>
+    <p class="rx-claim">Adding one letter to the command turns a case that used to succeed with the wrong result into a case that stops the rebuild, and the cost of that stop is bounded by what the rest of the activation had left to do.</p>
+
+    <p>A <em>symbolic link</em> is a filesystem entry whose content is a path: opening it opens whatever that path names. The first two lines of this activation entry create a directory under Claude Code's own bookkeeping area and put a link named <code>memory</code> inside it, pointing at the last memory checkout in the list.</p>
+
+    <p>The <code>ln</code> command carries flags. <code>-s</code> makes a symbolic link rather than a hard one. <code>-f</code> replaces an existing entry at the destination instead of refusing. <code>-n</code> means that if the destination is itself a symbolic link to a directory, replace the link rather than following it. The new flag, <code>-T</code>, means treat the destination as a plain name, never as a directory to create something inside.</p>
+
+    <p>That last distinction is where the old behavior went wrong. Without <code>-T</code>, when the destination is a real directory, <code>ln</code> reads the request as "put the link in there" and creates an entry inside it named after the target's last path component. It reports success: the path that was supposed to be a link is still a directory, with a link nobody asked for inside it.</p>
+
+    <figure class="rx-figure" data-objective="obj-2">
+      <div class="rx-branch">
+        <p class="rx-branch-test">The destination path already exists and is a real directory. What does the command do?</p>
+        <ul class="rx-branch-arms" data-arms="2">
+          <li class="rx-branch-arm"><b class="rx-arm-label">without -T</b>Exits successfully, having created a link one level deeper, inside the directory. The destination itself is unchanged and still not a link, and nothing reports a problem.</li>
+          <li class="rx-branch-arm"><b class="rx-arm-label">with -T</b>Prints that it cannot overwrite a directory and exits with a failure status, which under the activation script's stop-on-failure rule ends the rebuild at that line.</li>
+        </ul>
+      </div>
+      <figcaption class="rx-caption">Both behaviors were reproduced directly on scratch directories; the old form really does exit zero and really does leave the intended link path a directory.</figcaption>
+    </figure>
+
+    <p>When the destination is an ordinary symbolic link with the right target — the normal case on a machine that has rebuilt before — the flag changes nothing. That was checked too: repeating the command with <code>-T</code> over an existing correct link exits successfully and leaves the link as it was.</p>
+
+    <p>Two consequences pull in opposite directions. The abort is loud and immediate, which is the point: a directory at that path means an assumption about the home layout is already broken, and the old code hid that behind a successful exit. Against that, a fatal line at the top of the entry withholds work unrelated to symbolic links — which this module elsewhere prevents, guarding two helper invocations so their refusals cannot skip later entries. Why this line differs is not explained; the observable difference is that those helpers refuse in order to leave an operator's file byte-unchanged, with the rest of the home still correct, whereas here the link the configuration assumes does not exist.</p>
+
+    <aside class="rx-callout" data-role="boundary">
+      <p class="rx-callout-label">Evidence boundary</p>
+      <p>Whether any machine has a real directory at that path was not measured. The discussion states the live path is a correct symbolic link, so no machine reaches the new failure on this rebuild; that claim is not independently confirmed here. The directory holding the link is one Claude Code writes its own session records into — on the machine that produced this report it holds transcripts and per-session subdirectories, all named with session identifiers rather than the word <code>memory</code>. That makes an accidental collision unlikely rather than impossible — an interpretation of observed naming, not a documented guarantee.</p>
+    </aside>
+
+    <p>One collision source is self-inflicted. A machine that ever ran the old command against a real directory still has that directory, with the stray nested link inside, and the new command fails on every rebuild until somebody removes it by hand. That is the intended trade — a silent wrong state made visible — but it turns a one-time invisible defect into a repeating visible one.</p>
+
+    <article class="rx-quiz-item" id="q3" data-concept="ln-sfnt-collision" data-objective="obj-2">
+      <h3>The link path on some machine is already a real directory, so the first line of the entry now fails. What state are the three pointer files in after that rebuild?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="believes the write-then-rename pattern protects work that never ran"><summary>A. All three are rewritten, because each block writes to a temporary name and renames it into place</summary><p>Writing to a temporary name and renaming protects a reader from seeing a partially written file while a block runs. It offers nothing when the block never starts, and none of the three starts once the script has stopped above them.</p></details></li>
+        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="assumes temporary files are created before the failing line"><summary>B. All three are truncated to empty, because their temporary files were created before the failure</summary><p>Nothing creates those temporary files ahead of time. Each is created by the redirection at the start of its own block, and every block is below the line that failed, so no temporary file exists.</p></details></li>
+        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="misremembers the order of the link line and the first pointer block"><summary>C. Only Claude Code's file is rewritten, because its block runs before the link line</summary><p>The entry begins with the directory creation and the link, and the three blocks follow in table order. Claude Code's block is first among the three but still below the failing line.</p></details></li>
+        <li><details class="rx-choice" name="q3" data-correct="true"><summary>D. None is rewritten; all three keep the content the last successful rebuild wrote</summary><p>The activation script stops at the first unguarded failure, so everything below that line is skipped. The machine stays on the previous generation's instruction text rather than acquiring a partially updated set.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+  </section>
+
+  <section id="check" aria-labelledby="check-h" data-layer="receipts" data-objective="obj-3 obj-5 obj-6">
+    <h2 id="check-h">What the pi-integration check pins, and what it leaves unpinned</h2>
+    <p class="rx-claim">The check inspects the exact text that ships rather than a copy of it, which makes its passes meaningful and its silences precise: everything it does not search for is unprotected.</p>
+
+    <p>A <em>check</em> in this repository is a build step that produces an empty output file if all its assertions hold and fails the build otherwise. The gate script, <code>./check.sh</code>, builds every machine and every check in a separate process and reports all failures rather than stopping at the first. The file changed here, <code>checks/pi-integration.nix</code>, already read the developer machine's real activation text; this change extends it.</p>
+
+    <p>Two inputs make that possible. The first is the activation text, read out of the evaluated configuration as <code>home.activation.llmMemoryLinks.data</code> and written into the store so a text search can run over it. The second is the shell alias for the <code>claude</code> command, written out the same way — and, through the string context described earlier, dragging the appended prompt file into the sandbox with it. The check extracts the prompt's store path from the alias text and reads that file.</p>
+
+    <aside class="rx-callout" data-role="evidence">
+      <p class="rx-callout-label">Evidence</p>
+      <p>This design follows a rule in <code>allod/memory</code>'s testing policy: a check that rebuilds the generated artifact alongside the real one witnesses its own rebuild, not the code under test, so it should consume the same generator and swap only its inputs. Reading the prompt through the alias is the strongest form of that — the check cannot be looking at a different file than the shell hands to Claude Code, because it found the path in the shell's own alias.</p>
+    </aside>
+
+    <h3>The assertions this change adds</h3>
+
+    <p>Six search the activation text: the Claude Code and Codex header lines, and both memory checkouts' adapter paths for each of those two agents; the Pi equivalents were already present. One counts lines containing the mandatory-read sentence and requires exactly three. One requires the literal <code>ln -sfnT</code>. One fails if the phrase "topic file" appears anywhere in the activation text, matched without regard to letter case. Five work on the prompt file: that the alias names a prompt at all, that the framing is present, that both <code>memory.md</code> paths appear in full and wrapped in backticks, and that "topic file" appears nowhere in it.</p>
+
+    <p>The count of three is a literal, not derived from the table's length. Adding a fourth agent row therefore fails the check with a message saying it expected the framing once per harness, three times, and got four. That names the rule and the observed number, so an author can work out that the literal needs updating; read cold, it describes a rendering fault rather than a check fallen behind the table. The check also gains no assertion about the new row's header or paths until someone writes those by hand.</p>
+
+    <p>One structural property makes the coverage less lopsided than the list suggests. The atomic rename is pinned for the Pi row only, but all three rows render through the same function, so any change that dropped it would drop it everywhere and the Pi assertion would catch it. Pinning one instance of a shared template covers the template.</p>
+
+    <h3>Which regressions fire, and which pass unnoticed</h3>
+
+    <figure class="rx-figure" data-objective="obj-5">
+      <div class="rx-scroll" role="region" tabindex="0" aria-label="Regressions against what the check detects">
+        <table class="rx-compare">
+          <caption>The check pins wording and file names tightly; it pins the symlink's target and the machines' actual contents not at all.</caption>
+          <thead>
+            <tr><th scope="col">Regression</th><th scope="col">Does the check fail?</th><th scope="col">What the author sees</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">The -T flag is dropped from the symlink command</th><td><span class="rx-mark" data-state="yes">Yes</span></td><td>A message saying the memory symlink lost -T and that a collided real directory would nest silently</td></tr>
+            <tr><th scope="row">A topic-file sentence is put back into the appended prompt</th><td><span class="rx-mark" data-state="yes">Yes</span></td><td>A message saying the prompt restates the rule and that memory.md is its only author</td></tr>
+            <tr><th scope="row">A topic-file sentence is put back into a pointer file</th><td><span class="rx-mark" data-state="yes">Yes</span></td><td>The same message, worded for the pointer files rather than the prompt</td></tr>
+            <tr><th scope="row">The prompt's paths are made relative again</th><td><span class="rx-mark" data-state="yes">Yes</span></td><td>A message naming which memory.md full path is missing from the prompt</td></tr>
+            <tr><th scope="row">A fourth agent row is added to the table</th><td><span class="rx-mark" data-state="partial">Yes, for an indirect reason</span></td><td>A framing-count mismatch, which reads as a rendering fault rather than as a check needing an update</td></tr>
+            <tr><th scope="row">The symlink is pointed at the wrong memory checkout</th><td><span class="rx-mark" data-state="no">No</span></td><td>Nothing; only the flags are searched for, never the target path</td></tr>
+            <tr><th scope="row">An adapter file or memory.md is absent on a running machine</th><td><span class="rx-mark" data-state="no">No</span></td><td>Nothing; no check inspects a machine's filesystem or a checkout's revision</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption class="rx-caption">Every assertion here is a text search over generated text, so the check can prove what the machine will be told and can prove nothing about whether the machine can comply.</figcaption>
+    </figure>
+
+    <details class="rx-more">
+      <summary>What the two demonstrated sabotage runs establish</summary>
+      <p>The discussion reports two deliberate breakages, each applied then undone: removing the strict flag, and re-adding a topic-file sentence to the prompt. Each time the check failed with the matching message, and after undoing it the extracted artifacts matched this branch's intended output exactly. That establishes that these two assertions are wired up and can go red — a check that never fails proves nothing. It does not establish that the others can fail, and the repository's testing policy says as much: one sabotage fixture per validator, not one per failure mode it rejects.</p>
+    </details>
+
+    <h3>Which machines rebuild differently</h3>
+
+    <p>This module is composed only by the builder for developer machines. The example fleet has four machine configurations, exactly one of them a developer machine. The change to the appended prompt's text changes that file's content, its store path, the alias string that names it, and therefore the user's home configuration and the developer machine's whole build recipe. Nothing propagates to the other three, because nothing else composes this module.</p>
+
+    <ul class="rx-stats">
+      <li class="rx-stat"><b>4 machines</b><span>counts machine configurations in this repository's example fleet, excluding the installer image and all checks</span></li>
+      <li class="rx-stat"><b>1 build recipe changed</b><span>counts machines whose top-level build recipe differs between the base and head commits, excluding differences in what a rebuild then writes</span></li>
+      <li class="rx-stat"><b>3 files rewritten</b><span>counts pointer files rewritten on every activation, excluding the appended prompt, which is a built file rather than a written one</span></li>
+      <li class="rx-stat"><b>134 fewer bytes</b><span>counts the shrinkage of the appended prompt file only, excluding the pointer files, which grew</span></li>
+    </ul>
+
+    <p>That one-of-four figure was measured, not assumed. Nix calls a machine's top-level build recipe a <em>derivation</em>, exposes it here as <code>system.build.toplevel</code>, and identifies it by a store path ending in <code>.drv</code>; two configurations with the same identifier are the same build. The base commit's tree was exported to a scratch directory and evaluated offline alongside the head commit, and the identifiers were compared for all four machines: three matched exactly, the developer machine's differed. The extended check was built at the head commit and succeeded. The appended prompt file was built from both commits and read byte for byte, giving the size figures above.</p>
+
+    <h3>Rolling back</h3>
+
+    <p>Reverting the single commit and rebuilding restores the previous text with nothing left over. The three pointer files are rewritten from scratch on every activation, so the old sentences return on the next rebuild; the appended prompt is a built file the alias names by path, so reverting points the alias back at the old one. The symbolic link returns to being created without the strict flag. A revert does not undo a directory an operator removed by hand in response to the new failure — but removing it was the correct repair either way, since the configuration intends a link at that path.</p>
+
+    <article class="rx-quiz-item" id="q4" data-concept="nix-string-context" data-objective="obj-3">
+      <h3>Suppose the alias string reached the check with its context discarded but its text unchanged. Where would the check first fail?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="expects the store path text itself to disappear when context is discarded"><summary>A. At the search for the prompt's store path, because the path would no longer appear in the alias text</summary><p>Discarding context removes only the hidden dependency record. The visible characters of the store path stay where they were, so the search succeeds and the extracted value is non-empty.</p></details></li>
+        <li><details class="rx-choice" name="q4" data-correct="true"><summary>B. At the first read of the extracted path, because that file would not exist inside the sandbox</summary><p>The dependency record is what brings the prompt file into the build's isolated filesystem. Without it the path points at nothing the sandbox can see, and the first attempt to open it reports that no such file exists.</p></details></li>
+        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="believes evaluation-time errors catch missing runtime dependencies"><summary>C. At evaluation time, because Nix refuses to write a store path into a file without its context</summary><p>Nix allows exactly this, which is why the operation that strips context is named for being unsafe. Evaluation completes normally and the problem surfaces only when something tries to use the path.</p></details></li>
+        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="confuses a missing dependency with a wording assertion"><summary>D. At the framing assertion, because a file outside the sandbox reads as empty rather than as missing</summary><p>An unreadable path is not an empty file. The read fails outright with a file-not-found error rather than returning nothing, so the failure arrives before any assertion about wording is reached.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+
+    <article class="rx-quiz-item" id="q5" data-concept="pi-integration-check" data-objective="obj-5">
+      <h3>Someone edits the module so the symlink points at the first memory checkout instead of the last, keeping every flag. What happens when the gate runs?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="assumes an assertion about the flags also covers the target"><summary>A. It fails, reporting that the memory symlink lost its strict flag</summary><p>That assertion searches for the flag text alone and the flags were not touched, so it still matches. An assertion pinning a command's options says nothing about its arguments.</p></details></li>
+        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="assumes the adapter-path assertions cover every path in the activation text"><summary>B. It fails, reporting that a memory checkout is missing from the activation text</summary><p>Those assertions require specific adapter paths to be present, and all still are — the pointer blocks were not touched. None requires any path to be absent, so a changed target leaves every one satisfied.</p></details></li>
+        <li><details class="rx-choice" name="q5" data-correct="true"><summary>C. It passes, because no assertion mentions the symlink's target path</summary><p>The only assertion about that line searches for the flags. The target is unpinned, so this regression ships green and would be found only by someone noticing the link resolves to the wrong repository.</p></details></li>
+        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="expects the count assertion to respond to unrelated edits"><summary>D. It fails, because the count of mandatory-read sentences no longer matches the table</summary><p>The count is taken over the framing sentence in the pointer blocks, and editing the symlink line adds and removes none of them. That assertion responds to the number of table rows.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+
+    <article class="rx-quiz-item" id="q6" data-concept="absolute-work-paths" data-objective="obj-6">
+      <h3>Why do the other three machines in the example fleet come out with unchanged build recipes, even though this module was rewritten?</h3>
+      <ul class="rx-choices">
+        <li><details class="rx-choice" name="q6" data-correct="true"><summary>A. Only the developer machine builder composes this module, so no other machine's configuration references anything it produces</summary><p>The rewritten source only reaches a machine that includes the module. A machine that never includes it has an identical configuration before and after, which is what the base-versus-head comparison showed for three of the four.</p></details></li>
+        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="thinks activation text sits outside the build recipe"><summary>B. Activation text is written at rebuild time, so it never forms part of any machine's build recipe</summary><p>Activation text is part of the configuration and is baked into the build recipe like everything else. That is why the developer machine's recipe changed and why the check can read the exact text without running anything.</p></details></li>
+        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="believes unchanged behavior implies an unchanged recipe"><summary>C. The instruction text is the only thing that changed, and text changes do not alter a build recipe</summary><p>Changing text changes the content of the built file, which changes its store path, which changes every recipe that names it. The appended prompt demonstrates that chain on the developer machine.</p></details></li>
+        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="attributes the isolation to the check rather than to composition"><summary>D. The check builds only the developer machine, so other machines were never evaluated for comparison</summary><p>The gate evaluates every machine, and the comparison reported here evaluated all four at both commits. Isolation comes from which machines compose the module, not from what the gate looks at.</p></details></li>
+      </ul>
+      <p class="rx-quiz-result" aria-live="polite"></p>
+    </article>
+  </section>
+</main>
+
+<footer class="rx-footer" id="rx-provenance">
+  <dl class="rx-provenance" data-repository="allod/archetypes" data-pr="43" data-pr-url="https://forge.anarch.diy/allod/archetypes/pulls/43" data-base-sha="c02e4e95bbcd0f9a1616d477d4c96c15c6f14e3a" data-head-sha="9539ad24de3542088a210870b367afe03fa337f3" data-runner="claude">
+    <dt data-field="repo">Repository</dt><dd>allod/archetypes</dd>
+    <dt data-field="pr">Pull request</dt><dd>#43</dd>
+    <dt data-field="url">Pull request URL</dt><dd>https://forge.anarch.diy/allod/archetypes/pulls/43</dd>
+    <dt data-field="title">Pull request title</dt><dd>Render harness memory pointers from one table and one template</dd>
+    <dt data-field="base">Base commit</dt><dd><code>c02e4e95bbcd0f9a1616d477d4c96c15c6f14e3a</code></dd>
+    <dt data-field="head">Head commit</dt><dd><code>9539ad24de3542088a210870b367afe03fa337f3</code></dd>
+    <dt data-field="diffstat">Diff</dt><dd>2 files, 99 additions, 38 deletions</dd>
+    <dt data-field="runner">Runner</dt><dd>claude subscription CLI</dd>
+    <dt data-field="generator">Generator</dt><dd>allod pr explain, template 1</dd>
+    <dt data-field="generated">Generated</dt><dd><time datetime="2026-08-20">2026-08-20</time></dd>
+    <dt data-field="sources">Sources read</dt><dd>the complete diff, the modules and checks around it, the top-level configuration file that composes them, this repository's history, the pull-request body and its risk and validation notes, a local checkout of allod/memory, and offline evaluations of both commits</dd>
+    <dt data-field="limits">Not verified by this report</dt>
+    <dd><ul><li>The second memory checkout, agent-memory, is not present on the machine that produced this report, so nothing here establishes that its adapter files or its memory.md exist or what they contain.</li><li>No developer virtual machine was rebuilt or activated; the symlink collision and its refusal were reproduced on scratch directories, not on a real machine's home.</li><li>Whether any machine's copy of allod/memory predates commit b633926 was not checked, so the condition under which the topic-file rule reaches nobody is described but not ruled out.</li><li>Whether the doubled mandatory-read framing in a single Claude Code session was intended, and how such a session behaves when one of the four named files is missing, is recorded nowhere and was not tested.</li></ul></dd>
+  </dl>
+</footer>
+
+<script id="rx-template-js">
+(() => {
+  document.documentElement.dataset.rxJs = "on";
+  const reduce = typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function sequence() {
+    const plans = Array.from(document.querySelectorAll(".rx-sequence"))
+      .filter((root) => root.dataset.rxEnhanced !== "true")
+      .map((root) => {
+        const list = root.querySelector(":scope > .rx-seq-steps");
+        if (!list) throw new Error("sequence steps");
+        const steps = Array.from(list.children);
+        if (!steps.length || steps.some((step) => !step.classList.contains("rx-seq-step"))) {
+          throw new Error("sequence shape");
+        }
+        const titles = steps.map((step) => step.querySelector(".rx-seq-title"));
+        if (titles.some((title) => !title)) throw new Error("sequence title");
+
+        const controls = document.createElement("div");
+        controls.className = "rx-seq-controls";
+        const previous = document.createElement("button");
+        previous.className = "rx-seq-prev";
+        previous.type = "button";
+        previous.textContent = "Previous";
+        const next = document.createElement("button");
+        next.className = "rx-seq-next";
+        next.type = "button";
+        next.textContent = "Next";
+        const all = document.createElement("button");
+        all.className = "rx-seq-all";
+        all.type = "button";
+        all.textContent = "Show all";
+        const status = document.createElement("p");
+        status.className = "rx-seq-status";
+        status.setAttribute("aria-live", "polite");
+        controls.append(previous, next, all, status);
+        return { root, list, steps, titles, controls, previous, next, all, status };
+      });
+
+    plans.forEach((plan) => {
+      let index = 0;
+
+      function render(mode, focusTitle) {
+        plan.root.dataset.rxMode = mode;
+        plan.steps.forEach((step, stepIndex) => {
+          if (mode === "step" && stepIndex === index) step.dataset.rxCurrent = "true";
+          else delete step.dataset.rxCurrent;
+        });
+        const showingAll = mode === "all";
+        plan.previous.disabled = showingAll || index === 0;
+        plan.next.disabled = !showingAll && index === plan.steps.length - 1;
+        plan.next.textContent = showingAll ? "Start steps" : "Next";
+        plan.all.disabled = showingAll;
+        plan.status.textContent = showingAll
+          ? `All ${plan.steps.length} steps shown`
+          : `Step ${index + 1} of ${plan.steps.length}`;
+        if (focusTitle && !showingAll) {
+          const title = plan.titles[index];
+          title.tabIndex = -1;
+          title.focus({ preventScroll: true });
+          title.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+        }
+      }
+
+      plan.previous.addEventListener("click", () => {
+        if (index > 0) index -= 1;
+        render("step", true);
+      });
+      plan.next.addEventListener("click", () => {
+        if (plan.root.dataset.rxMode === "all") index = 0;
+        else if (index < plan.steps.length - 1) index += 1;
+        render("step", true);
+      });
+      plan.all.addEventListener("click", () => render("all", false));
+      plan.list.before(plan.controls);
+      plan.root.dataset.rxEnhanced = "true";
+      render(reduce ? "all" : "step", false);
+    });
+  }
+
+  function quiz() {
+    const roots = Array.from(document.querySelectorAll("section"))
+      .filter((root) => root.querySelector(":scope > .rx-quiz-item"));
+    const plans = roots.map((root) => {
+      const items = Array.from(root.querySelectorAll(":scope > .rx-quiz-item"));
+      const itemPlans = items.map((item) => {
+        const choices = Array.from(item.querySelectorAll(".rx-choice"));
+        const result = item.querySelector(".rx-quiz-result");
+        if (!choices.length || !result || choices.some((choice) => !choice.querySelector("summary"))) {
+          throw new Error("quiz shape");
+        }
+        return { item, choices, result };
+      });
+      let score = root.querySelector(":scope > .rx-quiz-score");
+      if (!score) {
+        score = document.createElement("p");
+        score.className = "rx-quiz-score";
+        score.setAttribute("aria-live", "polite");
+      }
+      return { root, itemPlans, score };
+    });
+
+    plans.forEach((plan) => {
+      function updateScore() {
+        const answered = plan.itemPlans.filter(({ item }) => item.dataset.rxAnswered === "true");
+        const correct = answered.filter(({ item }) => item.dataset.rxCorrect === "true");
+        plan.score.textContent = `${correct.length} correct out of ${answered.length} answered`;
+      }
+
+      plan.itemPlans.forEach(({ item, choices, result }) => {
+        choices.forEach((choice) => {
+          choice.addEventListener("toggle", () => {
+            if (!choice.open || item.dataset.rxAnswered === "true") return;
+            const correct = choice.dataset.correct === "true";
+            item.dataset.rxAnswered = "true";
+            item.dataset.rxCorrect = String(correct);
+            choice.dataset.rxSelected = "true";
+            // Record the first answer, then set the explanations free. The
+            // shared name attribute is what makes the browser close one
+            // choice when another opens; removing it after the first answer
+            // lets the reader open and close every explanation at their
+            // leisure. Nothing is locked and correction is never withheld.
+            choices.forEach((entry) => {
+              entry.removeAttribute("name");
+            });
+            result.textContent = correct
+              ? "Correct. Your first answer is recorded; open any choice to compare explanations."
+              : "Not quite. Your first answer is recorded; open the other choices for the misconception and the governing rule.";
+            updateScore();
+          });
+        });
+      });
+      if (!plan.score.isConnected) plan.root.append(plan.score);
+      updateScore();
+    });
+  }
+
+  function codewalk() {
+    const plans = Array.from(document.querySelectorAll(".rx-codewalk"))
+      .filter((root) => root.dataset.rxEnhanced !== "true")
+      .map((root) => {
+        const notes = Array.from(root.querySelectorAll(".rx-note[data-hl]"));
+        const pairs = notes.map((note) => {
+          const mark = document.getElementById(note.dataset.hl);
+          if (!mark || !mark.classList.contains("rx-hl")) {
+            throw new Error("code highlight");
+          }
+          return { note, mark };
+        });
+        return { root, pairs };
+      });
+
+    plans.forEach(({ root, pairs }) => {
+      pairs.forEach(({ note, mark }) => {
+        function light(on) {
+          if (on) {
+            note.dataset.rxLit = "true";
+            mark.dataset.rxLit = "true";
+          } else {
+            delete note.dataset.rxLit;
+            delete mark.dataset.rxLit;
+          }
+        }
+        note.addEventListener("mouseenter", () => light(true));
+        note.addEventListener("mouseleave", () => light(false));
+        note.addEventListener("focusin", () => {
+          light(true);
+          mark.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+        });
+        note.addEventListener("focusout", () => light(false));
+        mark.tabIndex = 0;
+        mark.addEventListener("mouseenter", () => light(true));
+        mark.addEventListener("mouseleave", () => light(false));
+        mark.addEventListener("focus", () => {
+          light(true);
+          note.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+        });
+        mark.addEventListener("blur", () => light(false));
+      });
+      root.dataset.rxEnhanced = "true";
+    });
+  }
+
+  function print() {
+    if (document.documentElement.dataset.rxPrintEnhanced === "true") return;
+    let opened = [];
+    window.addEventListener("beforeprint", () => {
+      opened = Array.from(document.querySelectorAll("details:not([open])"));
+      opened.forEach((detail) => { detail.open = true; });
+    });
+    window.addEventListener("afterprint", () => {
+      opened.forEach((detail) => { detail.open = false; });
+      opened = [];
+    });
+    document.documentElement.dataset.rxPrintEnhanced = "true";
+  }
+
+  const enhancers={quiz, sequence, codewalk, print};
+  Object.entries(enhancers).forEach(([name, run]) => {
+    try {
+      run();
+    } catch (error) {
+      console.warn(`rx ${name}`, error);
+    }
+  });
+})();
+</script>
+</body>
+</html>
