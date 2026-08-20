@@ -34,7 +34,7 @@ Ordered public slices:
 
 1. `profiles` exports the provider catalog contract.
 2. `secrets` exports the credential/target contract and recipient derivation.
-3. `inventory` gives Nexus the profiles checkout the command requires.
+3. `inventory` gives Nexus the profiles checkout the command requires and validates the host workspace from raw machine data rather than the guest-only JSON projection.
 4. `archetypes` joins both contracts and reconciles generated state.
 5. `nexus` safely edits the two data registries and ciphertext.
 6. `deploy` pins the compatible revisions and binds every shared input to one revision.
@@ -46,7 +46,7 @@ Residual risk: R3 High. The work crosses six repositories, accepts authenticatio
 | Slice | Risk | Main scrutiny |
 |---|---|---|
 | Profiles/secrets contracts | R3 | No duplicated target fact; complete recipient and reference validation |
-| Inventory workspace | R2 | Nexus receives the required profiles checkout and no unrelated repository |
+| Inventory workspace | R2 | Every Nexus hypervisor receives required data checkouts; the public fixture adds only profiles |
 | Archetypes consumer | R3 | Only owned entries removed; empty desired state still cleans stale state |
 | Nexus command | R3 | No plaintext boundary breach; exact crash recovery across two repos |
 | Deploy composition | R3 | One profiles/secrets/inventory revision graph and absent-resource behavior |
@@ -59,7 +59,11 @@ Residual risk: R3 High. The work crosses six repositories, accepts authenticatio
 
 `pi-credentials.json` lives in secrets and is keyed by credential ID using the same ID grammar. Each entry contains non-empty unique `targets`, non-empty unique `providers`, and `rotationStrategy = "overlap" | "in-place"`. The ciphertext path is derived as `secrets/pi-credentials/<credential>.age`; it is never repeated in the registry. Provider-to-credential and target selection live only here. One credential may serve multiple providers, but each provider appears in exactly one credential record globally; this makes provider-selected rotation and retirement unambiguous.
 
-The secrets flake derives credential inventory consumers, `secrets.nix` recipients, and each dev identity's credential/provider projection from that registry. Recipients are the Nexus active/staged keys plus every target VM active/staged key. Unknown providers/targets, non-libvirt or non-dev targets, missing ciphertext, duplicate provider references, unsupported fields, and recipient drift fail evaluation. Empty public registries generate no Pi credential or provider artifacts. Deploy makes the secrets flake's inventory input follow the same inventory input archetypes consumes; the composition canary proves profiles, secrets, and inventory source equality and sabotages each redirect independently.
+The secrets flake derives credential inventory consumers, `secrets.nix` recipients, and each dev identity's credential/provider projection from that registry. Recipients are the Nexus active/staged keys plus every target VM active/staged key. Unknown providers/targets, non-libvirt or non-dev targets, missing ciphertext, duplicate provider references, unsupported fields, and recipient drift fail evaluation. Empty public registries generate no Pi credential or provider artifacts.
+
+Secrets exports its consumed inventory source. Archetypes exports the profiles, secrets, inventory, and secrets-consumed-inventory sources it composed and extends `composedLayerCheck` to accept all three deploy-pinned inputs. Deploy binds `archetypes.inputs.{profiles,secrets,inventory}` and `secrets.inputs.inventory` to its root inputs. The canary requires all four observed source paths to equal the corresponding root input and independently sabotages each follows redirect.
+
+Inventory validates repository aliases and duplicate checkout paths against raw `machines`, including hypervisors instead of only guest `vm-specs.json`. Every hypervisor that composes Nexus host tooling must include the `profiles`, `secrets`, and `inventory` aliases. The public Nexus fixture remains exactly `nexus`, `inventory`, `secrets`, and `profiles`; a mutation witness proves this slice added only `profiles` and that removing any required host alias fails.
 
 ### Nexus CLI
 
@@ -114,7 +118,7 @@ cd <deploy-worktree> && nix build .#checks.x86_64-linux.composed-layer
 
 The lifecycle witness uses synthetic providers and a local HTTP server to observe Pi obtaining the fixture bearer through its helper for both adapters. Across install, update, partial retirement, last-provider retirement, rebuild, absent-then-present provisioning activation, reboot-shaped reactivation, and Nix garbage collection, it proves exact auth/models contents, runtime ownership/mode, stale-entry/link cleanup, unowned-collision refusal, preservation of unrelated IDs and replaced links, and absence of plaintext from persistent/generated/store artifacts. A concurrent Pi-compatible auth writer cannot be lost. A Pi process started before rotation remains demonstrably stale, while a fresh process uses the replacement. Empty registries and unsupported targets remain absent or fail closed as specified.
 
-The Nexus witness inspects child argv/environment and every written regular file; plaintext may cross only hidden shell input, the Age stdin pipe, and the synthetic Pi/helper pipe. It proves dry-run, malformed input, shared-impact reporting, retargeting, orphan-versus-shared ciphertext retirement, ordinary rollback, and crash recovery after termination at every install and post-validation boundary. The deploy witness sabotages each profiles/secrets/inventory follow redirect. Each schema and lifecycle witness includes sabotage proving the check can fail.
+The Nexus witness inspects child argv/environment and every written regular file; plaintext may cross only hidden shell input, the Age stdin pipe, and the synthetic Pi/helper pipe. It proves dry-run, malformed input, shared-impact reporting, retargeting, orphan-versus-shared ciphertext retirement, ordinary rollback, and crash recovery after termination at every install and post-validation boundary. The inventory witness reads raw hypervisor data and sabotages each required Nexus alias. The deploy witness sabotages the archetypes profiles/secrets/inventory and secrets-inventory follows redirects independently. Each schema and lifecycle witness includes sabotage proving the check can fail.
 
 ## Rollback Plan
 
