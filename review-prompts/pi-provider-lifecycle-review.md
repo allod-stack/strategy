@@ -25,17 +25,15 @@ Verify Tracking Issue, Goal, Scope, Risk Assessment, Interface Contracts, Agent 
 
 ## Focus Areas
 
-1. **Scoped stability pass.** Review only the contract changes in `734a9fe` plus their immediate consistency with the rest of the plan. Do not re-open settled choices unless the fix contradicts another contract.
+The R3 plan-text budget is complete. No third prose pass is scheduled. Implementation review inherits these executable witnesses:
 
-2. **Revision graph.** Confirm the profiles/secrets/inventory follow bindings and sabotage witness can establish one source revision at composition time.
+1. **Revision graph.** Inspect the exported four-source observation and require independent sabotage of archetypes profiles/secrets/inventory plus secrets-inventory follows redirects.
 
-3. **Credential cardinality.** Confirm global provider-to-credential uniqueness makes add, retarget, rotate, partial retire, and last-provider retire total and unambiguous.
+2. **Host workspace.** Inspect the raw-machine registry check and require mutations proving every Nexus hypervisor has the three data checkouts while the public fixture added only profiles.
 
-4. **Crash recovery.** Walk SIGKILL or power loss across journal creation, each repository mutation, validation, rollback, and journal deletion. Confirm Git HEAD contains every required pre-run byte and recovery cannot erase unrelated work.
+3. **Generated lifecycle.** Execute the crash-boundary, Pi-compatible locking, managed ownership, missing-secret no-op, empty-desired cleanup, shared credential, and stale-process witnesses named by the plan.
 
-5. **Generated activation.** Check Pi-compatible auth locking, unowned-ID refusal, managed-ID replacement, missing-during-provisioning no-op, empty-desired cleanup, and stale-process verification against Pi's actual behavior.
-
-6. **Simplify.** Confirm removing generic extension management did not leave dead contracts and look for another entire mechanism that can be deleted without losing the requested add/rotate/retire outcome.
+4. **Simplify.** Keep extension management out. Resolve any further executable simplification during implementation instead of reopening the plan text.
 
 ## Review Rules
 
@@ -53,6 +51,12 @@ Pass 1 reviewed `a32d545` with `gpt-5.6-sol` at high effort.
 - SIMPLIFY sweep: deleted the generic extension-link schema, state, cleanup, and garbage-collection scope.
 - The earlier validation fixes in `be44135` remain stable through this pass: exact bearer grammar and command-backed auth validation were not reopened.
 
-Next pass: perform the scoped stability review above on `734a9fe` with a model other than `gpt-5.6-sol`, preferably a cross-vendor R3-capable model; if unavailable use `gpt-5.5` at high or xhigh effort. This is the second and final plan-text pass; executable uncertainty moves to the named witnesses.
+Pass 2 reviewed `734a9fe` and its immediate public-code consistency with `gpt-5.5` at high effort.
 
-Model: gpt-5.6-sol
+- Findings: 0 BLOCKER, 2 GAP, 0 SIMPLIFY, 0 QUESTION. Both gaps were introduced by the pass-1 fix: the three-input revision claim lacked the required public observation APIs, and the inventory witness read a guest-only projection that excludes Nexus.
+- Fix: `9d639c9` specifies the secrets/archetypes source-observation interface, all four follows sabotages, raw-machine hypervisor validation, and the exact public Nexus workspace delta.
+- Stability: global provider uniqueness, retarget, crash recovery, Pi locking/cache handling, managed ownership, missing-secret behavior, and extension-scope removal survived one independent pass unchanged. The revision and inventory witnesses needed immediate refinement.
+- SIMPLIFY sweep: extension management remains deleted; no additional whole mechanism could be removed without losing the requested lifecycle.
+- Stop: this is the second and final R3 plan-text pass. Remaining uncertainty is executable and moves to implementation review and the named witnesses.
+
+Model: gpt-5.5
