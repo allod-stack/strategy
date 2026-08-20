@@ -1,130 +1,111 @@
-# Managed Pi Provider Credentials
+# Managed Pi Provider Lifecycle
 
-This adds a Nexus-only enrollment command and a declarative dev-VM integration for custom Pi providers, while keeping bearer tokens encrypted at rest and out of shell arguments, environment variables, command output, persistent VM storage, and the Nix store. Implementation starts only after the owner approves this plan.
+This adds a Nexus-only command and public reconciliation mechanism for adding, rotating, and retiring custom Pi providers. It reuses Pi's command-backed API-key support and Age delivery instead of inventing a second credential path. Implementation starts only after the owner approves this revised plan.
 
 ## Tracking Issue
 
-allod/strategy#34. Every public implementation PR uses `Refs allod/strategy#34`; no PR closes it. The owner closes the issue only after the private live canary succeeds.
+allod/strategy#34. Public implementation PRs use `Refs allod/strategy#34`; none closes it. A separate private rollout plan owns migration and live verification, after which the owner closes the issue.
 
 ## Goal
 
-The owner can register an HTTPS OpenAI-compatible endpoint on Nexus, paste its bearer token once, and rebuild one libvirt dev VM whose Pi process reads the token directly from an Age-backed runtime credential.
+The owner can add an HTTPS OpenAI-compatible Pi provider, rotate its bearer credential, or retire it from Nexus without placing plaintext in Git, persistent files, argv, the environment, or command output, and a rebuild reconciles both additions and removals on each target dev VM.
 
 ## Scope
 
 In scope:
 
-- `allod/secrets`: an empty public Pi-provider registry, its exported/validated interface, derived credential inventory entries, derived Age recipients, and synthetic checks.
-- `allod/archetypes`: the dev-builder seam, libvirt Age-secret projection, a generated Pi provider extension, absence behavior, and generated-artifact/request witnesses.
-- `allod/nexus`: a `pi-provider` command with `add`, `rotate`, and `--dry-run`, plus fixture tests and package/check wiring.
-- `allod/deploy`: pin the compatible public revisions and run the composition canary.
+- `allod/profiles`: an empty public provider catalog, schema validation, and per-provider endpoint/protocol/model data.
+- `allod/secrets`: an empty public credential registry, derived ciphertext paths, recipient/inventory entries, and per-VM provider-to-credential projection.
+- `allod/archetypes`: libvirt Age delivery, Pi's command-backed auth entries, atomic managed-entry reconciliation, ownership state, and stale symlink cleanup.
+- `allod/nexus`: `pi-provider add`, `rotate`, `retire`, and `--dry-run`, with cross-repository rollback and fixture tests.
+- `allod/deploy`: compatible public pins and a synthetic composition canary.
 
 Out of scope:
 
-- Live URLs, model names, token values, or machine-specific provider entries in public history.
-- OAuth, custom headers, non-bearer auth, non-OpenAI adapters, HTTP endpoints, automatic model discovery, token creation/revocation, or provider deletion.
-- Privacy/service VM targets or microVM delivery. A non-libvirt target fails before secret input; microVM support waits for allod/archetypes#29 and allod/archetypes#38.
-- Automatically deleting an old Pi `auth.json` entry. The owner retires that fallback only after the live managed path works.
+- Live endpoints, provider/model identifiers, bearer values, target selections, or recipient keys in public history.
+- Provider-side token issuance or revocation; those APIs are service-specific and remain human operations.
+- OAuth, arbitrary headers, non-bearer authentication, HTTP endpoints, automatic discovery, privacy/service VMs, or microVM delivery.
+- Automatically migrating or deleting the current private integration. Its one-shot cutover belongs to the private rollout plan.
+- Hiding a runtime credential from agents on its target VM. Pi and agents share the same Unix account, so either can invoke the helper or read the user-owned runtime file; a broker would be a separate security design.
+- Moving integration-specific extension behavior into public code. The public mechanism only owns safe installation and removal of links declared by a profile.
 
 Ordered public slices:
 
-1. `secrets` defines the data contract and recipient derivation.
-2. `archetypes` consumes that contract and proves runtime delivery with synthetic data.
-3. `nexus` writes the contract safely and prints the human-only deployment sequence.
-4. `deploy` pins the compatible revisions. These slices can land independently in that order.
+1. `profiles` exports the provider catalog contract.
+2. `secrets` exports the credential/target contract and recipient derivation.
+3. `archetypes` joins both contracts and reconciles generated state.
+4. `nexus` safely edits the two data registries and ciphertext.
+5. `deploy` pins the compatible revisions.
 
 ## Risk Assessment
 
-Residual risk: R3 High
+Residual risk: R3 High. The work crosses five repositories, accepts authentication material, changes Age recipients and Home Manager activation, and removes persistent configuration during retirement. Synthetic checks can prove the public lifecycle, including rollback and generated artifacts, but cannot prove any private endpoint or provider-side revocation. Human review should focus on source-of-truth separation, shared-credential impact, removal ownership, secret transport, and the stage/activate/retire order.
 
-The change crosses repository contracts and handles authentication, Age recipients, generated Home Manager behavior, and NixOS activation. Validation can prove the public mechanism with synthetic credentials, including a real local Pi request, but only the owner on Nexus can prove the private recipient graph, VM rebuild, and remote endpoint behavior. The old Pi credential remains available until the new live path passes, so a failed rollout is recoverable without rotating or losing the provider token.
-
-Human scrutiny should focus first on token transport, the generated Pi auth resolver, recipient completeness, and the order of private pin update, rebuild, verification, and old-auth retirement.
-
-| PR or milestone | Risk | Reason | Human scrutiny |
-|---|---|---|---|
-| `secrets` interface | R3 | Defines auth/recipient data consumed across repos | Schema, derived paths, active/staged recipient coverage |
-| `archetypes` consumer | R3 | Generates runtime credential and request behavior | No store/persistent leak; stored Pi auth cannot override the managed resolver |
-| `nexus` command | R3 | Accepts and rewrites encrypted credential state | No token argv/env/output/plaintext file; atomic rollback |
-| `deploy` integration | R3 | Couples the three compatible revisions | Lock graph and composed outputs |
-| Owner-only live canary | R3 | Touches one scoped credential and one disposable VM | Safe prompt, correct target, managed auth source, real request before cleanup |
+| Slice | Risk | Main scrutiny |
+|---|---|---|
+| Profiles/secrets contracts | R3 | No duplicated target fact; complete recipient and reference validation |
+| Archetypes consumer | R3 | Only owned entries removed; empty desired state still cleans stale state |
+| Nexus command | R3 | No plaintext boundary breach; exact rollback across two repos |
+| Deploy composition | R3 | Compatible pins and absent-resource behavior |
 
 ## Interface Contracts
 
-### Secrets data
+### Declarative data and ownership
 
-`pi-providers.json` is an object keyed by provider ID. IDs match `^[a-z0-9][a-z0-9-]*$`. Each value has exactly:
+`pi-providers.json` lives in profiles and is keyed by provider ID matching `^[a-z0-9][a-z0-9-]*$`. Each provider has an HTTPS `baseUrl`, a default `api` of `openai-completions` or `openai-responses`, and a non-empty unique model array. Models contain `id` and may contain `name`, `api`, `reasoning`, and `maxTokens`; unknown fields fail validation. Profiles may additionally declare managed extension links as Nix data, but the JSON catalog contains no executable paths.
 
-- `baseUrl`: an `https://` URL with no userinfo, query, fragment, whitespace, or trailing `/`.
-- `api`: `openai-completions` or `openai-responses`, used as the default adapter.
-- `models`: a non-empty array with unique non-empty `id` values. Entries may additionally carry `name`, `api`, `reasoning`, and `maxTokens`; a model-level `api` has the same two-value enum and otherwise inherits the provider default.
-- `target`: exactly one inventory machine name. It must resolve to `type = "dev"` and `runtime = "libvirt"`.
+`pi-credentials.json` lives in secrets and is keyed by credential ID using the same ID grammar. Each entry contains non-empty unique `targets`, non-empty unique `providers`, and `rotationStrategy = "overlap" | "in-place"`. The ciphertext path is derived as `secrets/pi-credentials/<credential>.age`; it is never repeated in the registry. Provider-to-credential and target selection live only here. A provider may share a credential with other providers, but one target may resolve a provider through only one credential.
 
-The provider ID derives every credential name and path: credential `pi-provider-<id>`, ciphertext `secrets/pi-providers/<id>.age`, and guest plaintext `/run/agenix/pi-provider-<id>`. The secrets flake exports `lib.piProviders` and a per-machine projection. The same exported recipient function drives `secrets.nix` and the Nexus command: Nexus host recipients plus every active/staged host key for the one target. Unknown targets, duplicate model IDs, unsupported fields/adapters, a missing ciphertext, or recipient drift fail evaluation.
-
-The public template registry is `{}` and generates no provider credential, secret mapping, or VM target.
+The secrets flake derives credential inventory consumers, `secrets.nix` recipients, and each dev identity's credential/provider projection from that registry. Recipients are the Nexus active/staged keys plus every target VM active/staged key. Unknown providers/targets, non-libvirt or non-dev targets, missing ciphertext, duplicate resolution, unsupported fields, and recipient drift fail evaluation. Empty public registries generate no Pi credential or provider artifacts.
 
 ### Nexus CLI
 
 ```text
-pi-provider [--dry-run] add <provider> --url <https-url> --target <dev-vm> (--model <id>[,<id>...] | --models-file <path>) [--api <openai-completions|openai-responses>]
+pi-provider [--dry-run] add <provider> --credential <credential> --url <https-url> --target <dev-vm>... (--model <id>[,<id>...] | --models-file <path>) [--api <adapter>] [--rotation-strategy <overlap|in-place>]
 pi-provider [--dry-run] rotate <provider>
+pi-provider [--dry-run] retire <provider>
 ```
 
-Repeated `--model` accumulates and comma-separated values are equivalent. `--models-file` is mutually exclusive with `--model` and contains only the model array allowed above; it preserves the existing canary's mixed adapter and reasoning metadata. `add` refuses an existing ID, while `rotate` refuses a missing one and changes only its ciphertext. No token flag, token path, noninteractive bypass, or verification bypass exists.
+`add` refuses an existing provider. A new credential triggers hidden token input and ciphertext creation. An existing credential may be shared only when its target set is unchanged; otherwise the command refuses before secret input and directs the owner through an explicit rekey/rotation. Repeated targets/models accumulate. `--models-file` is mutually exclusive with `--model` and contains only the allowed model array.
 
-Before prompting, the command resolves the private secrets checkout, requires it clean, validates all metadata/target/recipient preconditions, and calculates every path it may change. `--dry-run` stops there and prints no private values beyond the provider ID, target, tracked paths, and required follow-up actions.
+`rotate` resolves the provider to its credential, reports every provider and target affected by that shared credential, then replaces only its ciphertext. `overlap` means the old remote token remains valid until rebuild and verification succeed; `in-place` warns that remote rollback may already be impossible. The command records neither token value.
 
-The live path uses hidden `read -r -s`, rejects empty/multiline input, and accepts only RFC 6750 `b64token` values matching `^[A-Za-z0-9._~+/-]+={0,}$`; this keeps quotes and newlines out of curl's configuration grammar. It keeps the value only in shell memory and probes `<baseUrl>/models` with `curl --config -`; the bearer is sent through curl's private configuration stdin, never argv or environment, and response bodies are discarded. It pipes the same in-memory value directly to `age`, stages only ciphertext and non-secret JSON in a `0700` tmpfs directory, atomically installs both files, restores exact old bytes after any partial failure, unsets the value, and prints commit/push, deploy-lock, rebuild, and credential-free verification commands. The command never commits, pushes, rebuilds, or revokes.
+`retire` removes the provider catalog entry and all credential-registry references to it. If its credential still serves another provider, the credential record and ciphertext remain. If no declared consumer remains, it also removes the credential record and current ciphertext. This stops future deployment but neither erases encrypted Git history nor revokes the remote token.
 
-### Dev VM and Pi
+All live operations require clean private profiles and secrets checkouts and calculate every touched path before prompting. Token input uses hidden `read -r -s`, accepts exactly one non-empty RFC 6750 `b64token` matching `^[A-Za-z0-9._~+/-]+={0,}$`, and pipes directly to Age. Only ciphertext and non-secret JSON enter a `0700` tmpfs staging directory. Installation across both repositories is transactional: every pre-run byte and absence is recorded, partial failure restores it exactly, and validation runs before and after mutation. There is no token flag, token-path input, force bypass, automatic commit/push/rebuild, or generic remote probe/revocation. `--dry-run` stops before secret input and prints only IDs, targets, paths, shared impact, and follow-up actions.
 
-For each declared provider targeting a libvirt dev VM, `age.secrets` decrypts the ciphertext to the derived `/run/agenix` path owned by the dev user, group `users`, mode `0400`. Nothing copies it into the home directory, a session environment variable, argv, generated JSON/TypeScript, or the Nix store.
+### Dev VM and Pi reconciliation
 
-Home Manager installs one managed global Pi extension only when the provider set is non-empty. It registers a complete Pi provider with both OpenAI stream adapters as needed. The provider deliberately omits Pi's side-effect-free `check` shortcut, because path existence cannot prove the credential is usable: both `pi auth check` and a request go through `resolve`, which reads and validates the one fixed runtime path, returns only the `Age-managed VM credential` source label, and ignores any stored `auth.json` credential or `models.json` key for that provider. A missing, empty, or newline-bearing runtime file fails loudly without returning the value. Existing unrelated Pi providers/configuration remain untouched.
+Every dev VM imports the reconciler even when its desired provider set is empty. Each declared credential becomes a user-owned, group-user, mode-`0600` Age secret in volatile runtime storage. A managed home symlink gives the fixed helper command a credential path; plaintext is never copied into persistent home, generated JSON/TypeScript, argv, the environment, or the Nix store.
 
-An empty provider set renders neither Age secrets nor the extension. A managed-symlink collision warns loudly and leaves the operator-authored target byte-unchanged without aborting the rest of Home Manager activation.
+`auth.json` receives managed `api_key` entries whose `key` is Pi's `!<helper-command>` form. The helper validates a single non-empty line and writes it only to Pi's credential pipe. `models.json` receives the matching provider metadata. Existing unrelated entries and top-level settings remain byte-equivalent in meaning.
+
+A private ownership manifest records the provider IDs, credential links, and extension links last installed by this mechanism. Activation locks all managed files, validates and stages every result before mutation, atomically replaces individual files, and restores exact pre-run bytes after a partial install failure. It removes `previously managed - currently desired` auth/model entries. It removes a stale link only when the path is still a symlink to its recorded managed target; an operator replacement is preserved with a loud warning. After the last provider is retired, the empty desired state performs this cleanup and removes the empty manifest. Malformed JSON, an unowned collision, a missing credential, or ownership-state corruption fails without partial mutation.
 
 ## Agent Gates
 
-- The agent stops here until the owner says `go`; approval authorizes only the public implementation and synthetic validation above.
-- The agent cannot access Nexus, the live private secrets/deploy forks, or the provider account. The owner supplies the private URL/model metadata and bearer, commits/pushes private ciphertext/data, updates the private deploy lock, and runs the host-side rebuild.
-- Before the live canary, the owner exports the existing provider's non-secret model array for `--models-file`; no agent reads or migrates the old token from Pi's `auth.json`.
-- The owner keeps the old Pi auth entry through rebuild and live verification. Only after `pi auth check` names the managed source and a real inference succeeds does the owner remove that one old entry without displaying it. This cleanup is the rollback boundary.
-- If the target moves to microVM before implementation, this plan is blocked pending the named credential-delivery issues; the agent does not invent a second transport.
+- The agent stops after this plan until the owner says `go`; approval covers only public implementation and synthetic validation.
+- Agents do not access, decrypt, migrate, rotate, retire, commit, or deploy private credentials or provider data.
+- The owner creates a separate private rollout plan after the public interfaces settle. It owns migration from the current private module, private pin updates, host rebuilds, real inference, rollback, and provider-side revocation.
+- Remote retirement occurs only after the rebuilt target proves the replacement works. The tool may print this gate but cannot perform or attest to it.
+- MicroVM support remains blocked on its credential-delivery path; no fallback writes plaintext to persistent guest storage.
 
 ## Acceptance Tests
 
 ```sh
-# secrets: schema, derived inventory/recipients/files, empty public behavior, and sabotage cases
-cd <secrets-worktree>
-nix build .#checks.x86_64-linux.credential-inventory .#checks.x86_64-linux.pi-provider-registry
-
-# archetypes: generated extension/age-secret lifecycle plus real Pi requests to a local fixture server
-cd <archetypes-worktree>
-nix build .#checks.x86_64-linux.pi-provider-integration
-nix eval .#nixosConfigurations.allod-dev.config.system.build.toplevel.drvPath
-
-# nexus: syntax/shellcheck, safe-input fixture, failed-probe no-op, atomic-install rollback, dry-run, and packaging
-cd <nexus-worktree>
-nix build .#checks.x86_64-linux.provisioning-contract
-
-# deploy: compatible pins and composition surface without the multi-machine flake-check memory spike
-cd <deploy-worktree>
-nix eval .#nixosConfigurations.allod-dev.config.system.build.toplevel.drvPath
-nix build .#checks.x86_64-linux.composed-layer
+cd <profiles-worktree> && nix build .#checks.x86_64-linux.pi-provider-catalog
+cd <secrets-worktree> && nix build .#checks.x86_64-linux.credential-inventory .#checks.x86_64-linux.pi-credential-registry
+cd <archetypes-worktree> && nix build .#checks.x86_64-linux.pi-provider-lifecycle
+cd <nexus-worktree> && nix build .#checks.x86_64-linux.provisioning-contract
+cd <deploy-worktree> && nix build .#checks.x86_64-linux.composed-layer
 ```
 
-The archetypes witness must start Pi with a synthetic conflicting `auth.json` credential and a fixture runtime file, then observe the fixture token—not the stored token—in `Authorization: Bearer ...` requests for one Completions and one Responses model. It also proves the auth-status label, exact runtime ownership/mode, missing/empty/multiline failures, no token in generated/store artifacts, no-provider absence, activation collision behavior, and microVM/privacy rejection. Each validator has a sabotage that proves it can fail.
+The lifecycle witness uses synthetic providers and a local HTTP server to observe Pi obtaining the fixture bearer through its helper for both adapters. Across install, update, shared-credential rotation, partial retirement, last-provider retirement, rebuild, reboot-shaped reactivation, and Nix garbage collection, it proves exact auth/models contents, runtime ownership/mode, stale-entry/link cleanup, preservation of unrelated or operator-replaced state, and absence of plaintext from persistent/generated/store artifacts. Empty registries and unsupported targets remain absent or fail closed as specified.
 
-The Nexus witness inspects child argv/environment and every written regular file, fails if fixture plaintext appears outside the private curl stdin/Age pipeline, and compares pre/post bytes after rejected input, failed HTTP verification, failed encryption, and each simulated partial install.
-
-No private value or private build receipt is recorded in this public plan. Canary completion is a credential-free issue comment from the owner stating that dry-run matched the intended provider/target, enrollment and private pin updates completed, the VM rebuilt, `pi auth check` reported the managed source without `--credentials`, both adapter families remained selectable, a real prompt succeeded, and the old local auth entry was retired.
+The Nexus witness inspects child argv/environment and every written regular file; plaintext may cross only hidden shell input, the Age stdin pipe, and the synthetic Pi/helper pipe. It proves dry-run, malformed input, shared-impact reporting, two-repository atomic rollback, orphan-versus-shared ciphertext retirement, and exact no-op behavior after every simulated failure. Each schema and lifecycle witness includes sabotage proving the check can fail.
 
 ## Rollback Plan
 
-Before live deployment, revert the affected public PR or keep the deploy pins unchanged. After `pi-provider add`/`rotate` but before rebuild, restore the private registry and ciphertext from git; the command's own failure paths already restore exact pre-run bytes.
+Before merge, close or amend the public PRs. After merge but before private adoption, revert the public PRs or leave private deploy pins unchanged; empty public registries produce no runtime change. If a synthetic rollout fails between slices, pin the preceding compatible revisions and rerun the absent-resource checks.
 
-After rebuild but before old-auth retirement, pin the previous public/private revisions and rebuild; the pre-existing Pi auth entry remains the working fallback, and the new ciphertext can remain inert or be reverted from git. No provider-side token was changed or revoked.
-
-After old-auth retirement, first restore the previous deploy pins and rebuild, then re-enter the same token through Pi's hidden login prompt (or mint a replacement at the provider) before declaring rollback complete. The Age ciphertext remains recoverable authoritative material; rollback never requires printing or exporting it. If activation hit a managed-extension collision, fix/remove only that collision and rebuild—the activation leaves its bytes unchanged.
+Private migration and its rollback are intentionally not specified here: the private plan must name the legacy module, live data commits, rebuild target, provider-specific overlap behavior, and exact cutover witness without publishing them. Public `retire` never claims to revoke a remote credential or erase historical ciphertext.
