@@ -1048,468 +1048,610 @@ html[data-rx-js="on"] .rx-sequence[data-rx-mode="step"] .rx-seq-step:not([data-r
 <body>
 <a class="rx-skip" href="#rx-main">Skip to content</a>
 <header class="rx-masthead">
-  <p class="rx-eyebrow">allod/archetypes · pull request #39</p>
-  <h1>A hypervisor now re-evaluates each microVM guest it starts, filling in the credential file paths the guest declared but never supplied</h1>
-  <p class="rx-lede">Two halves of a credential-delivery design lived in separate repositories with nothing between them: a guest listed the credentials it expects and left the values empty, while the host code asserted that both lists agree without ever being handed a guest. This change adds the connecting module, two evaluation-time checks, and one dependency-pinning line. It accepts host wiring and generated systemd and QEMU text that no machine has executed, because nothing in this fleet selects the microVM runtime yet.</p>
-  <p class="rx-cost">Summary: 1 minute. Concepts, enough to judge the design: 6 minutes. Full mechanism and receipts: 17 minutes.</p>
+<p class="rx-eyebrow">allod/archetypes · pull request #39</p>
+<h1>Hosts gain a complete path from declared guests to runnable services, without starting any current machine.</h1>
+<p class="rx-lede">A <strong>microVM</strong>—a small virtual machine launched as a host service—was already describable in guest configuration, but the host never received that finished description. This change connects the two sides, derives temporary credential and control-socket paths, and rejects fleets in which a selected guest has zero or multiple hosts. Accepting it also accepts deliberate coupling: automatic startup and host-rebuild restarts stay off by default, the socket layout becomes a cross-repository contract, and the new checks stop at generated artifacts rather than demonstrating a deployed guest boot.</p>
+<p class="rx-cost">Decision frame: 2 minutes. Concepts and fleet rules: 16 minutes. Full mechanism and evidence: 28 minutes.</p>
 </header>
-
 <section class="rx-summary" aria-labelledby="rx-summary-h">
-  <h2 id="rx-summary-h">If you read nothing else</h2>
-  <p class="rx-decision">Approving this accepts new host-side wiring, two evaluation-time checks, and one dependency redirect; it starts no virtual machine, moves no credential, and changes no existing machine&apos;s build output.</p>
-  <ul class="rx-summary-cards">
-    <li class="rx-card" data-q="what-changes-now"><h3>What merging changes now</h3><p>Nothing that runs. All four machine configurations this repository exports produce byte-identical build recipes before and after; I evaluated both commits.</p></li>
-    <li class="rx-card" data-q="what-exists-after"><h3>What exists afterward</h3><p>A hypervisor whose fleet contains a microVM machine composes two extra modules, re-evaluates each guest with its credential and control-socket paths filled in, and starts that evaluation.</p></li>
-    <li class="rx-card" data-q="evidence"><h3>What the tests actually prove</h3><p>That three synthetic hypervisors evaluate to buildable systems, and that the generated systemd text and QEMU arguments carry paths derived from the host&apos;s own setting. Nine deliberate breakages each produce their own named error.</p></li>
-    <li class="rx-card" data-q="residual-risk"><h3>What is still unproven</h3><p>Everything that only happens at runtime: whether a host rebuild leaves a running guest alone, whether the launcher and the generated unit cooperate, and whether the fleet-wide wiring rule ever refuses anything here.</p></li>
-    <li class="rx-card" data-q="how-to-reject"><h3>How to reject or roll back</h3><p>Revert the branch. No host was rebuilt, the change contains no credential source, and it touched nothing outside this repository.</p></li>
-  </ul>
+<h2 id="rx-summary-h">If you read nothing else</h2>
+<p class="rx-decision">Approval accepts the source-level host–guest composition, fixed per-guest socket convention, false-by-default startup and rebuild behavior, exactly-once fleet gate, and shared dependency revisions; it does not certify runtime startup or live credential delivery on a deployed host.</p>
+<ul class="rx-summary-cards">
+<li class="rx-card" data-q="what-changes-now"><h3>What merging changes now</h3><p>The source gains a conditional host–guest join, three checks, documentation, and a smaller locked dependency graph. Every current machine fact selects <code>libvirt</code>, the existing virtual-machine runtime, so this join adds no guest service to the four-machine example fleet.</p></li>
+<li class="rx-card" data-q="what-exists-after"><h3>What exists afterward</h3><p>When inventory selects the microVM runtime, one exported host can receive the guest’s finished configuration and contain its installed runner and service. Credential inputs and a private management socket are derived per guest, while automatic startup remains disabled.</p></li>
+<li class="rx-card" data-q="evidence"><h3>What the tests actually prove</h3><p>Purpose-built test configurations verify guest selection, configuration extension, exact generated launch arguments, rendered service policy, dependency-lock relationships, and one-and-only-one fleet assignment. The repository gate discovers these checks dynamically.</p></li>
+<li class="rx-card" data-q="residual-risk"><h3>What is still unproven</h3><p>No check added here boots a host, starts the generated service, reads live credential bytes inside a guest, or rebuilds a deployed machine. Private deployment repositories are outside this checkout, and the planned nested-host test remains future work.</p></li>
+<li class="rx-card" data-q="how-to-reject"><h3>How to reject or roll back</h3><p>Reject the change if generated-artifact evidence is insufficient for this lifecycle boundary. Rollback is a revert of the composition and lock-file changes together; no current guest starts, no credential source changes, and no persistent-data migration is introduced.</p></li>
+</ul>
 </section>
-
-<nav class="rx-toc" aria-label="Contents"><ol>
-  <li><a href="#objectives">What you can do after reading</a></li>
-  <li><a href="#microvm-background">How microvm.nix starts a guest, and where this framework&apos;s two halves live</a></li>
-  <li><a href="#assertions">Why a NixOS assertion does nothing until the machine is built</a></li>
-  <li><a href="#host-composition">Which guests a hypervisor composes, and the exactly-once fleet rule</a></li>
-  <li><a href="#join-module">The join module: credential paths, the control socket, and the overlap it refuses</a></li>
-  <li><a href="#restart-autostart">The restart and autostart settings on a wired guest</a></li>
-  <li><a href="#evidence">What the two new checks run, and what they leave untested</a></li>
-  <li><a href="#rx-provenance">Provenance</a></li>
-</ol></nav>
-
+<nav class="rx-toc" aria-label="Contents">
+<ol>
+<li><a href="#objectives">What you can do after reading</a></li>
+<li><a href="#evaluated-configurations">How one machine definition becomes an extendable configuration</a></li>
+<li><a href="#host-service-lifecycle">How the host installs, starts, and restages a guest</a></li>
+<li><a href="#runtime-paths">Credential paths and per-guest control-socket isolation</a></li>
+<li><a href="#exactly-once-fleet">Exactly one exported host must own every selected guest</a></li>
+<li><a href="#unified-input-graph">One root pin now supplies both sides of the VM contract</a></li>
+<li><a href="#proof-and-residual-risk">The checks prove the join, but not a deployed guest boot</a></li>
+<li><a href="#quiz">Knowledge check</a></li>
+</ol>
+</nav>
 <main id="rx-main">
-  <section id="objectives" aria-labelledby="objectives-h" data-layer="concept">
-    <h2 id="objectives-h">What you can do after reading</h2>
-    <p class="rx-claim">These seven abilities bound the report: every section, figure, and quiz item serves at least one.</p>
-    <ol class="rx-objectives">
-      <li id="obj-1">Follow one credential from the name the guest declares, through the host setting that turns it into a path, into the re-evaluated guest, and out as a QEMU argument.</li>
-      <li id="obj-2">Predict what a hypervisor builds with and without a microVM machine in its fleet, and say why an existing libvirt-only hypervisor produces the same build recipe.</li>
-      <li id="obj-3">Explain why the restart setting is left alone, what the system-switching program does when the key is missing, and why the check reads generated text.</li>
-      <li id="obj-4">Diagnose a host credential directory placed under the fixed control-socket directory: which checks still pass, which program destroys what, and which repository owns the guard.</li>
-      <li id="obj-5">Decide whether constraining the exported machine configurations, rather than the builder argument, closes the gap where a deployment quietly starts no guests.</li>
-      <li id="obj-6">Say why every positive test fixture is forced to a build recipe, and what the earlier check waved through.</li>
-      <li id="obj-7">Name the failures this change cannot observe, and weigh what that leaves on the merge decision.</li>
-    </ol>
-  </section>
-
-  <section id="microvm-background" aria-labelledby="microvm-background-h" data-layer="concept" data-objective="obj-1 obj-3">
-    <h2 id="microvm-background-h">How microvm.nix starts a guest, and where this framework&apos;s two halves live</h2>
-    <p class="rx-claim">A microVM guest is a complete machine description computed on the host before anything runs, which lets the host fill in facts only the host knows.</p>
-
-    <p>This change is written in Nix, whose programs compute build recipes rather than run anything. Evaluating an expression produces a <dfn class="rx-term" id="term-derivation">derivation</dfn>: a description of how to build one result, named by a content-addressed path such as <code>/nix/store/66i3c5xm…-nixos-system-allod-dev</code>. Identical output means an identical path, so comparing paths answers whether anything changed. NixOS builds a whole Linux machine this way: fragments called modules merge into one settings tree whose top is a <a class="rx-termref" href="#term-derivation">derivation</a> named <code>system.build.toplevel</code>.</p>
-
-    <p>microvm.nix, the outside project, ships two independent halves: a guest half that makes an ordinary NixOS machine bootable as a lightweight virtual machine, and a host half that generates the systemd services starting and stopping each guest. This repository, <code>allod/archetypes</code>, used the guest half and never the host half.</p>
-
-    <aside class="rx-callout" data-role="definition">
-      <p class="rx-callout-label">Definition</p>
-      <p>A hypervisor is the physical machine that runs virtual machines; a guest is one of the machines it runs. Here the example hypervisor is <code>nexus</code> and the example guest is <code>allod-dev</code>.</p>
-    </aside>
-
-    <h3>The three ways a host can name a guest</h3>
-    <p>microvm.nix lets a hypervisor describe each guest under <code>microvm.vms.&lt;name&gt;</code> and accepts three answers for what that guest is. Upstream computes some of its own defaults from which one you used.</p>
-
-    <figure class="rx-figure" data-objective="obj-1 obj-3">
-      <div class="rx-scroll" role="region" tabindex="0" aria-label="The three shapes microvm.nix accepts for a guest">
-        <table class="rx-compare">
-          <caption>The shape a host picks decides who evaluates the guest, and silently decides the restart default too.</caption>
-          <thead>
-            <tr><th scope="col">Shape</th><th scope="col">What you hand the host</th><th scope="col">Who evaluates the guest</th><th scope="col">Restart-on-change default</th></tr>
-          </thead>
-          <tbody>
-            <tr><th scope="row"><code>config</code></th><td>Fragments, not yet evaluated</td><td>The host, during its own evaluation</td><td><span class="rx-mark" data-state="yes">true</span></td></tr>
-            <tr><th scope="row"><code>flake</code></th><td>A reference to another project</td><td>That other project</td><td><span class="rx-mark" data-state="no">false</span></td></tr>
-            <tr><th scope="row"><code>evaluatedConfig</code></th><td>An already-evaluated guest system</td><td>Whoever evaluated it beforehand</td><td><span class="rx-mark" data-state="no">false</span></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <figcaption class="rx-caption">This change uses the third row exclusively, and the owner review kept that row&apos;s restart default.</figcaption>
-    </figure>
-
-    <p>This repository already exports every machine as a fully evaluated NixOS system, so <code>evaluatedConfig</code> fits: the guest is evaluated once, and both the flake output and the hypervisor point at that result.</p>
-
-    <h3>Extending an already-evaluated guest</h3>
-    <p>If the guest is already evaluated when the host sees it, how does the host add anything? nixpkgs attaches <code>extendModules</code> to every evaluated NixOS system: call it with extra fragments and it re-runs the evaluation with those fragments added, handing back a second, separate system. The original is untouched.</p>
-
-    <h3>How a credential actually reaches the guest</h3>
-    <p>QEMU has a small channel for handing a virtual machine data at boot, <code>fw_cfg</code>, short for firmware configuration. systemd inside the guest reads its entries and presents them as credentials: short-lived files in a memory-only directory. Upstream builds one QEMU argument per entry in the guest&apos;s <code>microvm.credentialFiles</code> setting.</p>
-
-    <figure class="rx-figure rx-codewalk" id="cw-fwcfg" data-objective="obj-1">
-      <div class="rx-scroll" role="region" tabindex="0" aria-label="One credential argument on the generated QEMU command line">
-        <pre class="rx-code" data-lang="text"><code><mark class="rx-hl" id="cw-fwcfg-h1">-fw_cfg 'name=opt/io.systemd.credentials/ssh-host-key,file=/run/allod/microvm/active/allod-dev/ssh-host-key'</mark>
-<mark class="rx-hl" id="cw-fwcfg-h2">-qmp unix:/run/allod/microvm-qmp/allod-dev/control.sock,server,nowait</mark></code></pre>
-      </div>
-      <ol class="rx-notes">
-        <li class="rx-note" data-hl="cw-fwcfg-h1"><a href="#cw-fwcfg-h1">The credential</a> — the name after <code>io.systemd.credentials/</code> is what the guest asks for; the path after <code>file=</code> is a host directory the guest never sees and must not guess.</li>
-        <li class="rx-note" data-hl="cw-fwcfg-h2"><a href="#cw-fwcfg-h2">The control socket</a> — a second host path, used to tell a running machine to shut down cleanly. QEMU calls it the QMP socket; the same new module sets it.</li>
-      </ol>
-      <figcaption class="rx-caption">Both lines come from the launch script this repository&apos;s own check produced, not a reconstruction.</figcaption>
-    </figure>
-
-    <p>This framework&apos;s guest half, <code>modules/microvm-credentials.nix</code>, derives the closed list of credential names from what the machine declares and supplies no values. The host half lives in <code>allod/nexus</code>, which owns <code>nexus.microvm.hostPlaintextRoot</code>: one host directory on a small memory-backed filesystem where the launcher stages each machine&apos;s credentials before starting it.</p>
-
-    <h3>One pinned copy of microvm.nix instead of two</h3>
-    <p>A Nix flake pins the revision of every project it depends on, and because dependencies have dependencies, one project can appear twice at two revisions. This repository reached microvm.nix through <code>allod/vm</code>, and again through <code>allod/nexus</code>, which resolved a second <code>allod/vm</code>; the two copies agreed by coincidence. The one-line <code>inputs.vm.follows = &quot;vm&quot;</code> makes the resolver reuse the first: 28 lock entries become 18, no revision moved. A future update cannot put the host half on a different revision than the guest half.</p>
-  </section>
-
-  <section id="assertions" aria-labelledby="assertions-h" data-layer="concept" data-objective="obj-6">
-    <h2 id="assertions-h">Why a NixOS assertion does nothing until the machine is built</h2>
-    <p class="rx-claim">A NixOS module can register a rule that looks like a check and is not one, and this change&apos;s most important test finding is the consequence.</p>
-
-    <p>A module can register an assertion: a condition plus a message. Evaluation appends it to a list under <code>config.assertions</code> and stops. One place in nixpkgs — the code producing <code>system.build.toplevel</code> — walks the list and turns failures into an error. Read any other setting and the list is never walked; Nix evaluates lazily, so reading one setting forces only what it needs.</p>
-
-    <details class="rx-predict">
-      <summary>Predict: a check reads settings off a synthetic hypervisor and compares the values it finds. What can that check not notice?</summary>
-      <p>It cannot notice that the configuration could never be built. A failing assertion stays a quiet entry in a list nobody walks, which is what happened here: an earlier version of this check passed on fixtures no host could build, because <code>allod/nexus</code> rejects upstream&apos;s default control-socket path and nothing set a valid one. The repair, labelled finding 0, forces <code>system.build.toplevel.drvPath</code> on every positive fixture and reports the failed assertions.</p>
-    </details>
-
-    <p>Forcing the build recipe is cheap in time and expensive in memory — each hypervisor fixture holds roughly a gigabyte of live data — which is why the second new check is a separate file.</p>
-
-    <article class="rx-quiz-item" id="q1" data-concept="assertions-need-toplevel" data-objective="obj-6">
-      <h3>A test builds a synthetic hypervisor, reads five settings off it, and finds all five correct. One module in that configuration registers an assertion that fails. What does the test report?</h3>
-      <ul class="rx-choices">
-        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="believes an assertion is evaluated where it is declared"><summary>A. An error naming the assertion, because assertions are raised where they are declared</summary><p>Registering an assertion only appends it to a list; nothing inspects that list where it is declared.</p></details></li>
-        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="assumes reading any setting forces the whole configuration"><summary>B. An error, because reading a setting forces the merged configuration and its assertions</summary><p>Nix evaluates lazily, and the assertion list is a separate branch that stays uncomputed.</p></details></li>
-        <li><details class="rx-choice" name="q1" data-correct="true"><summary>C. Five correct settings and no error, on a configuration no host could actually build</summary><p>Only the code producing <code>system.build.toplevel</code> walks that list, so a test that never asks for it passes on an unbuildable configuration.</p></details></li>
-        <li><details class="rx-choice" name="q1" data-correct="false" data-misconception="confuses an option type error with an assertion"><summary>D. A type error, because a failing assertion invalidates the surrounding settings</summary><p>Type checking and assertions are separate mechanisms; an assertion is ordinary data, not a constraint.</p></details></li>
-      </ul>
-      <p class="rx-quiz-result" aria-live="polite"></p>
-    </article>
-  </section>
-
-  <section id="host-composition" aria-labelledby="host-composition-h" data-layer="mechanism" data-objective="obj-2 obj-5">
-    <h2 id="host-composition-h">Which guests a hypervisor composes, and the exactly-once fleet rule</h2>
-    <p class="rx-claim">A hypervisor composes the microVM host machinery only when its fleet contains a microVM machine, and a new check refuses any fleet where a declared microVM machine is started by other than exactly one host.</p>
-
-    <p>Machine facts come from a fourth repository, <code>allod/inventory</code>, as plain data. Each guest entry carries a <code>runtime</code> fact of either <code>libvirt</code> or <code>microvm</code>; hypervisor entries carry none, and inventory rejects one that does. The example fleet is <code>allod-dev</code> and <code>privacy-1</code> on libvirt plus the hypervisor <code>nexus</code>. Nothing selects <code>microvm</code>.</p>
-
-    <p>The hypervisor builder, <code>mkHypervisor</code>, gained an argument <code>microvmGuests</code>: the guests this host starts, keyed by machine name. Its default is computed in three named steps: <code>microvmMachineNames</code> filters inventory data for microVM entries, <code>microvmGuestsFor</code> maps those names to the evaluated configurations this flake exports, and <code>builtins.removeAttrs</code> drops the host&apos;s own name. Nothing recurses: the names come from plain data holding no evaluated configuration, and a guest builder reads nothing back from a hypervisor.</p>
-
-    <h3>Gating on the module list rather than inside a module</h3>
-    <p>With an empty guest set the hypervisor&apos;s list of fragments is exactly what it was. Otherwise two are appended: <code>nexus.nixosModules.microvmHost</code>, <code>allod/nexus</code>&apos;s policy layer around upstream&apos;s host half, and the new join module.</p>
-
-    <figure class="rx-figure rx-codewalk" id="cw-gate" data-objective="obj-2">
-      <div class="rx-scroll" role="region" tabindex="0" aria-label="The conditional composition in mkHypervisor">
-        <pre class="rx-code" data-lang="nix"><code>        ]
-<span class="rx-elide">⋯ comment explaining the gate omitted ⋯</span>
-<mark class="rx-hl" id="cw-gate-h1">        ++ lib.optionals (microvmGuests != { }) [</mark>
-<mark class="rx-hl" id="cw-gate-h2">          nexus.nixosModules.microvmHost</mark>
-<mark class="rx-hl" id="cw-gate-h3">          (microvmJoinModule microvmGuests)</mark>
-        ]
-        ++ definition.nixosModules;</code></pre>
-      </div>
-      <ol class="rx-notes">
-        <li class="rx-note" data-hl="cw-gate-h1"><a href="#cw-gate-h1">The gate</a> — <code>lib.optionals</code> returns the two-element list or an empty one, so the modules are absent rather than present-but-disabled.</li>
-        <li class="rx-note" data-hl="cw-gate-h2"><a href="#cw-gate-h2">The host runtime</a> — importing this brings a <code>microvm</code> user and group, a <code>microvm</code> command, memory deduplication on by default, and the whole <code>microvm</code> settings tree.</li>
-        <li class="rx-note" data-hl="cw-gate-h3"><a href="#cw-gate-h3">The join</a> — the new module, applied to the guest set the builder was given.</li>
-      </ol>
-      <figcaption class="rx-caption">Omitting a module, rather than disabling it from inside, keeps a libvirt-only hypervisor free of settings it would otherwise answer for.</figcaption>
-    </figure>
-
-    <p>The alternative — importing always and wrapping the contents in a conditional — fails. A conditional defers a value but still produces a definition, and several of these settings are declared only by the gated modules, so a libvirt-only hypervisor gets an unknown-option error. Gating on the list also gives the stronger property: an unchanged module list, an unchanged build recipe.</p>
-
-    <aside class="rx-callout" data-role="evidence">
-      <p class="rx-callout-label">Evidence</p>
-      <p>I evaluated <code>system.build.toplevel.drvPath</code> for all four exported configurations at base <code>c02e4e9</code> and head <code>59cfc2c</code>. All four match exactly, including the hypervisor. No machine here selects the microVM runtime, so the gate never opens.</p>
-    </aside>
-
-    <h3>Why the free builder argument needed a second check</h3>
-    <p>The <code>microvmGuests</code> argument is deliberately overridable, because no inventory machine declares the microVM runtime and a test has no other way to drive the real builder with a real guest. The cost: builder arguments merge from profile data, so a deployment can hand a hypervisor an empty guest set for a machine inventory calls <code>microvm</code>. Nothing starts it, and every check supplying its own guests stays green.</p>
-
-    <details class="rx-predict">
-      <summary>Predict: the owner rejected &quot;record the gap and move on&quot;. Why constrain the exported machine configurations rather than reject an empty guest set in the builder?</summary>
-      <p>Because rejecting an empty guest set would break the seam the tests depend on, and would constrain the wrong object anyway. A hypervisor with no microVM guests is legitimate — every host in this fleet is one today. A deployment consumes the exported machine configurations, so that is where the rule belongs: the new check walks every exported hypervisor, reads back the guest set it composed, and requires the union to be exactly the machines inventory gives the microVM runtime.</p>
-    </details>
-
-    <figure class="rx-figure" data-objective="obj-5">
-      <div class="rx-branch">
-        <p class="rx-branch-test">For one machine whose inventory entry selects the microVM runtime, how many exported hypervisors composed it?</p>
-        <ul class="rx-branch-arms" data-arms="3">
-          <li class="rx-branch-arm"><b class="rx-arm-label">none</b>Refused, naming the empty-guest-set path through profile data.</li>
-          <li class="rx-branch-arm"><b class="rx-arm-label">exactly one</b>Accepted. This is the only shape the rule allows.</li>
-          <li class="rx-branch-arm"><b class="rx-arm-label">two or more</b>Refused, naming the hosts and the missing fact that would assign a guest to one.</li>
-        </ul>
-      </div>
-      <figcaption class="rx-caption">The third arm refuses a fleet that would otherwise ship: with two hypervisors the default hands every guest to both, and two hosts starting one machine share its state directory and control socket.</figcaption>
-    </figure>
-
-    <p>The diagnostic states the remediation: such a fleet must name the host it means by passing each hypervisor an explicit guest set. No inventory-level way to express that assignment exists today.</p>
-
-    <article class="rx-quiz-item" id="q2" data-concept="module-list-gating" data-objective="obj-2">
-      <h3>An engineer proposes replacing the list gate with an always-imported module whose body is wrapped in a conditional on the guest set. What happens to the existing libvirt-only hypervisor?</h3>
-      <ul class="rx-choices">
-        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="assumes a deferred value equals an absent definition"><summary>A. Nothing changes, because a false condition means the settings are never defined</summary><p>A conditional defers the value but still contributes a definition, whether or not the condition holds.</p></details></li>
-        <li><details class="rx-choice" name="q2" data-correct="true"><summary>B. It fails to evaluate, because settings only the gated modules declare now get definitions</summary><p>The gated modules declare several of these settings, so defining them on a host that skipped those modules is an unknown-option error.</p></details></li>
-        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="treats added modules as free when their settings keep defaults"><summary>C. It evaluates with an identical build recipe, since every gated setting keeps its default</summary><p>Importing upstream&apos;s host half itself adds a system user and group, a command, and memory deduplication.</p></details></li>
-        <li><details class="rx-choice" name="q2" data-correct="false" data-misconception="expects the fleet rule to cover a module-composition mistake"><summary>D. It evaluates, and the fleet-wiring check reports the extra modules as an unwired guest</summary><p>That check compares guest-set membership against inventory, and a host with extra modules still has an empty guest set.</p></details></li>
-      </ul>
-      <p class="rx-quiz-result" aria-live="polite"></p>
-    </article>
-
-    <article class="rx-quiz-item" id="q3" data-concept="fleet-wiring-exactly-once" data-objective="obj-5">
-      <h3>A deployment adds a second hypervisor and gives neither host an explicit guest set. What does the new rule produce, and why is that the design the change chose?</h3>
-      <ul class="rx-choices">
-        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="reads the default as a per-host assignment"><summary>A. Each host starts roughly half the guests, because the default divides the fleet</summary><p>The default hands each hypervisor the fleet&apos;s microVM machines minus itself, so both guest sets are identical.</p></details></li>
-        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="assumes duplicate wiring is caught by runtime locking"><summary>B. Both hosts start every guest, and the duplicate is caught at runtime by a lock</summary><p>Nothing arbitrates between hosts; both would prepare the same state directory and control socket independently.</p></details></li>
-        <li><details class="rx-choice" name="q3" data-correct="false" data-misconception="expects a permissive rule because double-wiring is the rarer case"><summary>C. Both hosts start every guest and the rule allows it, being written for un-wiring</summary><p>The clause is exactly-once rather than at-least-once precisely so this case is covered.</p></details></li>
-        <li><details class="rx-choice" name="q3" data-correct="true"><summary>D. Evaluation is refused, naming both hosts and the missing guest-to-host fact</summary><p>Two hosts starting one machine share its state directory and control socket, which is worse than not starting it at all.</p></details></li>
-      </ul>
-      <p class="rx-quiz-result" aria-live="polite"></p>
-    </article>
-  </section>
-
-  <section id="join-module" aria-labelledby="join-module-h" data-layer="mechanism" data-objective="obj-1 obj-4">
-    <h2 id="join-module-h">The join module: credential paths, the control socket, and the overlap it refuses</h2>
-    <p class="rx-claim"><code>microvmJoinModule</code> does the whole crossing: it reads the host&apos;s credential directory setting, builds one file path per credential name the guest declared, re-evaluates the guest with those paths and a control-socket path added, and hands that result to the host as the guest to start.</p>
-
-    <figure class="rx-figure rx-codewalk" id="cw-join" data-objective="obj-1 obj-4">
-      <div class="rx-scroll" role="region" tabindex="0" aria-label="The core of the join module in flake.nix">
-        <pre class="rx-code" data-lang="nix"><code>    microvmJoinModule = guests: { config, ... }:
-      let
-<mark class="rx-hl" id="cw-join-h1">        hostRoot = config.nexus.microvm.hostPlaintextRoot;</mark>
-<span class="rx-elide">⋯ the overlap guard, shown separately below ⋯</span>
-        credentialFilesFor = guestName: guest:
-          builtins.listToAttrs (map (credential: {
-            name = credential;
-<mark class="rx-hl" id="cw-join-h2">            value = "${hostRoot}/active/${guestName}/${credential}";</mark>
-<mark class="rx-hl" id="cw-join-h3">          }) guest.config.allod.archetypes.microvm.credentialNames);</mark>
-        extended = lib.mapAttrs (guestName: guest:
-<mark class="rx-hl" id="cw-join-h4">          guest.extendModules {</mark>
-            modules = [{
-              microvm.credentialFiles = credentialFilesFor guestName guest;
-<mark class="rx-hl" id="cw-join-h5">              microvm.socket = "${microvmQmpSocketRoot}/${guestName}/control.sock";</mark>
-            }];
-          }) guests;</code></pre>
-      </div>
-      <ol class="rx-notes">
-        <li class="rx-note" data-hl="cw-join-h1"><a href="#cw-join-h1">The host&apos;s own value</a> — read from the merged host configuration, so moving the directory moves every derived path.</li>
-        <li class="rx-note" data-hl="cw-join-h2"><a href="#cw-join-h2">The derived path</a> — an ordinary string, never a Nix path literal, which would copy the referenced file into the world-readable store.</li>
-        <li class="rx-note" data-hl="cw-join-h3"><a href="#cw-join-h3">The guest&apos;s own list</a> — the names come from the guest and are never restated, so <code>allod/nexus</code> stays unaware of them.</li>
-        <li class="rx-note" data-hl="cw-join-h4"><a href="#cw-join-h4">The second evaluation</a> — one extra fragment; the plain evaluation this flake also exports is left alone.</li>
-        <li class="rx-note" data-hl="cw-join-h5"><a href="#cw-join-h5">The control socket</a> — a host path declared inside the guest, for the same reason the credential paths are.</li>
-      </ol>
-      <figcaption class="rx-caption">Three repositories meet in these lines without any of them importing another: the setting comes from allod/nexus, the names from this repository&apos;s guest module, and the settings written belong to microvm.nix.</figcaption>
-    </figure>
-
-    <p>microvm.nix defaults the socket setting to a bare file name relative to the unit&apos;s working directory, putting every machine&apos;s socket in one shared state directory. <code>allod/nexus</code> refuses that and requires an absolute path in its own runtime area. Nothing else in the framework sets it, so before this change a hypervisor composing a guest did not evaluate.</p>
-
-    <section class="rx-sequence" id="seq-credential" aria-labelledby="seq-credential-h">
-      <h3 id="seq-credential-h">One credential, from declaration to QEMU argument</h3>
-      <ol class="rx-seq-steps">
-        <li class="rx-seq-step" id="seq-credential-1">
-          <h4 class="rx-seq-title">1. The guest names it and supplies nothing</h4>
-          <p>For <code>allod-dev</code> the derived list is four names: <code>forge-api-token</code>, <code>forge-https-token</code>, <code>forge-ssh-key</code>, and <code>ssh-host-key</code>. The plain evaluation carries an empty <code>microvm.credentialFiles</code>, and the guest&apos;s matching assertion fires only when that set is non-empty, so the plain guest is legal alone.</p>
-        </li>
-        <li class="rx-seq-step" id="seq-credential-2">
-          <h4 class="rx-seq-title">2. The host reads its own directory setting</h4>
-          <p>On the composed hypervisor <code>nexus.microvm.hostPlaintextRoot</code> resolves to its default, <code>/run/allod/microvm</code>, and the join reads that value rather than restating it.</p>
-        </li>
-        <li class="rx-seq-step" id="seq-credential-3">
-          <h4 class="rx-seq-title">3. The join builds one path per name</h4>
-          <p>For <code>ssh-host-key</code> the result is <code>/run/allod/microvm/active/allod-dev/ssh-host-key</code>: host directory, <code>active</code>, machine name, credential name. That shape belongs to <code>allod/nexus</code>, which asserts the same value from its own copy of the setting.</p>
-        </li>
-        <li class="rx-seq-step" id="seq-credential-4">
-          <h4 class="rx-seq-title">4. The guest is evaluated a second time</h4>
-          <p><code>extendModules</code> re-runs the evaluation with the four paths and the socket path added, and the host stores that result as this guest&apos;s <code>evaluatedConfig</code>.</p>
-        </li>
-        <li class="rx-seq-step" id="seq-credential-5">
-          <h4 class="rx-seq-title">5. The runner renders the argument, and the host installs that runner</h4>
-          <p>microvm.nix&apos;s QEMU renderer turns each entry into a <code>-fw_cfg</code> argument, and the generated <code>install-microvm-allod-dev</code> service points the host&apos;s <code>current</code> symlink at that runner&apos;s store path. Because the guest&apos;s own system is identical either way, this symlink is the only artifact distinguishing the extended guest from the plain one.</p>
-        </li>
-      </ol>
-    </section>
-
-    <h3>The overlap the join refuses</h3>
-    <p>This change introduces a second fixed host directory, <code>/run/allod/microvm-qmp</code>, holding one control-socket directory per machine. It is a literal rather than a setting, and the owner kept it so: a fixed value cannot be aimed at the wrong place, a guest must not know host filesystem layout, and exporting it from <code>allod/nexus</code> can follow.</p>
-
-    <p>That root introduced a hazard. <code>allod/nexus</code> checks one direction — that a machine&apos;s control-socket directory is not inside the host&apos;s credential directory — and not the reverse, because no fixed socket root existed to check against.</p>
-
-    <details class="rx-predict">
-      <summary>Predict: a deployment sets the credential directory to a path underneath the control-socket root. Which existing checks catch it?</summary>
-      <p>None of them. The value passes the setting&apos;s type, which only requires a normalized absolute path under <code>/run/allod</code>, and the normalization assertion. It passes the overlap assertion in <code>allod/nexus</code> too, because that one asks whether the socket directory sits inside the credential directory, and here the nesting runs the other way. The configuration evaluates clean and builds. The damage happens later: the launcher clears each machine&apos;s control-socket directory with <code>rm -rf</code> on every start and stop, taking any credential directory nested under it.</p>
-    </details>
-
-    <figure class="rx-figure rx-codewalk" id="cw-overlap" data-objective="obj-4">
-      <div class="rx-scroll" role="region" tabindex="0" aria-label="The overlap guard added by the join module">
-        <pre class="rx-code" data-lang="nix"><code><mark class="rx-hl" id="cw-overlap-h1">        isWithin = a: b: a == b || lib.hasPrefix "${b}/" a;</mark>
-        qmpOverlapErrors =
-<mark class="rx-hl" id="cw-overlap-h2">          lib.optional (isWithin hostRoot microvmQmpSocketRoot)</mark>
-            ("nexus.microvm.hostPlaintextRoot \"${hostRoot}\" is inside the microvm QMP socket root "
-             + "${microvmQmpSocketRoot}. The per-start launcher clears each VM's QMP directory with "
-             + "rm -rf, which would descend into the host plaintext tmpfs and destroy every VM's "
-             + "prepared credentials; the two roots must not nest in either direction")</code></pre>
-      </div>
-      <ol class="rx-notes">
-        <li class="rx-note" data-hl="cw-overlap-h1"><a href="#cw-overlap-h1">The test</a> — one path is within another when they are equal, or when the second plus a slash prefixes the first. The trailing slash stops <code>/run/allod/microvm-qmpx</code> from counting as nested.</li>
-        <li class="rx-note" data-hl="cw-overlap-h2"><a href="#cw-overlap-h2">The direction</a> — this asks whether the credential directory is inside the socket root, the direction <code>allod/nexus</code> leaves open.</li>
-      </ol>
-      <figcaption class="rx-caption">The guard refuses the whole nesting relationship rather than the specific paths that would be destroyed, so no future guest name can turn a surviving configuration into a destructive one.</figcaption>
-    </figure>
-
-    <p>The module also reads back over every machine the merged host configuration declares — not only the ones it extended — and requires each one&apos;s credential-file keys to equal its declared credential names. <code>allod/nexus</code> cannot state that, because it must not learn the names. Wiring the plain unextended guest trips it by name.</p>
-
-    <article class="rx-quiz-item" id="q4" data-concept="credential-fw-cfg-delivery" data-objective="obj-1">
-      <h3>A deployment sets the host credential directory to <code>/run/allod/moved-microvm</code>. Which value ends up in the QEMU argument for the guest <code>allod-dev</code>&apos;s <code>ssh-host-key</code> credential?</h3>
-      <ul class="rx-choices">
-        <li><details class="rx-choice" name="q4" data-correct="true"><summary>A. <code>/run/allod/moved-microvm/active/allod-dev/ssh-host-key</code>, built from the host setting</summary><p>The join interpolates the host setting, so moving the directory moves every path; the check requires no default-directory path to survive.</p></details></li>
-        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="believes the guest holds a fallback copy of the host path"><summary>B. <code>/run/allod/microvm/active/allod-dev/ssh-host-key</code>, from the guest&apos;s own default</summary><p>The guest supplies no values, and its own runtime directory has no bearing on the host paths QEMU is given.</p></details></li>
-        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="assumes the machine segment belongs only to the default layout"><summary>C. <code>/run/allod/moved-microvm/active/ssh-host-key</code>, without the machine segment</summary><p>The machine segment keeps two guests&apos; credentials apart, and <code>allod/nexus</code> asserts that four-part shape.</p></details></li>
-        <li><details class="rx-choice" name="q4" data-correct="false" data-misconception="expects an evaluated value to be a store path"><summary>D. A path under <code>/nix/store</code>, because the value is computed during evaluation</summary><p>The value is an ordinary interpolated string, and the guest module rejects a store-prefixed one as world-readable and permanent.</p></details></li>
-      </ul>
-      <p class="rx-quiz-result" aria-live="polite"></p>
-    </article>
-
-    <article class="rx-quiz-item" id="q5" data-concept="qmp-socket-root-overlap" data-objective="obj-4">
-      <h3>Why does the guard against nesting the credential directory under the control-socket root belong in this repository rather than in <code>allod/nexus</code>, which owns the setting and the launcher that deletes at that path?</h3>
-      <ul class="rx-choices">
-        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="treats assertion placement as a matter of where evaluation occurs"><summary>A. Because assertions only run on the hypervisor, and only this repository builds hypervisors</summary><p>Both repositories contribute modules to one hypervisor and their assertions merge into a single list.</p></details></li>
-        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="assumes a composing repository may not add rules about an upstream setting"><summary>B. Because a repository may only assert about settings it declares, and this one declares it</summary><p>The setting is declared by <code>allod/nexus</code>, and a composing layer is allowed to add rules about settings it reads.</p></details></li>
-        <li><details class="rx-choice" name="q5" data-correct="true"><summary>C. Because this change introduced the fixed socket root, so the overlap did not exist to check</summary><p>The reverse direction became possible only when this change fixed a socket root outside that repository&apos;s knowledge, so the party creating the hazard states the rule.</p></details></li>
-        <li><details class="rx-choice" name="q5" data-correct="false" data-misconception="believes the destructive command is issued by this repository"><summary>D. Because the launcher performing the destructive removal is generated by the join module</summary><p>The launcher is generated by <code>allod/nexus</code>; this change contributes only the socket path it is pointed at.</p></details></li>
-      </ul>
-      <p class="rx-quiz-result" aria-live="polite"></p>
-    </article>
-  </section>
-
-  <section id="restart-autostart" aria-labelledby="restart-autostart-h" data-layer="mechanism" data-objective="obj-3">
-    <h2 id="restart-autostart-h">The restart and autostart settings on a wired guest</h2>
-    <p class="rx-claim">The join leaves the restart setting at upstream&apos;s value and forces the autostart setting off; in both cases the test pins the observable consequence rather than the setting.</p>
-
-    <p>When a NixOS machine is rebuilt, a program called <code>switch-to-configuration</code> compares old and new systemd units and decides which services to restart. A unit opts out with a marker, <code>X-RestartIfChanged</code>. The default matters: when the marker is absent, the program restarts the service. Absent and <code>false</code> are one setting on the Nix side and opposite behaviours on the systemd side.</p>
-
-    <p>Upstream&apos;s autostart setting defaults to on, which makes the host&apos;s <code>microvms.target</code> want the unit, so a host rebuild would start the guest. This fleet treats arming a real machine as a deliberate human decision, so the join sets it off. That was measured: deleting the line brings the host&apos;s autostart list back holding <code>allod-dev</code>, and a deliberate breakage requires it.</p>
-
-    <p>The restart setting changed during review. Upstream computes its default from which shape the host used, and for <code>evaluatedConfig</code> that default is off. The first version of this branch overrode it to on, reasoning that a host rebuild is how a guest gets updated.</p>
-
-    <details class="rx-predict">
-      <summary>Predict: in a fleet where each machine is its own deployment target, what should a host rebuild do to a running guest whose system has changed?</summary>
-      <p>Stage the new one and leave the running one alone. A microVM guest here is deployed the way the existing libvirt machines are: a rebuild inside the guest switches it in place and restarts only the services that changed. A host that restarted every changed guest would reboot machines out from under whoever was working in them. The owner review reversed the original override on that reasoning, and the plan document in <code>allod/strategy</code> was rewritten to match.</p>
-    </details>
-
-    <p>So the join sets nothing and takes upstream&apos;s off by default — relying on someone else&apos;s default, which this repository normally refuses. microvm.nix writes the marker as a two-element list whose first element is empty, and an empty assignment in unit text resets any earlier value, so the pair renders as a reset line then the real value. The check reads that text and requires <code>X-RestartIfChanged=false</code> present and <code>X-RestartIfChanged=true</code> absent.</p>
-
-    <figure class="rx-figure rx-codewalk" id="cw-restart" data-objective="obj-3">
-      <div class="rx-scroll" role="region" tabindex="0" aria-label="The upstream source line and the unit text it renders to">
-        <pre class="rx-code" data-lang="nix"><code>serviceConfig.X-RestartIfChanged = [ "" microvmConfig.restartIfChanged ];
-<span class="rx-elide">⋯ and the generated microvm@allod-dev.service fragment ⋯</span>
-[Service]
-<span class="rx-elide">⋯ ExecStart, ExecStopPost, User, Group omitted ⋯</span>
-<mark class="rx-hl" id="cw-restart-h1">X-RestartIfChanged=</mark>
-<mark class="rx-hl" id="cw-restart-h2">X-RestartIfChanged=false</mark></code></pre>
-      </div>
-      <ol class="rx-notes">
-        <li class="rx-note" data-hl="cw-restart-h1"><a href="#cw-restart-h1">The reset</a> — the empty assignment clears whatever the shared template said, so the next line is the only value in force.</li>
-        <li class="rx-note" data-hl="cw-restart-h2"><a href="#cw-restart-h2">The value</a> — the text the check requires, copied from the unit derivation the check produced on this machine.</li>
-      </ol>
-      <figcaption class="rx-caption">Reading the rendered text catches an upstream that stops emitting the key, which reading the Nix setting cannot distinguish from an upstream that emits false.</figcaption>
-    </figure>
-
-    <aside class="rx-callout" data-role="evidence">
-      <p class="rx-callout-label">Evidence</p>
-      <p>I read the generated unit fragments the check left on this machine. Both positive fixtures render <code>X-RestartIfChanged=</code> followed by <code>X-RestartIfChanged=false</code>; the broken fixture renders the same two lines with <code>true</code>. The Nix reading is kept alongside the text reading so the two cannot drift apart.</p>
-    </aside>
-
-    <article class="rx-quiz-item" id="q6" data-concept="restart-if-changed-semantics" data-objective="obj-3">
-      <h3>A future microvm.nix release stops writing the <code>X-RestartIfChanged</code> key into the generated fragment. The join still sets nothing. What happens on the next host rebuild, and which reading catches it?</h3>
-      <ul class="rx-choices">
-        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="assumes an absent systemd key means the conservative behaviour"><summary>A. Nothing restarts, because an absent key leaves the previous behaviour in force</summary><p>The program restarts a changed unit unless the key says otherwise, so absent is the permissive value.</p></details></li>
-        <li><details class="rx-choice" name="q6" data-correct="true"><summary>B. Changed guests restart, and only the reading of the generated text catches it</summary><p>With the key gone the program restarts each changed guest, while the Nix setting still reports off, so only the literal <code>=false</code> requirement turns this red.</p></details></li>
-        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="believes reading the Nix setting equals reading the rendered unit"><summary>C. Changed guests restart, and the Nix setting catches it because the default moved</summary><p>The default did not move here; the renderer stopped emitting it, so the setting reads unchanged.</p></details></li>
-        <li><details class="rx-choice" name="q6" data-correct="false" data-misconception="expects a missing generated key to be an evaluation error"><summary>D. Evaluation fails, because the join asserts the key is present in the fragment</summary><p>The join asserts nothing about the fragment; the requirement lives in the check, which reports a finding.</p></details></li>
-      </ul>
-      <p class="rx-quiz-result" aria-live="polite"></p>
-    </article>
-  </section>
-
-  <section id="evidence" aria-labelledby="evidence-h" data-layer="receipts" data-objective="obj-6 obj-7">
-    <h2 id="evidence-h">What the two new checks run, and what they leave untested</h2>
-    <p class="rx-claim">The gate now proves that a composed hypervisor is buildable and that its generated text carries the right paths, nothing about a host rebuild or a booted guest; and one of the two new rules walks an empty fleet.</p>
-
-    <ul class="rx-stats">
-      <li class="rx-stat"><b>21 steps</b><span>counts the machines, checks and passive outputs the gate walks, not assertions inside them</span></li>
-      <li class="rx-stat"><b>9 breakages</b><span>counts deliberate sabotages pinned to their own error text, excluding positive controls</span></li>
-      <li class="rx-stat"><b>18 lock entries</b><span>counts dependency nodes after the redirect, down from 28; no revision moved</span></li>
-    </ul>
-
-    <p>The join check builds three hypervisors from the real builders, never by importing the module under test: one at the default credential directory, one at a moved directory, one with no guests. Each is forced to a build recipe first, then read for three generated artifacts no option read can see — the systemd fragment, the service that installs the runner, and the QEMU command line.</p>
-
-    <p>That command line is reconstructed rather than built, because building the real launch script would build the whole guest system and its disk image. A change to the renderer&apos;s call signature fails the import loudly, and a reconstruction from the wrong configuration is caught by a guard requiring this guest&apos;s own disk and kernel parameters. A change in the meaning of the surrounding launch script is left to a later slice that boots a machine.</p>
-
-    <figure class="rx-figure" data-objective="obj-6 obj-7">
-      <div class="rx-scroll" role="region" tabindex="0" aria-label="What each witness in this change establishes">
-        <table class="rx-compare">
-          <caption>Each witness proves a narrower claim than the change as a whole appears to make.</caption>
-          <thead>
-            <tr><th scope="col">Claim</th><th scope="col">Witnessed here</th><th scope="col">Left to a later slice</th></tr>
-          </thead>
-          <tbody>
-            <tr><th scope="row">A composed hypervisor is buildable</th><td><span class="rx-mark" data-state="yes">Yes, forced on three fixtures</span></td><td>Nothing</td></tr>
-            <tr><th scope="row">Credential paths follow the host setting</th><td><span class="rx-mark" data-state="yes">Yes, at two directories</span></td><td>That the launcher stages a file there</td></tr>
-            <tr><th scope="row">The host starts the extended guest</th><td><span class="rx-mark" data-state="yes">Yes, runner path read off the install service</span></td><td>That the service runs and the symlink lands</td></tr>
-            <tr><th scope="row">A rebuild leaves a running guest alone</th><td><span class="rx-mark" data-state="partial">Partial, the generated marker is pinned</span></td><td>The restart behaviour, which needs a booted machine</td></tr>
-            <tr><th scope="row">Every declared microVM machine is started once</th><td><span class="rx-mark" data-state="partial">Partial, exercised on synthetic data</span></td><td>The fleet walk, which needs a fleet declaring one</td></tr>
-            <tr><th scope="row">Credentials reach the guest and are usable</th><td><span class="rx-mark" data-state="no">No, nothing is booted</span></td><td>The whole runtime path</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <figcaption class="rx-caption">The two partial rows are where the merge decision rests: both behaviours are pinned in generated text, and neither has been observed happening.</figcaption>
-    </figure>
-
-    <p>The fleet rule is a function over plain data — microVM machine names against a table of which host composed which guests — so it can be shown to fail; three deliberate breakages cover its three violations, with two positive controls. The walk itself compares the empty set against the empty set, because this repository declares no microVM machine. Teeth come from the separate deploy flake, which re-runs this suite against real machine data; the author also doctored the check&apos;s inputs both ways, saw red, and reverted.</p>
-
-    <aside class="rx-callout" data-role="boundary">
-      <p class="rx-callout-label">Evidence boundary</p>
-      <p>Two limits I derived from reading the checks, which the change does not state. The fleet rule compares guest-set membership by name only, so a hypervisor wiring the name <code>beta-dev</code> to some other machine&apos;s configuration would satisfy it. And the join check builds its synthetic host sources from the same restated name list it compares them against, so that comparison round-trips its own input; agreement still holds through the set-equality assertion in <code>allod/nexus</code>, but the reading is weaker than it looks.</p>
-    </aside>
-
-    <h3>Where the review changed the design</h3>
-    <figure class="rx-figure" data-objective="obj-7">
-      <ol class="rx-timeline">
-        <li data-state="correction"><h4>The check passed on unbuildable fixtures</h4><p class="rx-state">correction</p><p>A pre-implementation review found that reading settings never enforces assertions; forcing the build recipe exposed the missing control-socket path.</p></li>
-        <li data-state="correction"><h4>The restart override was reversed</h4><p class="rx-state">correction</p><p>The owner rejected the reasoning that host rebuilds are how guests get updated, so the override was dropped and the generated text pinned instead.</p></li>
-        <li data-state="correction"><h4>The empty-guest-set gap was closed at the output</h4><p class="rx-state">correction</p><p>Recorded as a known gap at first; the owner ruled that a hazard does not stay open because it makes testing easier.</p></li>
-        <li data-state="done"><h4>The destructive overlap was guarded</h4><p class="rx-state">done</p><p>An implementation review found the unchecked nesting direction, and the join now refuses it with a paired deliberate breakage.</p></li>
-        <li data-state="planned"><h4>Runtime behaviour</h4><p class="rx-state">planned</p><p>A later slice boots a guest, rebuilds the host, and asserts the running machine keeps its process while the new runner is staged.</p></li>
-        <li data-state="blocked"><h4>A cross-vendor review pass</h4><p class="rx-state">blocked</p><p>The second-vendor reviewer was unauthenticated, so the rotation was single-vendor and the two most recent commits had no independent pass.</p></li>
-      </ol>
-      <figcaption class="rx-caption">Three of the four substantive design decisions were reversed or added during review, which argues for reading the two unreviewed commits.</figcaption>
-    </figure>
-
-    <p>The worst credible failure is not a wrong credential path: <code>allod/nexus</code> derives its expected value from the host setting and asserts equality, so a wrong-directory extension is refused when a real deployment evaluates. What remains is what this slice cannot observe — whether the system-switching program leaves a changed guest running, and how the launcher and the generated unit interact on a real host. Rollback bounds it: no host was rebuilt, no deployed state is touched, and reverting removes the change.</p>
-
-    <article class="rx-quiz-item" id="q7" data-concept="sabotage-paired-validation" data-objective="obj-7">
-      <h3>A reviewer says the nine deliberate breakages make the runtime restart behaviour safe to rely on. What is wrong with that inference?</h3>
-      <ul class="rx-choices">
-        <li><details class="rx-choice" name="q7" data-correct="true"><summary>A. Each breakage shows a rule can fail at evaluation; none of them runs a host or a guest</summary><p>A deliberate breakage separates a live rule from a permanently green one, but says nothing about behaviour that exists only once systemd runs.</p></details></li>
-        <li><details class="rx-choice" name="q7" data-correct="false" data-misconception="believes pinning generated text equals observing behaviour"><summary>B. Nothing is wrong, because the restart breakage pins the generated text both ways</summary><p>Pinning the text establishes what the unit will say; how the program then behaves on a live host is a separate claim.</p></details></li>
-        <li><details class="rx-choice" name="q7" data-correct="false" data-misconception="assumes forcing a build recipe means the system was built and run"><summary>C. Nothing is wrong, because every positive fixture is forced to a build recipe and built</summary><p>Forcing a build recipe computes the instructions without executing them, so nothing ran.</p></details></li>
-        <li><details class="rx-choice" name="q7" data-correct="false" data-misconception="treats the count of breakages as a coverage measure"><summary>D. The count is too low, and more breakages would establish the runtime claim</summary><p>More breakages of the same kind stay evaluation-time; the limit is the kind of witness, not the number.</p></details></li>
-      </ul>
-      <p class="rx-quiz-result" aria-live="polite"></p>
-    </article>
-  </section>
+<section id="objectives" aria-labelledby="objectives-h" data-layer="concept">
+<h2 id="objectives-h">What you can do after reading</h2>
+<p class="rx-claim">The report equips a reviewer to follow the complete join, predict its outputs and lifecycle, test its fleet and isolation rules, and place each claim at the right level of evidence.</p>
+<ol class="rx-objectives">
+<li id="obj-1">Trace one microVM inventory entry through <code>machineConfigurations</code>, guest selection, extension of its finished configuration with <code>extendModules</code>, and the host’s final <code>microvm.vms.&lt;name&gt;.evaluatedConfig</code> value.</li>
+<li id="obj-2">Given a host plaintext root, predict the guest credential map, installed runner, management socket, and exact paths passed to QEMU—the virtual-machine process—through its firmware-configuration argument named <code>fw_cfg</code>.</li>
+<li id="obj-3">Predict whether a wired guest starts automatically or restarts during a host rebuild by reading the automatic-start setting and the generated service instruction named <code>X-RestartIfChanged</code>.</li>
+<li id="obj-4">Diagnose why the fleet check rejects an unwired selected guest, a guest shared by two hosts, or a host running a machine that inventory did not select for microVM.</li>
+<li id="obj-5">Decide whether the fixed QEMU Machine Protocol (QMP) management-socket layout and both directions of runtime-root separation protect prepared credentials from launcher cleanup.</li>
+<li id="obj-6">Explain how an input-following rule makes a nested dependency reuse a root-pinned source, removes duplicate <code>vm</code> and <code>microvm.nix</code> host-service dependency revision sets, and couples future upgrades.</li>
+<li id="obj-7">Separate claims established by forced configuration evaluation and rendered-artifact checks from lifecycle claims that still require the planned nested-host boot.</li>
+</ol>
+</section>
+<section id="evaluated-configurations" aria-labelledby="evaluated-configurations-h" data-layer="concept" data-objective="obj-1">
+<h2 id="evaluated-configurations-h">How one machine definition becomes an extendable configuration</h2>
+<p class="rx-claim">The change does not invent a second guest definition: it selects an already assembled guest, runs the same declarations again with host-known additions, and passes the result to the outside VM service generator named microvm.nix.</p>
+<h3>The current four exported configurations do not enter the microVM join</h3>
+<p>A name-to-facts list says what each machine is and, for a guest, which virtual-machine implementation runs it. This list is the <dfn class="rx-term" id="term-machine-inventory">machine inventory</dfn>. The code calls the selected implementation its <code>runtime</code>. The repository publishes finished machine configurations under <code>nixosConfigurations</code>.</p>
+<details class="rx-predict">
+<summary>Predict what the nexus host gains when no inventory guest selects the microVM runtime</summary>
+<p>It gains none of the new microVM host machinery. The selected guest set is empty, so <code>mkHypervisor</code> imports neither the allod/nexus module named <code>nexus.nixosModules.microvmHost</code> nor the local <code>microvmJoinModule</code>. No guest service is added to the nexus machine configuration.</p>
+</details>
+<figure class="rx-figure" data-objective="obj-1">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Current exported configurations and microVM selection">
+<table class="rx-compare">
+<caption>The public example exports four configurations, but none supplies a guest to the new microVM join.</caption>
+<thead><tr><th scope="col">Export</th><th scope="col">How it is defined</th><th scope="col">MicroVM selection result</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>allod-dev</code></th><td>Inventory type <code>dev</code>, runtime <code>libvirt</code></td><td>Excluded because its runtime is not <code>microvm</code></td></tr>
+<tr><th scope="row"><code>privacy-1</code></th><td>Inventory type <code>privacy</code>, runtime <code>libvirt</code></td><td>Excluded because its runtime is not <code>microvm</code></td></tr>
+<tr><th scope="row"><code>nexus</code></th><td>Inventory type <code>hypervisor</code>, with no runtime fact</td><td>Excluded because a host is not a guest</td></tr>
+<tr><th scope="row"><code>installer</code></th><td>Built separately from the inventory mapping</td><td>Never considered by the guest selector</td></tr>
+</tbody>
+</table>
+</div>
+<figcaption class="rx-caption">The empty selection is a code gate, not an assumption that dormant services will remain stopped.</figcaption>
+</figure>
+<aside class="rx-callout" data-role="evidence">
+<p class="rx-callout-label">Baseline evidence</p>
+<p>The locked inventory defines <code>allod-dev</code> and <code>privacy-1</code> with <code>runtime = &quot;libvirt&quot;</code> and defines <code>nexus</code> without a runtime. <code>flake.nix</code> adds <code>installer</code> separately. The supplied pull-request validation also records identical <code>system.build.toplevel.drvPath</code> values—the identifiers of the final system build recipes—for all four exports before and after this change.</p>
+</aside>
+<h3>NixOS evaluation turns declarations into a finished configuration</h3>
+<p>NixOS describes a machine with declarative fragments that state desired settings, such as a hostname, a user, or a service, instead of issuing installation commands. These fragments are <dfn class="rx-term" id="term-nixos-module">modules</dfn>. Different modules can declare allowed settings, provide defaults, set values, and attach rejection rules called <dfn class="rx-term" id="term-nixos-assertion">assertions</dfn>.</p>
+<p>The calculation that merges those fragments and checks how their declarations fit together is <dfn class="rx-term" id="term-nixos-evaluation">evaluation</dfn>. Nixpkgs—the source collection that supplies NixOS and its programming library—provides the function <code>nixosSystem</code> for that calculation. <code>nixosSystem</code> takes a target platform and a module list. Its result is a configuration object whose <code>config</code> field contains the merged values and build instructions.</p>
+<p>In this repository, <code>machineConfigurations</code> walks the inventory. For each name it chooses an archetype builder—<code>mkDevVm</code>, <code>mkPrivacyVm</code>, or <code>mkHypervisor</code>—from the machine type. Each builder assembles its module list and calls <code>nixosSystem</code>. The public <code>nixosConfigurations</code> output is then the resulting <code>machineConfigurations</code> map plus the separately evaluated installer.</p>
+<aside class="rx-callout" data-role="misconception">
+<p class="rx-callout-label">Evaluation is not execution</p>
+<p>A value called an evaluated configuration is a computed plan for a machine. That does not show the machine was built, started, or observed running.</p>
+</aside>
+<h3>The host extends the selected guest instead of describing it again</h3>
+<p>Consider complete hypothetical deployment data whose inventory contains <code>guest-a</code> with type <code>dev</code> and runtime <code>microvm</code>. <code>machineConfigurations.guest-a</code> is first produced normally by <code>mkDevVm</code> and <code>nixosSystem</code>. The finished guest configuration before a particular host contributes host-only paths is the <dfn class="rx-term" id="term-standalone-guest">standalone guest</dfn>.</p>
+<p>The configuration object carries a function that creates a fresh evaluation from the original module list plus additional modules. That function is <dfn class="rx-term" id="term-extend-modules"><code>extendModules</code></dfn>. The standalone guest is not edited in place. In this change, the joining module named <code>microvmJoinModule</code> calls <code>guest.extendModules</code> to add the credential-file map and control-socket path known by the host.</p>
+<details class="rx-predict">
+<summary>Why extend the finished guest instead of constructing a second guest on the host?</summary>
+<p>Extension keeps one source of truth. The added host values pass through the guest&apos;s existing option declarations, value checks, defaults, and assertions. A second hand-built guest could omit a module or reproduce a rule differently, leaving the exported guest and the started guest with different meanings.</p>
+</details>
+<p>This choice buys consistency, not automatic correctness. The added module still participates in ordinary NixOS merging. An unknown setting, a value of the wrong kind, a failed assertion, or two incompatible values can reject the result. Extension also creates another configuration evaluation and therefore consumes evaluation memory; the empty-guest gate avoids that cost for the current fleet. The safety property is narrower: the join goes through the same evaluator as the original guest rather than bypassing it with an unchecked object patch.</p>
+<p>microvm.nix has a host-side option for a guest configuration that has already gone through evaluation. That option is named <dfn class="rx-term" id="term-evaluated-config"><code>evaluatedConfig</code></dfn>. <code>microvmJoinModule</code> assigns the extended object to <code>microvm.vms.guest-a.evaluatedConfig</code>. microvm.nix then reads that object&apos;s merged guest settings and its runner—the launch program built for that guest—instead of evaluating a separate guest specification. The standalone export still exists unchanged; the host explicitly receives the extended result.</p>
+<figure class="rx-figure" data-objective="obj-1">
+<ol class="rx-flow" data-steps="5">
+<li><b>Inventory</b><span>names guest and runtime</span></li>
+<li><b><code>machineConfigurations</code></b><span>chooses archetype builder</span></li>
+<li><b><code>nixosSystem</code></b><span>evaluates guest modules</span></li>
+<li><b><code>extendModules</code></b><span>adds host-known values</span></li>
+<li><b><code>mkHypervisor</code></b><span>stores <code>evaluatedConfig</code></span></li>
+</ol>
+<figcaption class="rx-caption">The production path preserves the evaluated guest definition all the way into the exported host configuration; only the host-specific extension distinguishes the host-wired version.</figcaption>
+</figure>
+<h3>The host reads guests in only one direction</h3>
+<p>The source can look circular: the selected-guest collection named <code>fleetMicrovmGuests</code> refers to <code>machineConfigurations</code>, while <code>machineConfigurations</code> also contains the nexus host that receives <code>fleetMicrovmGuests</code>. Nix, the language and evaluator used to assemble NixOS, computes a named value only when another demanded value needs it. This behavior is <dfn class="rx-term" id="term-lazy-evaluation">lazy evaluation</dfn>. Laziness alone does not make every circle safe; the direction of the reads matters.</p>
+<details class="rx-predict">
+<summary>Why does selecting a guest configuration not force the host to read itself?</summary>
+<p>The runtime filter named <code>microvmMachineNames</code> takes names from the inventory and selects only entries whose runtime is <code>microvm</code>. A hypervisor has no runtime, and <code>mkHypervisor</code> also removes its own name. The mapping function named <code>microvmGuestsFor</code> then reads only the selected guest keys from <code>machineConfigurations</code>. The guest builders never read a hypervisor configuration, so the reference runs from host to finished guest and not back again.</p>
+</details>
+<p>For <code>guest-a</code>, the complete trace is therefore: inventory selects <code>guest-a</code>; <code>machineConfigurations.guest-a</code> evaluates its ordinary guest modules; <code>microvmGuestsFor</code> hands that object to <code>mkHypervisor</code>; <code>microvmJoinModule</code> reevaluates it with host-known values; and the exported host contains the extended object at <code>microvm.vms.guest-a.evaluatedConfig</code>. With the current empty selection, that trace stops before the host imports any microVM module.</p>
+</section>
+<section id="host-service-lifecycle" aria-labelledby="host-service-lifecycle-h" data-layer="concept" data-objective="obj-3">
+<h2 id="host-service-lifecycle-h">How the host installs, starts, and restages a guest</h2>
+<p class="rx-claim">The generated host plan installs a wired guest&apos;s runner but deliberately leaves the guest stopped: automatic startup is disabled, an unexpected process exit still causes a retry, and a host rebuild stages the next runner without rebooting the running guest.</p>
+<h3>Installation, startup, and restart are separate decisions</h3>
+<p>Once microvm.nix receives <code>evaluatedConfig</code>, it builds a <dfn class="rx-term" id="term-microvm-runner">runner</dfn>: a directory of launch programs for that exact guest configuration. The host does not execute the runner directly from an arbitrary build result. A host service named <code>install-microvm-&lt;name&gt;</code> points the guest&apos;s <code>current</code> link at that runner, and a second service named <code>microvm@&lt;name&gt;.service</code> launches whatever <code>current</code> names.</p>
+<p>The host&apos;s service manager is systemd. A <dfn class="rx-term" id="term-systemd-unit">systemd unit</dfn> is a set of instructions for one service or for a named group of services. microvm.nix defines <code>microvm@.service</code> as a reusable unit template; the text after <code>@</code> selects an instance such as <code>microvm@guest-a.service</code>. It also defines <code>microvms.target</code>, a grouping unit reached during ordinary multi-user host startup.</p>
+<p>The switch that controls membership in the automatic-start list is <dfn class="rx-term" id="term-microvm-autostart"><code>autostart</code></dfn>. microvm.nix normally sets it to <code>true</code>. The join overrides it with <code>autostart = false</code> for every guest created by <code>microvmJoinModule</code>.</p>
+<details class="rx-predict">
+<summary>If <code>guest-a</code> has <code>autostart = false</code>, which part disappears: its runner, its service definition, or only the automatic request to start it?</summary>
+<p>Only the automatic start request disappears. microvm.nix still generates <code>install-microvm-guest-a</code> and <code>microvm@guest-a.service</code>. The install service still stages the runner under <code>current</code>, but <code>microvms.target</code> does not ask systemd to start the guest process.</p>
+</details>
+<p>Because <code>autostart</code> controls only that request, wiring makes a guest available for an explicit start; wiring alone does not boot it.</p>
+<figure class="rx-figure" data-objective="obj-3">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Independent microVM lifecycle controls">
+<table class="rx-compare">
+<caption>Four independent mechanisms answer four different lifecycle questions; no single restart setting controls them all.</caption>
+<thead><tr><th scope="col">Question</th><th scope="col">microvm.nix mechanism</th><th scope="col">Result for a joined guest</th></tr></thead>
+<tbody>
+<tr><th scope="row">Is the launch runner available?</th><td><code>install-microvm-&lt;name&gt;</code> updates the <code>current</code> link</td><td><span class="rx-mark" data-state="yes">Yes, staged</span>, even though automatic startup is off</td></tr>
+<tr><th scope="row">Does host startup request a guest boot?</th><td><code>autostart</code> decides whether <code>microvms.target</code> wants <code>microvm@&lt;name&gt;.service</code></td><td><span class="rx-mark" data-state="no">No</span>, because the join sets <code>false</code></td></tr>
+<tr><th scope="row">What follows an unexpected process exit?</th><td>The service template carries <code>Restart=always</code> and a five-second delay</td><td><span class="rx-mark" data-state="yes">Retry</span>, after the guest has been started at least once</td></tr>
+<tr><th scope="row">What follows a changed host configuration?</th><td>The generated instance carries <code>X-RestartIfChanged=false</code></td><td><span class="rx-mark" data-state="no">No guest reboot</span>; the next runner is staged</td></tr>
+</tbody>
+</table>
+</div>
+<figcaption class="rx-caption">The joined state is “installed and startable,” not “running”; after a start, process recovery remains armed without turning host rebuilds into guest reboots.</figcaption>
+</figure>
+<p>The process-recovery row belongs to systemd itself. The pinned microvm.nix template says <code>Restart=always</code> and <code>RestartSec=5s</code>. allod/nexus replaces the template&apos;s launch command with its credential-preparing launcher, but it leaves those recovery instructions intact. If QEMU—the guest process—exits unexpectedly, systemd waits five seconds and runs the launcher again. That buys recovery from a short-lived failure, at the cost of repeated launch attempts when a persistent fault remains. A guest that has never started remains stopped, and a deliberate systemd stop does not trigger the retry.</p>
+<aside class="rx-callout" data-role="misconception">
+<p class="rx-callout-label">Two similarly named restart controls</p>
+<p><code>Restart=always</code> tells systemd what to do after a running process exits. <code>X-RestartIfChanged=false</code> tells the NixOS host-activation program what to do when a newly built host configuration changes a service definition. The first remains enabled; the second prevents a rebuild-driven guest reboot.</p>
+</aside>
+<h3>Automatic startup is a separate human opt-in</h3>
+<details class="rx-predict">
+<summary>Why does the join reject microvm.nix&apos;s automatic-start default instead of treating a declared guest as permission to boot it?</summary>
+<p>The recorded owner decision separates declaring a real machine from arming it. Keeping microvm.nix&apos;s <code>true</code> default would let the act of wiring a guest make <code>microvms.target</code> request its first boot during host startup or activation. Setting <code>false</code> requires a separate deployment choice before that process can start automatically.</p>
+</details>
+<p>The benefit is a rollout that stays stopped unless someone explicitly enables it: composition, evaluation, and installation can land before a machine is allowed to run. The cost is operational work. A real deployment that should survive host reboots must override <code>autostart</code> to <code>true</code>; otherwise an operator must start it manually after each host boot.</p>
+<p><code>checks/microvm-host-join.nix</code> proves that such an override is technically possible. Its test module uses <code>lib.mkForce</code>, a Nix module marker that makes one declared value win over ordinary declarations, and observes its selected fixture guest entering <code>microvm.autostart</code>. That is evidence that the setting can be changed, not a deployment policy.</p>
+<aside class="rx-callout" data-role="boundary">
+<p class="rx-callout-label">Unresolved operator interface</p>
+<p>microvm.nix supplies the underlying <code>autostart</code> option, but this pull request adds no repository-specific opt-in option, documented deployment recipe, or sanctioned location for setting it. The review record says a deployment opts in and the check demonstrates <code>lib.mkForce</code>, but it does not establish that test technique as the operator-facing policy. Approval therefore accepts the safe default while leaving the governance interface to later work.</p>
+</aside>
+<h3>A host rebuild changes the next start, not the current process</h3>
+<p>Applying a newly built NixOS host configuration is <dfn class="rx-term" id="term-host-activation">host activation</dfn>; its program is named <code>switch-to-configuration</code>. The program compares the old and new systemd units and decides which changed services to stop, start, or skip. microvm.nix adds a small per-guest unit fragment, called a drop-in, to the shared <code>microvm@.service</code> template. That fragment contains the NixOS-only instruction <code>X-RestartIfChanged</code>.</p>
+<p>microvm.nix computes <code>restartIfChanged</code> from the shape used to supply the guest. Its default is <code>true</code> when the host asks microvm.nix to evaluate a guest module through <code>microvm.vms.&lt;name&gt;.config</code>. The join instead supplies the already evaluated object through <code>evaluatedConfig</code>, so <code>microvm.vms.&lt;name&gt;.config</code> is empty and the microvm.nix default becomes <code>false</code>. The join deliberately leaves that default in place.</p>
+<details class="rx-predict">
+<summary>A running guest uses runner A. A host rebuild stages runner B while <code>X-RestartIfChanged=false</code>. Which runner is used now, and which is used after the next start?</summary>
+<p>The process already running from runner A stays alive. The install service moves <code>current</code> to runner B, while <code>switch-to-configuration</code> skips the changed guest service. The next start reads <code>current</code> and uses runner B. That next start can be an explicit operator restart or the retry that follows an unexpected exit of the process from runner A.</p>
+</details>
+<section class="rx-sequence" id="seq-host-restage" aria-labelledby="seq-host-restage-h">
+<h3 id="seq-host-restage-h">Host activation with a changed guest</h3>
+<ol class="rx-seq-steps">
+<li class="rx-seq-step" id="seq-host-restage-1"><h4 class="rx-seq-title">1. Build runner B</h4><p>The new host plan refers to the runner produced from the changed extended guest.</p></li>
+<li class="rx-seq-step" id="seq-host-restage-2"><h4 class="rx-seq-title">2. Restage <code>current</code></h4><p><code>install-microvm-&lt;name&gt;</code> replaces the link to runner A with a link to runner B. Updating that next-start link without changing the live process is <dfn class="rx-term" id="term-microvm-restage">restaging</dfn>.</p></li>
+<li class="rx-seq-step" id="seq-host-restage-3"><h4 class="rx-seq-title">3. Skip the running service</h4><p><code>switch-to-configuration</code> reads <code>X-RestartIfChanged=false</code> and does not reboot the guest merely because its generated unit changed.</p></li>
+<li class="rx-seq-step" id="seq-host-restage-4"><h4 class="rx-seq-title">4. Use runner B on the next start</h4><p>An explicit restart or a later process-failure retry follows <code>current</code> and launches the staged version.</p></li>
+</ol>
+</section>
+<p>This policy buys continuity for a guest that is being used while its host changes. It costs an immediate match between staged and running versions: the files prepared for the next boot and the process running now can represent different guest versions. The recorded owner decision accepts that interval because this fleet updates each guest in place as its own deployment target, through the allod/nexus tool named <code>rebuild-vm-from-host</code>, rather than using a host rebuild as the guest-update operation.</p>
+<details class="rx-predict">
+<summary>Why does the check require the rendered line instead of checking only that the Nix value is <code>false</code>?</summary>
+<p><code>switch-to-configuration</code> treats a missing <code>X-RestartIfChanged</code> line as <code>true</code>. A source-level value of <code>false</code> would not protect the lifecycle if a future microvm.nix stopped writing the line. The check therefore requires <code>X-RestartIfChanged=false</code>, rejects <code>=true</code>, and uses a forced-true fixture to prove that its text reader can observe the opposite result.</p>
+</details>
+<aside class="rx-callout" data-role="evidence">
+<p class="rx-callout-label">Source and generated-artifact evidence</p>
+<p>The pinned microvm.nix host options define <code>autostart = true</code> and make <code>restartIfChanged</code> false for the <code>evaluatedConfig</code> shape. Its host module generates the install unit, target relationships, five-second process retry, and per-instance drop-in. <code>checks/microvm-host-join.nix</code> observes the joined guest&apos;s false values, the empty automatic-start list, the extended runner path inside the install script, and the exact rendered <code>X-RestartIfChanged=false</code> line. These witnesses establish the generated plan. They do not observe a live guest retaining its process identity across an actual host rebuild.</p>
+</aside>
+</section>
+<section id="runtime-paths" aria-labelledby="runtime-paths-h" data-layer="concept" data-objective="obj-2 obj-5">
+<h2 id="runtime-paths-h">Credential paths and per-guest control-socket isolation</h2>
+<p class="rx-claim">For each selected guest, the join derives temporary host credential paths and a separate QEMU management-socket directory from the guest name; allod/nexus prepares and removes those paths for one service run, while checks forbid either runtime root from containing the other.</p>
+<h3>One credential keeps its name while its address changes at each boundary</h3>
+<p>Suppose a selected guest named <code>guest-a</code> declares the credential name <code>ssh-host-key</code>. The declaration names what the guest expects; it contains no secret bytes and no host file location. A deployment separately gives allod/nexus a source path under <code>nexus.microvm.machines.guest-a.credentialSources</code>. The source file remains deployment-owned.</p>
+<p>allod/nexus provides a memory-backed host directory for plaintext credentials. This directory is the <dfn class="rx-term" id="term-host-plaintext-root"><code>hostPlaintextRoot</code></dfn>. Its default is <code>/run/allod/microvm</code>. allod/nexus mounts that directory as a bounded 16 MiB temporary filesystem with swapping disabled, mode <code>0700</code>, and <code>root</code> ownership. The new <code>microvmJoinModule</code> reads the evaluated value rather than repeating the default.</p>
+<details class="rx-predict">
+<summary>Predict the host path for <code>guest-a</code>&apos;s <code>ssh-host-key</code> when <code>hostPlaintextRoot</code> is <code>/run/allod/microvm</code></summary>
+<p>The path is <code>/run/allod/microvm/active/guest-a/ssh-host-key</code>. The rule is the evaluated host root, then <code>active</code>, then the guest name, then the credential name.</p>
+</details>
+<section class="rx-sequence" id="seq-credential-crossing" aria-labelledby="seq-credential-crossing-h">
+<h3 id="seq-credential-crossing-h">The <code>ssh-host-key</code> crossing for <code>guest-a</code></h3>
+<ol class="rx-seq-steps">
+<li class="rx-seq-step" id="seq-credential-crossing-1"><h4 class="rx-seq-title">1. The join derives a host address</h4><p><code>microvmJoinModule</code> extends the guest with <code>microvm.credentialFiles.ssh-host-key = &quot;/run/allod/microvm/active/guest-a/ssh-host-key&quot;</code>. This value is ordinary text naming a runtime file. It is not a Nix path value that would copy the file into the world-readable Nix store.</p></li>
+<li class="rx-seq-step" id="seq-credential-crossing-2"><h4 class="rx-seq-title">2. The host installs the extended runner</h4><p>microvm.nix builds the launch program named <code>declaredRunner</code> from the extended guest, so its command contains the derived address. The <code>install-microvm-guest-a</code> service stages this runner rather than the standalone guest&apos;s runner.</p></li>
+<li class="rx-seq-step" id="seq-credential-crossing-3"><h4 class="rx-seq-title">3. allod/nexus prepares bytes for one start</h4><p>When <code>microvm@guest-a.service</code> starts, the allod/nexus launcher copies the deployment source into a root-only staging directory, sets the file to mode <code>0400</code> for the dedicated <code>microvm-guest-a</code> process account, and publishes the completed guest directory with one rename.</p></li>
+<li class="rx-seq-step" id="seq-credential-crossing-4"><h4 class="rx-seq-title">4. QEMU exposes a firmware credential</h4><p>microvm.nix renders <code>-fw_cfg name=opt/io.systemd.credentials/ssh-host-key,file=/run/allod/microvm/active/guest-a/ssh-host-key</code>. <dfn class="rx-term" id="term-fw-cfg"><code>fw_cfg</code></dfn> is QEMU&apos;s channel for exposing host-supplied data as firmware entries inside the guest. The command contains a file path, not the credential bytes.</p></li>
+<li class="rx-seq-step" id="seq-credential-crossing-5"><h4 class="rx-seq-title">5. The guest gives the credential to its consumer</h4><p>During boot, systemd—the guest&apos;s service manager—imports the firmware entry under the same name. For this credential, the SSH service reads <code>/run/credentials/sshd.service/ssh-host-key</code>. Other declared credentials are turned into consumer files under the guest&apos;s separate temporary root, <code>/run/allod/credentials</code>.</p></li>
+</ol>
+</section>
+<p>The host path and the guest paths are intentionally different. <code>/run/allod/microvm/active/guest-a/ssh-host-key</code> exists in the host&apos;s runtime tree and is made visible to QEMU at the same absolute address inside QEMU&apos;s private filesystem view. <code>/run/credentials/sshd.service/ssh-host-key</code> and <code>/run/allod/credentials</code> exist inside the guest. Reusing the word <code>credential</code> does not make these one shared directory.</p>
+<details class="rx-predict">
+<summary>If the host root moves to <code>/run/allod/moved-microvm</code>, which parts of this trace move with it?</summary>
+<p>Every <code>microvm.credentialFiles</code> value moves, and each QEMU <code>file=</code> argument moves with it. The credential name stays <code>ssh-host-key</code>, the guest still receives that name through systemd, and the management socket remains under <code>/run/allod/microvm-qmp</code>. This check evaluates the moved-root case and rejects any surviving default-root argument.</p>
+</details>
+<figure class="rx-figure" data-objective="obj-2">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Credential and management path ownership and lifetime">
+<table class="rx-compare">
+<caption>The host credential copy, guest credential copy, and QEMU management socket occupy separate trees with separate owners and lifetimes.</caption>
+<thead><tr><th scope="col">Object</th><th scope="col">Address for <code>guest-a</code></th><th scope="col">Access</th><th scope="col">Lifetime</th></tr></thead>
+<tbody>
+<tr><th scope="row">Host plaintext mount</th><td><code>/run/allod/microvm</code></td><td><code>root:root</code>, mode <code>0700</code></td><td>Host runtime mount</td></tr>
+<tr><th scope="row">Prepared guest directory</th><td><code>/run/allod/microvm/active/guest-a</code></td><td><code>microvm-guest-a</code>, mode <code>0500</code></td><td>One service start</td></tr>
+<tr><th scope="row">Prepared credential</th><td><code>/run/allod/microvm/active/guest-a/ssh-host-key</code></td><td><code>microvm-guest-a</code>, mode <code>0400</code></td><td>One service start</td></tr>
+<tr><th scope="row">QMP working directory</th><td><code>/run/allod/microvm-qmp/guest-a</code></td><td><code>root:microvm-guest-a</code>, mode <code>0770</code></td><td>One service start</td></tr>
+<tr><th scope="row">Guest unit credential</th><td><code>/run/credentials/sshd.service/ssh-host-key</code></td><td>Managed by guest systemd for <code>sshd.service</code></td><td>Consuming unit&apos;s run</td></tr>
+</tbody>
+</table>
+</div>
+<figcaption class="rx-caption">Only names and absolute addresses cross configuration boundaries; allod/nexus copies the bytes at service start, and temporary host and guest files are removed by their respective lifecycle owners.</figcaption>
+</figure>
+<aside class="rx-callout" data-role="caution">
+<p class="rx-callout-label">Generated-command evidence stops before delivery</p>
+<p><code>checks/microvm-host-join.nix</code> proves the exact map, the extended runner selected by the install service, and the reconstructed <code>fw_cfg</code> arguments at the default and moved roots. The check neither runs this joined launcher nor shows the guest reading the bytes. The existing <code>checks/microvm-sshd-boot.nix</code> boots neighboring test machines and proves that this <code>fw_cfg</code> form reaches systemd and SSH, but it does not exercise <code>microvmJoinModule</code>.</p>
+</aside>
+<h3>Each guest receives a private QEMU management directory</h3>
+<p>QEMU accepts management commands over the <dfn class="rx-term" id="term-qmp">QEMU Machine Protocol (QMP)</dfn>. On this host, QMP uses a Unix socket: a filesystem entry through which a local program can ask QEMU to perform operations such as graceful shutdown. microvm.nix reads the socket address from the guest setting named <code>microvm.socket</code> and passes it to QEMU.</p>
+<p>microvm.nix normally defaults <code>microvm.socket</code> to a relative name such as <code>guest-a.sock</code>. A relative name is resolved from the service&apos;s working directory, so multiple guests place management state in the shared microvm.nix state tree. allod/nexus rejects that default because its launcher needs one absolute, host-controlled QMP directory for each guest.</p>
+<details class="rx-predict">
+<summary>Why not give <code>guest-a</code> and <code>guest-b</code> different socket filenames in one shared writable directory?</summary>
+<p>A different filename does not isolate the directory. The process account that can create its own socket in a shared writable directory can also rename or unlink a sibling&apos;s socket. allod/nexus therefore rejects duplicate QMP directories, not merely duplicate full socket paths.</p>
+</details>
+<p>The join replaces the microvm.nix default with <code>/run/allod/microvm-qmp/guest-a/control.sock</code>. A second guest named <code>guest-b</code> receives <code>/run/allod/microvm-qmp/guest-b/control.sock</code>. allod/nexus creates each guest directory as <code>root</code> and that guest&apos;s dedicated process group, exposes only that directory read-write inside the guest&apos;s QEMU process environment, clears stale contents before launch, and removes it after stop. This buys a predictable cleanup target and prevents one QEMU process account from managing a sibling&apos;s socket.</p>
+<p>The fixed root is the deliberate value <code>microvmQmpSocketRoot = &quot;/run/allod/microvm-qmp&quot;</code>. A fixed value removes a deployment setting that could point cleanup at the wrong tree. Its cost is a cross-repository convention: allod/archetypes constructs the address, microvm.nix renders it, and allod/nexus creates and removes the directory.</p>
+<h3>Both runtime roots are rejected when either one contains the other</h3>
+<details class="rx-predict">
+<summary>If the credential root and QMP root have different final names, is that enough to make cleanup safe?</summary>
+<p>No. Directory containment is directional. A check that rejects a QMP directory inside the credential root says nothing about a credential root placed inside the QMP tree. Cleanup is safe only when neither runtime tree contains the other.</p>
+</details>
+<figure class="rx-figure" data-objective="obj-5">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Runtime-root containment checks">
+<table class="rx-compare">
+<caption>The two checks cover opposite containment directions because each launcher removal starts at a directory and descends through its children.</caption>
+<thead><tr><th scope="col">Placement</th><th scope="col">Result</th><th scope="col">Reason</th></tr></thead>
+<tbody>
+<tr><th scope="row">Separate roots: <code>/run/allod/microvm</code> and <code>/run/allod/microvm-qmp</code></th><td><span class="rx-mark" data-state="yes">Accepted</span></td><td>Credential removal and per-guest QMP removal have disjoint descendants.</td></tr>
+<tr><th scope="row">A guest&apos;s QMP directory is inside <code>hostPlaintextRoot</code></th><td><span class="rx-mark" data-state="no">Rejected by allod/nexus</span></td><td>QMP state must not occupy the credential mount or make QMP cleanup descend through credential paths.</td></tr>
+<tr><th scope="row"><code>hostPlaintextRoot</code> is anywhere inside <code>/run/allod/microvm-qmp</code></th><td><span class="rx-mark" data-state="no">Rejected by allod/archetypes</span></td><td>A credential mount under a present or future per-guest QMP directory can be traversed by that directory&apos;s recursive cleanup.</td></tr>
+<tr><th scope="row">The two roots are equal</th><td><span class="rx-mark" data-state="no">Rejected</span></td><td>Every per-guest QMP directory would then be inside the credential root.</td></tr>
+</tbody>
+</table>
+</div>
+<figcaption class="rx-caption">The new allod/archetypes assertion completes a conservative root-level separation rule around the narrower per-guest check already enforced by allod/nexus.</figcaption>
+</figure>
+<p>The reverse-direction assertion is intentionally broad. For example, <code>/run/allod/microvm-qmp/guest-a/creds</code> would sit below the directory that the <code>guest-a</code> launcher recursively clears before start and after stop. Rather than prove that a chosen child such as <code>/run/allod/microvm-qmp/creds</code> is currently a sibling of every guest directory, the assertion reserves the entire QMP root for QMP state. This costs the ability to place the plaintext mount in a presently unused QMP-root child. It buys safety across guest renames and additions without another placement rule.</p>
+<aside class="rx-callout" data-role="boundary">
+<p class="rx-callout-label">What the overlap sabotage proves</p>
+<p>The permanent sabotage sets <code>hostPlaintextRoot</code> to <code>/run/allod/microvm-qmp/creds</code> and proves that the broad assertion rejects it with the intended message. That particular child is a sibling of the current fixture guest&apos;s QMP directory, so the sabotage does not itself demonstrate destructive traversal. The destructive case follows from the cleanup code when the plaintext root lies below a directory that is actually removed, such as <code>/run/allod/microvm-qmp/guest-a/creds</code>. No test in this pull request runs either cleanup path.</p>
+</aside>
+<h3>The fixed socket convention belongs to the join for now</h3>
+<details class="rx-predict">
+<summary>Why does allod/archetypes set a host QMP path inside the extended guest instead of making the standalone guest choose one?</summary>
+<p>The standalone guest does not know which host will run it or where that host keeps temporary state. microvm.nix requires the host address in the guest configuration because the guest&apos;s runner renders QEMU&apos;s command. The allod/archetypes join is the point where the finished guest and the selected host meet, so it can add the host-only address without making the reusable guest definition know host layout.</p>
+</details>
+<p>The owner review accepted this placement and the fixed value. It also recorded a defensible future refactor: allod/nexus could export the path constructor beside the launcher that removes the resulting directory. That would reduce the distance between the convention and its destructive consumer. It is not implemented here, and the recorded decision does not require it before merge.</p>
+<aside class="rx-callout" data-role="evidence">
+<p class="rx-callout-label">Isolation evidence and remaining contract risk</p>
+<p><code>checks/microvm-host-join.nix</code> requires the exact <code>/run/allod/microvm-qmp/&lt;guest&gt;/control.sock</code> value and forces configurations with both safe roots and the rejected reverse placement. The pinned allod/nexus module separately rejects relative sockets, shared QMP directories, and QMP directories inside its plaintext root. These checks establish the configured boundary. Future changes that move path ownership between allod/archetypes and allod/nexus must move both containment directions and their tests together; source checks cannot prove that live recursive cleanup touched only the intended directories.</p>
+</aside>
+</section>
+<section id="exactly-once-fleet" aria-labelledby="exactly-once-fleet-h" data-layer="concept" data-objective="obj-4">
+<h2 id="exactly-once-fleet-h">Exactly one exported host must own every selected guest</h2>
+<p class="rx-claim">The new fleet gate compares inventory with the finished host configurations: every machine that selects the microVM runtime must appear under exactly one exported hypervisor, no other machine may appear there, and a fleet with no selected guests passes only after the gate has inspected at least one hypervisor.</p>
+<h3>Host ownership means presence in the finished host configuration</h3>
+<p>A <dfn class="rx-term" id="term-hypervisor">hypervisor</dfn> is a host machine that runs virtual machines. In this rule, saying that a hypervisor “owns” <code>guest-a</code> has one precise meaning: <code>guest-a</code> is a key in that exported host's finished <code>config.microvm.vms</code> map. It does not mean that inventory contains an ownership label; no such label is added by this pull request.</p>
+<p>The check named <code>checks/microvm-fleet-wiring.nix</code> derives the required side with <code>microvmMachineNames machines</code>. That function selects every inventory machine whose <code>runtime</code> is <code>microvm</code>. It derives the actual side with <code>composedGuestsOf</code>, which reads the guest-name keys from each inventory machine whose type is <code>hypervisor</code>. If a host has no <code>microvm</code> setting tree at all, <code>composedGuestsOf</code> deliberately reports an empty list instead of failing on a missing setting.</p>
+<p>For one selected guest, the number of exported hypervisors containing that name is its <dfn class="rx-term" id="term-fleet-wiring-cardinality">fleet wiring cardinality</dfn>. The accepted number is exactly one. A second, reverse comparison rejects host entries that inventory did not select for the microVM runtime.</p>
+<details class="rx-predict">
+<summary>If inventory selects <code>guest-a</code> and both <code>host-a</code> and <code>host-b</code> contain it, has the fleet satisfied the rule twice?</summary>
+<p>No. The fleet wiring cardinality is two, so the check rejects the fleet. “At least one host” would prevent an abandoned guest but still allow two hosts to claim the same logical machine. The rule requires one host, not one or more hosts.</p>
+</details>
+<h3>Valid, missing, duplicate, unexpected, and empty assignments</h3>
+<figure class="rx-figure" data-objective="obj-4">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Exactly-once fleet wiring cases">
+<table class="rx-compare">
+<caption>Exact coverage checks both directions: every selected guest has one host, and every hosted guest was selected.</caption>
+<thead><tr><th scope="col">Case</th><th scope="col">Inventory selects</th><th scope="col">Finished host guest sets</th><th scope="col">Result and reason</th></tr></thead>
+<tbody>
+<tr><th scope="row">Valid split</th><td><code>guest-a</code>, <code>guest-b</code></td><td><p><code>host-a</code>: <code>guest-a</code></p><p><code>host-b</code>: <code>guest-b</code></p></td><td><span class="rx-mark" data-state="yes">Accepted</span>. Each selected name appears once and there are no extra names.</td></tr>
+<tr><th scope="row">Missing guest</th><td><code>guest-a</code></td><td><code>host-a</code>: none</td><td><span class="rx-mark" data-state="no">Rejected</span>. <code>guest-a</code>'s fleet wiring cardinality is zero.</td></tr>
+<tr><th scope="row">Duplicate guest</th><td><code>guest-a</code></td><td><p><code>host-a</code>: <code>guest-a</code></p><p><code>host-b</code>: <code>guest-a</code></p></td><td><span class="rx-mark" data-state="no">Rejected</span>. <code>guest-a</code>'s fleet wiring cardinality is two.</td></tr>
+<tr><th scope="row">Unexpected guest</th><td><code>guest-a</code></td><td><code>host-a</code>: <code>guest-a</code>, <code>guest-c</code></td><td><span class="rx-mark" data-state="no">Rejected</span>. Inventory did not select <code>guest-c</code> for microVM.</td></tr>
+<tr><th scope="row">No selected guests</th><td>None</td><td><code>host-a</code>: no <code>microvm</code> setting tree</td><td><span class="rx-mark" data-state="yes">Accepted</span>. Required and actual guest sets are both empty, and one host was inspected.</td></tr>
+<tr><th scope="row">No exported hypervisor</th><td>None</td><td>No host to inspect</td><td><span class="rx-mark" data-state="no">Rejected</span>. The separate host-presence guard prevents a check that silently walked nothing.</td></tr>
+</tbody>
+</table>
+</div>
+<figcaption class="rx-caption">The rule is stricter than set equality alone: it counts every host appearance and separately proves that the fleet walk reached a hypervisor.</figcaption>
+</figure>
+<p>The missing case catches a selected guest whose host received an empty guest map. The duplicate case prevents two exported plans from starting the same logical guest; the check's diagnostic names the shared state-directory and QMP-socket identity as the danger. The unexpected case catches stale or hand-written host wiring after inventory has changed a machine to another runtime. The valid empty case preserves the current libvirt-only fleet without importing microvm.nix into its host.</p>
+<aside class="rx-callout" data-role="misconception">
+<p class="rx-callout-label">An empty selected set is not the same as inspecting no hosts</p>
+<p>A fleet with one hypervisor and no microVM-selected machines has a meaningful result: that host must compose no guests. A fleet with no hypervisor gives the check no host output to read. <code>fleetFindings</code> rejects the latter with “the fleet exports no hypervisor, so this check walked nothing.” This guard also rejects an intentionally guestless inventory with no host; the repository accepts that restriction so removing or renaming its only hypervisor cannot turn the fleet check into a silent pass.</p>
+</aside>
+<h3>The gate reads exported results because builder inputs can be replaced</h3>
+<p><code>mkHypervisor</code> receives a name-to-configuration map called <code>microvmGuests</code>. Its default is <code>fleetMicrovmGuests</code>, which maps all microVM-selected inventory names to their existing entries in <code>machineConfigurations</code>, except that a host removes its own name. The builder then turns those inputs into the host's <code>config.microvm.vms</code> output.</p>
+<details class="rx-predict">
+<summary>Why not validate only the default <code>fleetMicrovmGuests</code> map before calling <code>mkHypervisor</code>?</summary>
+<p>The default is not necessarily what an exported host receives. <code>machineConfigurations</code> merges the ordinary builder arguments with per-machine <code>profileData</code> and then with settings from <code>machine.profile</code>; later values replace earlier values with the same name. Either source can therefore replace <code>microvmGuests</code>, including with an empty map. A check of the default would remain green while the exported host contained no guest. Reading <code>config.microvm.vms</code> checks the result that a deployment actually consumes.</p>
+</details>
+<p>This placement deliberately keeps <code>microvmGuests</code> free for test fixtures while closing the production override risk at the output. The cost is that a bad assignment survives until the fleet check evaluates all exported hosts; <code>mkHypervisor</code> by itself still accepts the input. The benefit is that test code can construct focused host fixtures without weakening the rule applied to <code>nixosConfigurations</code>.</p>
+<h3>A second hypervisor requires an explicit non-overlapping assignment</h3>
+<details class="rx-predict">
+<summary>If the fleet adds <code>host-b</code> and changes no assignment settings, will <code>mkHypervisor</code> split guests between the two hosts?</summary>
+<p>No. The default gives every hypervisor the complete <code>fleetMicrovmGuests</code> map, minus only the host's own name. Both <code>host-a</code> and <code>host-b</code> therefore receive every ordinary selected guest. The fleet check sees cardinality two for each guest and rejects the outputs.</p>
+</details>
+<p>The exactly-once choice buys a loud failure instead of silently choosing a host or allowing two hosts to claim one guest. Its immediate cost is that a deployment cannot safely add a second hypervisor and leave the current broad default unchanged. The deployment must replace each host's <code>microvmGuests</code> input so the finished maps form a non-overlapping split: every selected guest in one map, no selected guest in two maps.</p>
+<p>The available input is concrete but the policy around it is not. <code>microvmGuests</code> is keyed by guest name and its values are complete evaluated guest configurations. The existing <code>profileData</code> and <code>machine.profile</code> merge path can replace that builder input. It adds no permanent guest-host inventory field, structured assignment format, or documented recipe for a multi-host split through those profile sources.</p>
+<aside class="rx-callout" data-role="boundary">
+<p class="rx-callout-label">The validator does not choose placement</p>
+<p><code>checks/microvm-fleet-wiring.nix</code> can say that a proposed assignment is complete and non-overlapping. It cannot decide whether <code>guest-a</code> belongs on <code>host-a</code> or <code>host-b</code>. Approval therefore accepts a strong rejection rule and the current builder override point, while leaving the durable multi-hypervisor assignment interface undocumented.</p>
+</aside>
+<h3>Evidence for the public empty fleet and all assignment outcomes</h3>
+<p>The current inventory has one hypervisor, <code>nexus</code>, and no machine whose runtime is <code>microvm</code>. The production comparison is therefore an empty required set against an empty <code>nexus</code> guest set. This proves that <code>composedGuestsOf</code> safely reads a host with no <code>microvm</code> setting tree, but it does not exercise a real selected guest.</p>
+<p>At the rule level, the check compensates. Three deliberately invalid inputs require diagnostics for a missing guest, a guest on two hosts, and an unexpected guest. Two accepted controls require no diagnostic for an exactly-once assignment and for a fleet with no selected guest. Separate reader controls prove that <code>composedGuestsOf</code> sees a populated map, an explicitly empty map, and an absent <code>microvm</code> tree. These cases show that the comparison can distinguish every listed outcome; they do not show a private fleet passing.</p>
+<aside class="rx-callout" data-role="boundary">
+<p class="rx-callout-label">External deployment provenance</p>
+<p>The pull-request discussion says deployment flakes redirect the public inventory and profiles inputs to private repositories and rerun this check, making the selected set nonempty there. Those private flakes are not present in this checkout. The public evidence cannot establish that every deployment exposes this check, runs it, or supplies the intended future host assignment.</p>
+</aside>
+</section>
+<section id="unified-input-graph" aria-labelledby="unified-input-graph-h" data-layer="mechanism" data-objective="obj-6">
+<h2 id="unified-input-graph-h">One root pin now supplies both sides of the VM contract</h2>
+<p class="rx-claim">allod/archetypes now selects one exact allod/vm source revision at its outermost project level, and a new redirection makes allod/nexus reuse it. Because that allod/vm source supplies both microvm.nix module roles, the host and guest can no longer drift onto separate revisions inside allod/archetypes. Neither selected revision changes, but future upgrades move both roles together.</p>
+<h3>Flake inputs form a locked dependency graph</h3>
+<p>A Nix project description that names its external sources and exported results is a <dfn class="rx-term" id="term-nix-flake">flake</dfn>. The named external sources are its <dfn class="rx-term" id="term-flake-input">inputs</dfn>. An input can declare inputs of its own, so Nix sees a graph: each source is a node, and each “uses this input” relationship is an edge. The outermost allod/archetypes flake is the <dfn class="rx-term" id="term-flake-root">root</dfn> of this graph. <code>flake.nix</code> declares the relationships; <code>flake.lock</code> records the exact source selected for every node reachable from that root.</p>
+<p>Fixing an input to one exact source revision—one source-control commit—is a <dfn class="rx-term" id="term-input-pin">pin</dfn>. Before this change, allod/archetypes had a root input named <code>vm</code>, while its allod/nexus input also declared a nested input named <code>vm</code>. The root <code>vm</code> supplies <code>vm.nixosModules.microvmGuest</code> to the guest builders. The nested <code>vm</code> supplies <code>vm.nixosModules.microvmHost</code> to allod/nexus. Each <code>vm</code> node in turn selects microvm.nix.</p>
+<details class="rx-predict">
+<summary>If both old <code>vm</code> nodes name the same commit, are they already one pin?</summary>
+<p>No. They are separate graph nodes reached through separate edges. They happened to select the same commit at the base revision, but either edge could be updated later without moving the other. Each node also carried its own nested dependency branch, including a separate microvm.nix node.</p>
+</details>
+<figure class="rx-figure" data-objective="obj-6">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Flake lock graph before and after input following">
+<table class="rx-compare">
+<caption>The change replaces two equal-but-independent VM branches with one shared branch; it changes graph identity without changing the selected <code>vm</code> or microvm.nix commits.</caption>
+<thead><tr><th scope="col">Observation</th><th scope="col">Base lock</th><th scope="col">Pull-request lock</th></tr></thead>
+<tbody>
+<tr><th scope="row">Guest-side route</th><td>Root <code>vm</code> edge reaches <code>vm_2</code>, then <code>microvm_2</code></td><td>Root <code>vm</code> edge reaches <code>vm</code>, then <code>microvm</code></td></tr>
+<tr><th scope="row">Host-side route</th><td>allod/nexus owns a separate edge to <code>vm</code>, then <code>microvm</code></td><td>allod/nexus records the path <code>[&quot;vm&quot;]</code>, meaning “reuse the root <code>vm</code> node”</td></tr>
+<tr><th scope="row">allod/vm source revision</th><td>Two nodes, both at <code>82217ec60ebd</code></td><td>One reachable node at <code>82217ec60ebd</code></td></tr>
+<tr><th scope="row">microvm.nix source revision</th><td>Two nodes, both at <code>39a499ab8531</code></td><td>One reachable node at <code>39a499ab8531</code></td></tr>
+<tr><th scope="row">Total lock nodes</th><td>28 nodes</td><td>18 nodes</td></tr>
+</tbody>
+</table>
+</div>
+<figcaption class="rx-caption">The suffix in a lock label such as <code>vm_2</code> is only a disambiguating name; the important old property is that guest and host followed different edges even while their locked commits matched.</figcaption>
+</figure>
+<details class="rx-more">
+<summary>Which ten lock nodes disappear with the duplicate branch</summary>
+<p>The regenerated lock removes <code>vm_2</code>, <code>microvm_2</code>, <code>agenix_2</code>, <code>darwin_2</code>, <code>disko_2</code>, <code>home-manager_3</code>, <code>home-manager_4</code>, <code>nixpkgs-unstable_2</code>, <code>spectrum_2</code>, and <code>systems_2</code>. These are lock-graph labels, not ten package removals from a machine. Every locked source record that remains under the same label is unchanged between the base and head locks.</p>
+</details>
+<h3>The allod/nexus <code>vm</code> input now reuses the root <code>vm</code> source</h3>
+<p>A rule that tells a nested input to reuse a node already selected elsewhere in the enclosing flake is an <dfn class="rx-term" id="term-input-follows">input-following rule</dfn>, written with <code>follows</code>. Inside the allod/nexus input declaration, this pull request adds <code>inputs.vm.follows = &quot;vm&quot;</code>. The left side names allod/nexus&apos;s requested <code>vm</code> input. The right side names allod/archetypes&apos; root <code>vm</code> input.</p>
+<details class="rx-predict">
+<summary>Why redirect allod/nexus instead of keeping two equal revisions and checking that they stay equal?</summary>
+<p>The redirect removes the independent choice that creates drift. A comparison can report disagreement after two revisions separate; <code>follows</code> makes both consumers resolve through one choice in the first place. Keeping two branches would also preserve duplicate nested lock entries and require every update to coordinate both pins manually.</p>
+</details>
+<figure class="rx-figure" data-objective="obj-6">
+<div class="rx-lanes" data-align="columns">
+<section class="rx-lane">
+<h4 class="rx-lane-label">Guest-building path</h4>
+<ol class="rx-flow" data-steps="4">
+<li><b>allod/archetypes</b><span>selects guest module</span></li>
+<li><b>Root <code>vm</code></b><span>owns shared pin</span></li>
+<li><b>microvm.nix</b><span>supplies guest machinery</span></li>
+<li><b><code>microvmGuest</code></b><span>builds guest side</span></li>
+</ol>
+</section>
+<section class="rx-lane">
+<h4 class="rx-lane-label">Host-launching path</h4>
+<ol class="rx-flow" data-steps="4">
+<li><b>allod/nexus</b><span>selects host module</span></li>
+<li><b>Followed <code>vm</code></b><span>reuses root pin</span></li>
+<li><b>microvm.nix</b><span>supplies host machinery</span></li>
+<li><b><code>microvmHost</code></b><span>builds host side</span></li>
+</ol>
+</section>
+</div>
+<figcaption class="rx-caption">Both paths now cross the same allod/vm node and therefore the same nested microvm.nix node before splitting into guest and host module roles.</figcaption>
+</figure>
+<p>There is no new direct <code>microvm.follows</code> line in allod/archetypes. The microvm.nix unification is a consequence of sharing <code>vm</code>: the pinned allod/vm flake owns one <code>microvm</code> input, imports its guest module for <code>microvmGuest</code>, and exposes its host module under allod/vm&apos;s own <code>microvmHost</code> output. Exposing another project&apos;s value under a local output is a <dfn class="rx-term" id="term-flake-reexport">re-export</dfn>. allod/nexus imports that re-export. Once allod/archetypes and allod/nexus share allod/vm, they necessarily share its microvm.nix node as well.</p>
+<p>This buys consistency at the interface joined by this pull request. The guest&apos;s settings and runner are interpreted by host machinery from the same microvm.nix revision, rather than by independently updatable implementations that currently agree by coincidence. Sharing a revision does not prove that microvm.nix is correct, but it removes mismatched dependency revisions as one failure mode.</p>
+<h3>The root <code>vm</code> pin now owns future upgrades for both sides</h3>
+<details class="rx-predict">
+<summary>What happens to allod/nexus when allod/archetypes later advances its root <code>vm</code> pin?</summary>
+<p>allod/nexus receives that same new allod/vm revision when allod/archetypes is evaluated. allod/vm&apos;s <code>microvmGuest</code> wrapper and <code>microvmHost</code> re-export move together. If the new allod/vm revision changes its microvm.nix selection, both roles receive that changed microvm.nix revision together as well.</p>
+</details>
+<p>The benefit is one reviewable upgrade point for a two-sided contract. The cost is lost independence: allod/archetypes can no longer keep allod/nexus on one nested allod/vm revision while guest builders use another. A root <code>vm</code> update therefore has a wider test obligation. It must rerun the guest checks, host-join checks, generated-command checks, and available lifecycle checks that cover both roles, rather than treating one side as untouched. A nested-host test remains the missing runtime witness.</p>
+<aside class="rx-callout" data-role="boundary">
+<p class="rx-callout-label">Policy scope</p>
+<p>Contract 1a and the source comments record this shared-revision policy for allod/archetypes. The new <code>follows</code> line does not rewrite allod/nexus&apos;s own flake or impose one update policy on every repository that consumes allod/nexus. Another top-level consumer still decides whether its allod/nexus input follows a root <code>vm</code>.</p>
+</aside>
+<h3>The permanent check verifies both the lock edge and the source paths Nix consumes</h3>
+<p><code>checks/microvm-host-join.nix</code> reads <code>flake.lock</code> and requires allod/nexus&apos;s <code>vm</code> edge to equal <code>[&quot;vm&quot;]</code>. It also requires exactly one distinct allod/vm revision and one distinct microvm.nix revision in the lock data. A doctored lock points allod/nexus at <code>vm_2</code> and gives the two allod/vm and microvm.nix branches different revisions; the check requires all three defects to be reported.</p>
+<p>The same check then compares the evaluated Nix-store source paths. It requires the root <code>vm</code> source to equal <code>nexus.inputs.vm</code>, the root allod/vm <code>microvm</code> source to equal <code>nexus.inputs.vm.inputs.microvm</code>, and the root allod/vm <code>nixpkgs</code> source to equal allod/nexus&apos;s <code>nixpkgs</code>. Those comparisons prove that evaluation consumes the redirected sources. They also cover the Nix command-line option named <code>--override-input</code>, which temporarily replaces an input for one evaluation without editing the checked-in lock.</p>
+<aside class="rx-callout" data-role="evidence">
+<p class="rx-callout-label">What the pin evidence proves</p>
+<p>Direct comparison of the base and head lock files proves the immediate state: 28 nodes become 18, the duplicate <code>vm</code> and <code>microvm</code> nodes disappear, and neither relevant source revision moves. The check does not require the total to remain 18. It enforces the allod/nexus redirect, one distinct revision per relevant project, and equal evaluated source identities. A future unrelated dependency can change the total node count without violating the policy.</p>
+</aside>
+</section>
+<section id="proof-and-residual-risk" aria-labelledby="proof-and-residual-risk-h" data-layer="receipts" data-objective="obj-1 obj-2 obj-3 obj-4 obj-5 obj-6 obj-7">
+<h2 id="proof-and-residual-risk-h">The checks prove the join, but not a deployed guest boot</h2>
+<p class="rx-claim">The permanent checks cover the selected configuration, derived paths, installed-runner instruction, service policy, fleet assignment, and shared dependency graph. They stop before a joined guest process exists, so approval must treat the planned nested-host test and private deployment run as later evidence rather than as evidence already supplied.</p>
+<h3>The permanent witnesses and their proof ceilings</h3>
+<p>Two new check outputs carry the changed behavior. <code>microvm-host-join</code> evaluates purpose-built hosts and reads their merged values and generated text. <code>microvm-fleet-wiring</code> reads the guest sets of the exported hosts and applies the exactly-once rule. <code>checks/qemu-command.nix</code> is a shared command-reconstruction helper imported by checks; it is not a check output of its own. Its final <code>unsafeDiscardStringContext</code> deliberately removes the input-derivation references, which exposes the command for inspection without realizing the guest disk.</p>
+<ul class="rx-stats">
+<li class="rx-stat"><b>21 steps</b><span>counts the latest full-gate run recorded in the supplied pull-request discussion</span></li>
+<li class="rx-stat"><b>4 machines</b><span>counts exported final system recipes evaluated by <code>check.sh</code></span></li>
+<li class="rx-stat"><b>14 checks</b><span>counts the <code>x86_64-linux</code> check outputs exported at this head</span></li>
+<li class="rx-stat"><b>3 passives</b><span>counts non-build outputs that <code>check.sh</code> also forces before reporting success</span></li>
+</ul>
+<figure class="rx-figure" data-objective="obj-1 obj-2 obj-3 obj-4 obj-5 obj-6 obj-7">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Claims mapped to permanent checks, failure controls, and proof limits">
+<table class="rx-compare">
+<caption>Each merge claim has a permanent witness and a deliberate failure case, but every witness has a stated boundary.</caption>
+<thead><tr><th scope="col">Claim</th><th scope="col">Permanent witness</th><th scope="col">Failure control</th><th scope="col">Proof ceiling</th></tr></thead>
+<tbody>
+<tr><th scope="row">Inventory selection reaches a host without changing the current empty fleet</th><td><code>microvm-host-join</code> drives <code>microvmMachineNames</code> with mixed and libvirt-only inventories, drives <code>microvmGuestsFor</code> with stand-in configurations, and proves that a guestless host declares neither the microvm.nix setting tree nor the allod/nexus host setting tree.</td><td>The mixed fixture must select only <code>beta-dev</code>; positive controls require both host setting trees to exist when a guest is present.</td><td>The current public inventory selects no microVM guest. The production nonempty path is represented by fixtures rather than by an exported machine.</td></tr>
+<tr><th scope="row">The host extends and installs the selected guest</th><td><code>microvm-host-join</code> forces the final recipe for default-root, moved-root, and guestless hosts. It proves that the standalone guest has no credential values, the extended runner has a different store path, and the <code>install-microvm-&lt;name&gt;</code> script contains only the extended runner path.</td><td>A sabotage force-wires the standalone guest into <code>evaluatedConfig</code> and requires diagnostics for its missing credential keys and its use as an unextended runner.</td><td>The check compares and reads recipe inputs. It neither realizes the joined runner nor executes the install service.</td></tr>
+<tr><th scope="row">Host roots produce the credential and QMP addresses consumed by QEMU</th><td><code>microvm-host-join</code> requires all four credential names, exact maps at <code>/run/allod/microvm</code> and <code>/run/allod/moved-microvm</code>, every reconstructed <code>fw_cfg</code> option, the absence of the other root, and <code>/run/allod/microvm-qmp/&lt;guest&gt;/control.sock</code>.</td><td>Permanent sabotages remove one host source and place <code>hostPlaintextRoot</code> below the QMP root. The reconstructed command also has to contain this guest&apos;s own store disk and kernel settings, preventing a plausible command from another guest from passing.</td><td>No joined launcher creates a file or socket. QEMU does not open a credential file, and no joined guest reads credential bytes.</td></tr>
+<tr><th scope="row">Wiring does not arm startup or rebuild-driven restart</th><td><code>microvm-host-join</code> requires <code>autostart = false</code>, an empty automatic-start list, <code>restartIfChanged = false</code>, the exact rendered line <code>X-RestartIfChanged=false</code>, and the absence of <code>=true</code>.</td><td>A forced-true automatic-start fixture must put the guest in the automatic-start list. A forced-true restart fixture must render <code>X-RestartIfChanged=true</code>.</td><td>The rendered service request is pinned. No running process is observed across <code>switch-to-configuration</code>.</td></tr>
+<tr><th scope="row">Every selected guest belongs to exactly one exported host</th><td><code>microvm-fleet-wiring</code> reads populated, empty, and absent host guest maps; accepts exactly-once and intentionally empty controls; and evaluates the actual public host outputs.</td><td>Three permanent sabotages require separate diagnostics for zero hosts, two hosts, and a hosted name that inventory did not select. A production guard also rejects an inventory with no hypervisor.</td><td>The public production case is empty against empty. The supplied discussion records a temporary no-hypervisor trial, but that trial is not a permanent fixture. Private deployment results are not in this checkout.</td></tr>
+<tr><th scope="row">The host and guest consume one allod/vm and microvm.nix revision set</th><td>The pin portion of <code>microvm-host-join</code> requires allod/nexus&apos;s lock edge to be <code>[&quot;vm&quot;]</code>, one distinct revision for each relevant project, and equal evaluated source paths for allod/vm, microvm.nix, and Nixpkgs.</td><td>A doctored lock restores two allod/vm and two microvm.nix branches at different revisions and must produce all three intended findings.</td><td>This proves graph identity and the sources consumed during evaluation. It does not prove that a future shared revision behaves correctly at runtime.</td></tr>
+<tr><th scope="row">The guest-side credential form works beyond the new join</th><td>The existing <code>microvm-credentials</code> check pins credential names and guest destinations. The existing <code>microvm-sshd-boot</code> check boots neighboring test machines and shows that the same <code>fw_cfg</code> form reaches guest systemd and SSH.</td><td>Those checks contain their own invalid-input and rendered-output controls for the guest credential mechanism.</td><td>The booted machines are not guests selected, extended, installed, and launched by this pull request. Adjacent evidence does not turn into an end-to-end witness.</td></tr>
+</tbody>
+</table>
+</div>
+<figcaption class="rx-caption">The strongest permanent evidence for the new composition is a forced final recipe plus exact generated consumer text; the first missing observation is execution of that continuously joined plan.</figcaption>
+</figure>
+<details class="rx-more">
+<summary>The exact positive cases and sabotages inside the two new checks</summary>
+<p><code>checks/microvm-host-join.nix</code> keeps three positive hosts: one with the default credential root, one with a moved root, and one with no guest. It checks the production runtime filter and guest lookup, the standalone and extended credential maps, host source names, final socket, automatic-start state, rebuild-restart state, extended and standalone runner identities, install script, two reconstructed QEMU commands, absent wrong-root text, empty-fleet module gate, lock graph, and evaluated source identities.</p>
+<p>Its permanent altered inputs are an unextended guest forced into <code>evaluatedConfig</code>, a mismatched host source set, a plaintext root below the QMP root, a true rebuild-restart setting, a true automatic-start setting, and a lock graph with independent allod/vm and microvm.nix branches. Each altered input must produce the diagnostic assigned to it, not merely any evaluation failure.</p>
+<p><code>checks/microvm-fleet-wiring.nix</code> tests its host-map reader with a populated map, an explicitly empty map, and a host with no microVM settings. Its wiring rule must accept a guest appearing once and a fleet declaring no guests. It must reject a selected guest appearing zero times, a selected guest appearing twice, and a host entry that inventory did not select.</p>
+<p>One guarded assertion path lacks a paired sabotage: a guest that carries microvm.nix settings but lacks <code>allod.archetypes.microvm.credentialNames</code>. The source returns a named diagnostic for that shape, but this repository has no second guest builder with which to construct the case. That branch therefore has less falsification evidence than the other join assertions.</p>
+</details>
+<aside class="rx-callout" data-role="evidence">
+<p class="rx-callout-label">The dependency-pin check is part of the join output</p>
+<p>This head contains no check output named <code>vm-pin-unification</code>. The lock-edge, revision-count, doctored-lock, and evaluated-source comparisons all run inside <code>microvm-host-join</code>. A command naming <code>checks.x86_64-linux.vm-pin-unification</code> would therefore select an output that does not exist.</p>
+</aside>
+<h3>Commands reproduce the permanent evidence at the right scope</h3>
+<details class="rx-predict">
+<summary>If every command below succeeds, which command proves that a joined microVM booted?</summary>
+<p>None of them. The full gate builds the small success output of <code>microvm-host-join</code> after its evaluation findings are empty. That output does not build the joined guest runner or start its service. The neighboring SSH boot check starts test machines, but they do not use this host–guest join.</p>
+</details>
+<figure class="rx-figure rx-codewalk" id="proof-commands" data-objective="obj-1 obj-2 obj-3 obj-4 obj-5 obj-6 obj-7">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Commands for the full gate and focused microVM checks">
+<pre class="rx-code" data-lang="shell"><code><mark class="rx-hl" id="proof-cmd-full">./check.sh</mark>
+<mark class="rx-hl" id="proof-cmd-join">nix build --no-link --print-build-logs .#checks.x86_64-linux.microvm-host-join</mark>
+<mark class="rx-hl" id="proof-cmd-fleet">nix build --no-link --print-build-logs .#checks.x86_64-linux.microvm-fleet-wiring</mark>
+<mark class="rx-hl" id="proof-cmd-guest">nix build --no-link --print-build-logs .#checks.x86_64-linux.microvm-credentials</mark>
+<mark class="rx-hl" id="proof-cmd-boot">nix build --no-link --print-build-logs .#checks.x86_64-linux.microvm-sshd-boot</mark>
+<mark class="rx-hl" id="proof-cmd-self">./check-selftest.sh</mark></code></pre>
+</div>
+<ol class="rx-notes">
+<li class="rx-note" data-hl="proof-cmd-full"><a href="#proof-cmd-full">Full repository gate</a> — <code>check.sh</code> discovers outputs instead of keeping a handwritten list. On this head it forces three passive outputs, evaluates four final machine recipes, and builds fourteen same-platform checks in separate Nix processes.</li>
+<li class="rx-note" data-hl="proof-cmd-join"><a href="#proof-cmd-join">Join and pin evidence</a> — this one output covers composition, paths, runner selection, lifecycle text, QMP separation, and dependency unification. Its built result is a marker whose prerequisite evaluation contains the real assertions.</li>
+<li class="rx-note" data-hl="proof-cmd-fleet"><a href="#proof-cmd-fleet">Fleet evidence</a> — this output checks the current exported hosts and the rule&apos;s valid and invalid data cases without building another host system.</li>
+<li class="rx-note" data-hl="proof-cmd-guest"><a href="#proof-cmd-guest">Guest credential evidence</a> — this existing output checks the guest declarations, generated consumers, and materializer behavior that the join relies on.</li>
+<li class="rx-note" data-hl="proof-cmd-boot"><a href="#proof-cmd-boot">Neighboring boot evidence</a> — this existing output demonstrates guest-side credential delivery on test machines, not the joined microVM service.</li>
+<li class="rx-note" data-hl="proof-cmd-self"><a href="#proof-cmd-self">Gate-harness evidence</a> — this script proves that <code>check.sh</code> reports failing, empty, unknown, and malformed output sets. It tests the gate wrapper rather than the microVM behavior.</li>
+</ol>
+<figcaption class="rx-caption">Run <code>./check.sh</code> for merge coverage and the focused builds for diagnosis; no command listed here crosses the joined service&apos;s runtime boundary.</figcaption>
+</figure>
+<aside class="rx-callout" data-role="boundary">
+<p class="rx-callout-label">Recorded results versus permanent enforcement</p>
+<p>The supplied discussion records <code>./check.sh</code> passing all 21 steps and <code>./check-selftest.sh</code> passing at the pull-request head. It also records a one-time comparison in which all four exported machines had identical final recipe paths at the base and branch revisions. The permanent gate reevaluates the four head recipes, and the join check permanently proves that a guestless host omits the new modules. It does not permanently compare every future head recipe with this pull request&apos;s base.</p>
+</aside>
+<h3>The planned nested-host test owns the next evidence step</h3>
+<p>The recorded follow-up is not a broader text check. It is a test that boots a temporary host, runs the generated service inside that host, and observes the process while the host configuration changes. The test needs a guest change that actually produces a different runner; otherwise an unchanged service would prove nothing about rebuild handling.</p>
+<section class="rx-sequence" id="proof-nested-host-sequence" aria-labelledby="proof-nested-host-sequence-h">
+<h3 id="proof-nested-host-sequence-h">Required observations in the planned nested-host test</h3>
+<ol class="rx-seq-steps">
+<li class="rx-seq-step" id="proof-nested-host-sequence-1"><h4 class="rx-seq-title">1. Start the joined service</h4><p>Boot a temporary host, start <code>microvm@&lt;name&gt;.service</code>, and record its main process identifier and start timestamp.</p></li>
+<li class="rx-seq-step" id="proof-nested-host-sequence-2"><h4 class="rx-seq-title">2. Build a genuinely changed guest</h4><p>Change a guest input that moves its runner path, then build and activate the corresponding changed host configuration.</p></li>
+<li class="rx-seq-step" id="proof-nested-host-sequence-3"><h4 class="rx-seq-title">3. Observe restaging without a reboot</h4><p>Run <code>switch-to-configuration</code>, require <code>install-microvm-&lt;name&gt;</code> to run again, and require <code>current</code> to name the new runner while the main process identifier and start timestamp remain unchanged.</p></li>
+<li class="rx-seq-step" id="proof-nested-host-sequence-4"><h4 class="rx-seq-title">4. Restart explicitly and observe the new guest</h4><p>Stop and start the service, then require the changed guest to boot from the runner that was staged in the previous step.</p></li>
+</ol>
+</section>
+<aside class="rx-callout" data-role="caution">
+<p class="rx-callout-label">Planned evidence is not present evidence</p>
+<p>The supplied discussion records this test shape, but this checkout contains no implementation and no completion date. Until that test exists, the report cannot claim that host activation preserves a running joined guest, that the allod/nexus launcher and microvm.nix unit cooperate through a real start and stop, or that an explicit restart boots the newly staged runner.</p>
+</aside>
+<h3>Residual risks that remain after a green gate</h3>
+<figure class="rx-figure" data-objective="obj-2 obj-3 obj-4 obj-5 obj-6 obj-7">
+<div class="rx-scroll" role="region" tabindex="0" aria-label="Residual risks, current controls, and missing evidence">
+<table class="rx-compare">
+<caption>A green gate narrows each remaining risk, but none of these rows is closed by generated values or text alone.</caption>
+<thead><tr><th scope="col">Residual risk</th><th scope="col">What limits it now</th><th scope="col">What remains to close or govern it</th></tr></thead>
+<tbody>
+<tr><th scope="row">Joined service lifecycle</th><td>The exact installer runner and <code>X-RestartIfChanged=false</code> input are pinned, and neighboring allod/nexus tests exercise launcher isolation.</td><td>The planned nested-host test must observe start, restaging, unchanged process identity, cleanup, explicit restart, and the changed boot on one continuous joined path.</td></tr>
+<tr><th scope="row">Live credential delivery</th><td>Exact host paths and QEMU arguments are pinned. The existing SSH boot check proves the guest-side <code>fw_cfg</code> form on different test machines.</td><td>A joined runtime witness must show that the launcher prepares the file, QEMU opens it, and the selected guest receives the intended bytes without exposing unrelated credential data.</td></tr>
+<tr><th scope="row">Private fleet coverage</th><td>The exactly-once function has positive and negative controls, and the public host walk is nonempty even though its selected guest set is empty.</td><td>The discussion says private deployment flakes redirect inventory and rerun this suite. This checkout cannot verify which deployments expose the check, run it, or pass with a nonempty selected set.</td></tr>
+<tr><th scope="row">QMP path ownership across repositories</th><td>allod/archetypes fixes the path and rejects a plaintext root below the QMP root; allod/nexus rejects a QMP directory below the plaintext root and owns cleanup.</td><td>A later refactor must move the path constructor, both containment checks, cleanup assumptions, and cross-repository tests together. No joined runtime test currently observes which directories cleanup removes.</td></tr>
+<tr><th scope="row">Operator policy for startup and placement</th><td>The safe startup default is false, and exactly-once validation rejects missing or duplicate host assignment.</td><td>It supplies no documented deployment-facing automatic-start switch or durable schema for splitting guests when a second hypervisor arrives. Operators have mechanisms, but not a repository-defined interface.</td></tr>
+<tr><th scope="row">Coupled dependency upgrades</th><td>One root pin prevents host and guest implementations from drifting to different allod/vm or microvm.nix revisions.</td><td>Every future root <code>vm</code> update moves both roles. Review and testing must cover guest generation, host launch, generated text, and runtime behavior as one upgrade.</td></tr>
+<tr><th scope="row">Review provenance</th><td>Owner review reversed the rebuild-restart policy and closed the empty-guest seam; the resulting code and checks agree.</td><td>The supplied discussion says the two owner-requested changes did not receive a separate adversarial review pass. That is a review-process limit, not a failing code witness.</td></tr>
+</tbody>
+</table>
+</div>
+<figcaption class="rx-caption">The highest-impact open item is runtime continuity: the source now asks for the right rebuild behavior, but only a nested host can show that the running process actually experiences it.</figcaption>
+</figure>
+<h3>Approval and rollback boundaries</h3>
+<p>Approval accepts seven source-level decisions together: inventory-driven composition, extension of the selected guest, host-derived credential and QMP paths, automatic startup disabled by default, rebuild-driven restart disabled, exactly-once host assignment, and one shared dependency revision set. It also accepts that the fixed QMP convention, automatic-start opt-in, and future multi-host assignment need coordinated maintenance.</p>
+<p>Approval does not certify a deployed boot, a live credential read, a real host rebuild, or a nonempty private fleet. Those claims remain outside this pull request even when every permanent check passes.</p>
+<aside class="rx-callout" data-role="evidence">
+<p class="rx-callout-label">Rollback</p>
+<p>Rollback is a straight revert of the source composition and lock-graph changes together. The current public fleet selects no microVM guest, the change introduces no persistent-data migration, and the checks use synthetic source paths rather than deployed credential files. Reverting therefore removes the new composition path and shared pin without requiring state conversion or credential cleanup.</p>
+</aside>
+</section>
+<section id="quiz" aria-labelledby="quiz-h" data-layer="receipts" data-objective="obj-1 obj-2 obj-3 obj-4 obj-5 obj-6 obj-7">
+<h2 id="quiz-h">Knowledge check for the host–guest join</h2>
+<p class="rx-claim">Apply the composition, path, lifecycle, fleet, isolation, dependency, and evidence rules to new cases. Each answer explains the rule that governs the result.</p>
+<article class="rx-quiz-item" id="q1" data-concept="nixos-configuration-extension" data-objective="obj-1">
+<h3>A selected guest already exists as <code>machineConfigurations.guest-a</code>, and its host must add runtime paths without creating a competing guest definition. Which composition preserves that requirement?</h3>
+<ul class="rx-choices">
+<li><details class="rx-choice" name="q1" data-correct="false" data-misconception="assumes a parallel guest stays equivalent"><summary>A. Build a second guest from host-only modules and register that new guest as <code>evaluatedConfig</code></summary><p>Incorrect. A second construction can omit or reinterpret declarations from the exported standalone guest, creating two sources of truth.</p></details></li>
+<li><details class="rx-choice" name="q1" data-correct="false" data-misconception="treats merged configuration as an unchecked map"><summary>B. Patch the standalone guest&apos;s merged values directly and register the patched map as <code>evaluatedConfig</code></summary><p>Incorrect. Direct map changes bypass the guest&apos;s module declarations, merge rules, type checks, and assertions.</p></details></li>
+<li><details class="rx-choice" name="q1" data-correct="true"><summary>C. Call <code>guest.extendModules</code> with the host values and register the resulting object as <code>evaluatedConfig</code></summary><p>Correct. <code>extendModules</code> reevaluates the original module list with the host additions, preserving one guest definition and its checks.</p></details></li>
+<li><details class="rx-choice" name="q1" data-correct="false" data-misconception="derives paths after the runner is fixed"><summary>D. Register the standalone guest unchanged and let the launcher append host paths after selecting its runner</summary><p>Incorrect. The guest runner renders the QEMU arguments, so the host-derived paths must enter the guest evaluation before that runner is built.</p></details></li>
+</ul>
+<p class="rx-quiz-result" aria-live="polite"></p>
+</article>
+<article class="rx-quiz-item" id="q2" data-concept="microvm-credential-transport" data-objective="obj-2">
+<h3>A guest named <code>blue</code> declares <code>ssh-host-key</code>, and its host changes <code>hostPlaintextRoot</code> to <code>/run/tenant-vm</code>. Which final path and runner combination should appear?</h3>
+<ul class="rx-choices">
+<li><details class="rx-choice" name="q2" data-correct="true"><summary>A. The extended runner uses <code>/run/tenant-vm/active/blue/ssh-host-key</code> for <code>fw_cfg</code> and <code>/run/allod/microvm-qmp/blue/control.sock</code> for QMP</summary><p>Correct. The evaluated plaintext root moves the credential map and QEMU file argument, while the fixed QMP root remains separate.</p></details></li>
+<li><details class="rx-choice" name="q2" data-correct="false" data-misconception="moves the fixed qmp root with credentials"><summary>B. The extended runner uses <code>/run/tenant-vm/active/blue/ssh-host-key</code> for <code>fw_cfg</code> and <code>/run/tenant-vm/blue/control.sock</code> for QMP</summary><p>Incorrect. Moving <code>hostPlaintextRoot</code> changes credential addresses only; the QMP socket stays below the fixed QMP root.</p></details></li>
+<li><details class="rx-choice" name="q2" data-correct="false" data-misconception="keeps the standalone runner after extension"><summary>C. The standalone runner uses <code>/run/tenant-vm/active/blue/ssh-host-key</code> for <code>fw_cfg</code> and <code>/run/allod/microvm-qmp/blue/control.sock</code> for QMP</summary><p>Incorrect. The changed paths are injected by guest extension, so the install service must stage the distinct extended runner.</p></details></li>
+<li><details class="rx-choice" name="q2" data-correct="false" data-misconception="confuses host and guest credential addresses"><summary>D. The extended runner uses <code>/run/credentials/sshd.service/ssh-host-key</code> for <code>fw_cfg</code> and <code>/run/allod/microvm-qmp/blue/control.sock</code> for QMP</summary><p>Incorrect. QEMU opens the prepared host path; the guest-side systemd credential address exists only after the firmware entry crosses into the guest.</p></details></li>
+</ul>
+<p class="rx-quiz-result" aria-live="polite"></p>
+</article>
+<article class="rx-quiz-item" id="q3" data-concept="microvm-host-unit-lifecycle" data-objective="obj-3">
+<h3>A joined guest has <code>autostart = false</code>. An operator starts runner A, a host activation stages runner B with <code>X-RestartIfChanged=false</code>, and runner A later exits unexpectedly. What happens?</h3>
+<ul class="rx-choices">
+<li><details class="rx-choice" name="q3" data-correct="false" data-misconception="equates installation with automatic startup"><summary>A. Host startup launches runner A, activation keeps it running, and the later exit launches runner B</summary><p>Incorrect. The install service can stage runner A, but <code>autostart = false</code> prevents host startup from requesting the guest process.</p></details></li>
+<li><details class="rx-choice" name="q3" data-correct="false" data-misconception="confuses process recovery with activation restart"><summary>B. The operator launches runner A, activation immediately restarts it as runner B, and later exits keep retrying B</summary><p>Incorrect. <code>Restart=always</code> governs process exits; it does not override <code>X-RestartIfChanged=false</code> during host activation.</p></details></li>
+<li><details class="rx-choice" name="q3" data-correct="false" data-misconception="confuses activation policy with crash recovery"><summary>C. The operator launches runner A, activation leaves it running, and the later exit leaves the guest stopped</summary><p>Incorrect. The false activation marker prevents a rebuild-driven reboot, while systemd&apos;s separate process-recovery rule still retries an unexpected exit.</p></details></li>
+<li><details class="rx-choice" name="q3" data-correct="true"><summary>D. The operator launches runner A, activation leaves it running while staging B, and the later exit retries with runner B</summary><p>Correct. Activation moves <code>current</code> to B without replacing the live process, and the later recovery attempt follows that updated link.</p></details></li>
+</ul>
+<p class="rx-quiz-result" aria-live="polite"></p>
+</article>
+<article class="rx-quiz-item" id="q4" data-concept="fleet-wiring-cardinality" data-objective="obj-4">
+<h3>Inventory selects <code>guest-a</code> for microVM and <code>legacy</code> for libvirt. Both exported hosts contain <code>guest-a</code>, and one host also contains <code>legacy</code>. Why does the fleet gate reject this assignment?</h3>
+<ul class="rx-choices">
+<li><details class="rx-choice" name="q4" data-correct="false" data-misconception="treats exact coverage as at least once"><summary>A. It should accept because every microVM-selected name appears on at least one host and libvirt names are ignored</summary><p>Incorrect. The rule requires exactly one appearance, and its reverse comparison also inspects names that hosts contain without microVM selection.</p></details></li>
+<li><details class="rx-choice" name="q4" data-correct="true"><summary>B. It rejects <code>guest-a</code> for cardinality two and rejects <code>legacy</code> because inventory did not select it for microVM</summary><p>Correct. Exact coverage counts every host appearance and separately rejects hosted names outside the inventory&apos;s microVM-selected set.</p></details></li>
+<li><details class="rx-choice" name="q4" data-correct="false" data-misconception="omits the reverse inventory comparison"><summary>C. It rejects only <code>guest-a</code> because duplicate ownership matters, while any extra hosted runtime is permitted</summary><p>Incorrect. Duplicate detection handles selected guests, but the reverse comparison also catches stale or hand-written host entries such as <code>legacy</code>.</p></details></li>
+<li><details class="rx-choice" name="q4" data-correct="false" data-misconception="collapses duplicate hosts into one set entry"><summary>D. It rejects only <code>legacy</code> because the two appearances of <code>guest-a</code> collapse into one selected name</summary><p>Incorrect. The check computes fleet wiring cardinality across hosts before comparing names, so two host appearances remain a duplicate assignment.</p></details></li>
+</ul>
+<p class="rx-quiz-result" aria-live="polite"></p>
+</article>
+<article class="rx-quiz-item" id="q5" data-concept="qmp-credential-root-isolation" data-objective="obj-5">
+<h3>A proposed host gives every guest a different QMP filename in one shared writable directory and puts <code>hostPlaintextRoot</code> at <code>/run/allod/microvm-qmp/cache</code>. Which revision satisfies the isolation rules?</h3>
+<ul class="rx-choices">
+<li><details class="rx-choice" name="q5" data-correct="false" data-misconception="treats distinct leaf names as directory isolation"><summary>A. Keep both choices because distinct socket filenames and the final directory name <code>cache</code> prevent collisions</summary><p>Incorrect. A process with write access to the shared directory can alter sibling sockets, and the credential root still lies inside the QMP tree.</p></details></li>
+<li><details class="rx-choice" name="q5" data-correct="false" data-misconception="fixes root overlap but retains shared qmp authority"><summary>B. Move the credential root outside the QMP tree but keep every guest&apos;s socket in the shared writable directory</summary><p>Incorrect. Separating the roots protects credentials from QMP cleanup, but one shared writable QMP directory still exposes sibling socket entries.</p></details></li>
+<li><details class="rx-choice" name="q5" data-correct="true"><summary>C. Move the credential root outside the QMP tree and give each guest its own directory below the fixed QMP root</summary><p>Correct. Disjoint runtime roots protect credentials from recursive cleanup, while per-guest QMP directories isolate each process account&apos;s writable authority.</p></details></li>
+<li><details class="rx-choice" name="q5" data-correct="false" data-misconception="fixes guest directories but retains reverse root containment"><summary>D. Give each guest its own QMP directory but keep the credential root at <code>/run/allod/microvm-qmp/cache</code></summary><p>Incorrect. Per-guest directories fix socket isolation, but the reverse-containment assertion reserves the entire QMP root against credential placement.</p></details></li>
+</ul>
+<p class="rx-quiz-result" aria-live="polite"></p>
+</article>
+<article class="rx-quiz-item" id="q6" data-concept="flake-input-follow-graph" data-objective="obj-6">
+<h3>A later change advances allod/archetypes&apos; root <code>vm</code> pin after allod/nexus&apos;s <code>vm</code> input has been made to follow it. What review consequence follows?</h3>
+<ul class="rx-choices">
+<li><details class="rx-choice" name="q6" data-correct="true"><summary>A. Guest and host roles receive the shared update together, so review must test both sides of their contract</summary><p>Correct. The following edge removes allod/nexus&apos;s independent revision choice, making one root update move both VM roles together.</p></details></li>
+<li><details class="rx-choice" name="q6" data-correct="false" data-misconception="assumes follows preserves a nested independent pin"><summary>B. Only the guest role receives the root update, so allod/nexus can remain on its previous nested revision</summary><p>Incorrect. <code>follows</code> redirects allod/nexus to the root <code>vm</code> node instead of preserving its own nested pin.</p></details></li>
+<li><details class="rx-choice" name="q6" data-correct="false" data-misconception="assumes microvm remains an independent duplicate branch"><summary>C. The allod/vm revisions move together, but host and guest still select independent microvm.nix revision branches</summary><p>Incorrect. The shared allod/vm node owns one microvm.nix input, so both re-exported roles also share that nested source.</p></details></li>
+<li><details class="rx-choice" name="q6" data-correct="false" data-misconception="treats source identity as runtime compatibility proof"><summary>D. The shared source identity proves runtime compatibility, so generated-command and nested-host tests become unnecessary</summary><p>Incorrect. One source revision removes version drift as a failure mode, but behavior still requires generated-artifact and runtime evidence.</p></details></li>
+</ul>
+<p class="rx-quiz-result" aria-live="polite"></p>
+</article>
+<article class="rx-quiz-item" id="q7" data-concept="evaluation-artifact-runtime-boundary" data-objective="obj-7">
+<h3>The join check computes final recipe paths, validates merged settings, reads rendered service text, reconstructs QEMU arguments, and builds its success marker. Which conclusion is supported?</h3>
+<ul class="rx-choices">
+<li><details class="rx-choice" name="q7" data-correct="false" data-misconception="turns a reconstructed command into live delivery"><summary>A. The joined guest booted and consumed the prepared credential because its expected path appeared in the QEMU arguments</summary><p>Incorrect. A reconstructed command proves the renderer&apos;s planned argument, not file creation, QEMU execution, or a guest-side credential read.</p></details></li>
+<li><details class="rx-choice" name="q7" data-correct="false" data-misconception="turns rendered policy into observed process continuity"><summary>B. A running joined guest retained its process identity during host activation because the drop-in disabled rebuild restart</summary><p>Incorrect. The rendered line proves the instruction given to host activation, while process continuity still needs the planned nested-host observation.</p></details></li>
+<li><details class="rx-choice" name="q7" data-correct="false" data-misconception="confuses a marker build with joined system realization"><summary>C. The joined host and guest runner were realized because the check&apos;s small success marker was built in the Nix store</summary><p>Incorrect. The marker records empty evaluation findings; stripped command dependencies and string comparisons do not build the joined host or runner.</p></details></li>
+<li><details class="rx-choice" name="q7" data-correct="true"><summary>D. The joined plan passes demanded assertions and emits the expected consumer text, while its service runtime remains unobserved</summary><p>Correct. Forced recipes and rendered text establish the computed plan up to its consumers, but no joined process exists in this evidence.</p></details></li>
+</ul>
+<p class="rx-quiz-result" aria-live="polite"></p>
+</article>
+</section>
 </main>
-
 <footer class="rx-footer" id="rx-provenance">
-  <dl class="rx-provenance" data-repository="allod/archetypes" data-pr="39" data-pr-url="https://forge.anarch.diy/allod/archetypes/pulls/39" data-base-sha="c02e4e95bbcd0f9a1616d477d4c96c15c6f14e3a" data-head-sha="59cfc2c49f43cbc8fa3066c7c96ae8d6d78a869a" data-runner="claude">
-    <dt data-field="repo">Repository</dt><dd>allod/archetypes</dd>
-    <dt data-field="pr">Pull request</dt><dd>#39</dd>
-    <dt data-field="url">Pull request URL</dt><dd>https://forge.anarch.diy/allod/archetypes/pulls/39</dd>
-    <dt data-field="title">Pull request title</dt><dd>Wire a microvm guest into the host that starts it</dd>
-    <dt data-field="base">Base commit</dt><dd><code>c02e4e95bbcd0f9a1616d477d4c96c15c6f14e3a</code></dd>
-    <dt data-field="head">Head commit</dt><dd><code>59cfc2c49f43cbc8fa3066c7c96ae8d6d78a869a</code></dd>
-    <dt data-field="diffstat">Diff</dt><dd>6 files, 1122 additions, 296 deletions</dd>
-    <dt data-field="runner">Runner</dt><dd>claude subscription CLI</dd>
-    <dt data-field="generator">Generator</dt><dd>allod pr explain, template 1</dd>
-    <dt data-field="generated">Generated</dt><dd><time datetime="2026-08-20">2026-08-20</time></dd>
-    <dt data-field="sources">Sources read</dt><dd>complete diff, surrounding repository code, the pinned microvm.nix and allod/nexus and allod/inventory sources in the local store, generated derivations left by the checks, pull-request body, and full review discussion</dd>
-    <dt data-field="limits">Not verified by this report</dt>
-    <dd><ul>
-      <li>No guest was booted and no host was rebuilt, so the claim that a host rebuild leaves a running guest alone is pinned in generated text only and has never been observed.</li>
-      <li>The fleet-wiring rule&apos;s walk over exported hypervisors compares an empty set against an empty set here; its behaviour against a fleet that declares a microVM machine rests on the author&apos;s reported doctoring of the check&apos;s inputs, which I did not reproduce.</li>
-      <li>The claim that the credential-directory overlap would destroy every machine&apos;s prepared credentials was not executed; my reading of the launcher indicates it holds for a credential directory nested below a machine&apos;s own socket directory, and not for every value the guard refuses.</li>
-      <li>The rewritten contract text in allod/strategy is reported in the discussion and was not read.</li>
-    </ul></dd>
-  </dl>
+<dl class="rx-provenance" data-repository="allod/archetypes" data-pr="39" data-pr-url="https://forge.anarch.diy/allod/archetypes/pulls/39" data-base-sha="c02e4e95bbcd0f9a1616d477d4c96c15c6f14e3a" data-head-sha="59cfc2c49f43cbc8fa3066c7c96ae8d6d78a869a" data-runner="pi">
+<dt data-field="repo">Repository</dt><dd>allod/archetypes</dd>
+<dt data-field="pr">Pull request</dt><dd>#39</dd>
+<dt data-field="url">Pull request URL</dt><dd>https://forge.anarch.diy/allod/archetypes/pulls/39</dd>
+<dt data-field="title">Pull request title</dt><dd>Wire a microvm guest into the host that starts it</dd>
+<dt data-field="base">Base commit</dt><dd><code>c02e4e95bbcd0f9a1616d477d4c96c15c6f14e3a</code></dd>
+<dt data-field="head">Head commit</dt><dd><code>59cfc2c49f43cbc8fa3066c7c96ae8d6d78a869a</code></dd>
+<dt data-field="diffstat">Diff</dt><dd>6 files, 1,122 additions, 296 deletions</dd>
+<dt data-field="runner">Runner</dt><dd>pi API CLI</dd>
+<dt data-field="generator">Generator</dt><dd>allod pr explain, template 1</dd>
+<dt data-field="generated">Generated</dt><dd><time datetime="2026-08-21">2026-08-21</time></dd>
+<dt data-field="sources">Sources read</dt><dd>pull-request snapshot, complete diff, diffstat, commit subjects, pull-request body and review discussion, surrounding repository code and README, checks, lock files, local history, and pinned allod/nexus, allod/vm, and microvm.nix source and documentation</dd>
+<dt data-field="limits">Not verified by this report</dt>
+<dd><ul><li>No pass booted a joined microVM, started its generated host service, observed live credential delivery, or watched its process survive host activation.</li><li>No pass inspected private deployment repositories or observed a nonempty private fleet pass the exactly-once gate.</li><li>The planned nested-host test was not present or run, and no completion date was verified.</li></ul></dd>
+</dl>
 </footer>
 
 <script id="rx-template-js">
