@@ -30,6 +30,12 @@ Current facts to verify against the tree:
 
 Verify all mandatory sections from `dev-plans.md` exist: Tracking Issue, Goal, Scope, Risk Assessment, Interface Contracts, Agent Gates, Acceptance Tests, and Rollback Plan. Check per-slice residual risk, generated lifecycle witnesses, and that only the final deploy PR closes issue #36.
 
+## Pass History
+
+- **Pass 1** — `claude-opus-4-8` (Claude Code runner), reasoning `medium`, reviewed `a6db27f`. 3 original-plan findings, 0 review-introduced: 1 BLOCKER (ownership-manifest version transition would strand the first post-upgrade activation — the reconciler's strict `.version==1`/per-credential-link check would treat a valid prior-version manifest as corrupt and never converge), 1 GAP (token-directory lifecycle unspecified; `realpath -e` parent check, single-segment `safe_journal_path` allowlist, and file-only rollback/recover/retire leave empty untracked directories), 1 SIMPLIFY (drop dead `rotationStrategy` metadata). Fixed in `e04ccc0`. Verified against Pi 0.84.2 docs that `registerProvider` from `session_start`, `agent_settled`, and `ctx.hasPendingMessages()`/`isIdle()` exist and support the startup and queued-work pinning claims (Focus Areas 1 and 2 hold, no findings there). Fix stability: not yet re-verified. Next pass should be a scoped diff review of `e04ccc0` by a different model (prefer a cross-vendor `gpt-5.6`-family runner) because pass 1 landed a BLOCKER fix.
+
+This is review pass 2 (scoped diff verification of `e04ccc0` by a different model, then a fresh sweep). Work only in public checkouts under /home/vnprc/work/allod and read-only Pi package docs/store paths; do not inspect private checkouts. Commit fixes and prompt metadata directly to master. A push may be rejected by the environment boundary; still leave complete local commits and a clean tree. Read the full applicable allod memory files first.
+
 ## Focus Areas
 
 The six standing lenses from `dev-plans.md` apply, plus:
@@ -38,11 +44,13 @@ The six standing lenses from `dev-plans.md` apply, plus:
 
 2. **Queued-work pinning.** Inspect event ordering and provider re-registration. Can `agent_settled` plus pending-message state truly keep the active request and every already queued message on the old token without delaying forever or switching one provider early?
 
-3. **Transactional directory migration.** Follow `pi-provider` journal/path safety literally. Can `<credential>.age` become `<credential>/default.age`, and can token-directory add/remove/recovery work without untracked directories, symlink traversal, plaintext staging, or incomplete rollback?
+3. **Transactional directory migration (verify pass-1 fix).** Pass 1 made the token directory a journaled object (create-under-lock, prune on rollback/recover/last-token-remove/retire) and widened the journal allowlist and recoverable-plan checks to the two-segment path. Verify the fix is coherent against `nexus/scripts/pi-provider`: does the recovery journal record the directory's pre-run absence, and does pruning refuse to remove a directory an operator or concurrent writer populated?
 
-4. **Generated ownership and state concurrency.** Check token links, extension installation/removal, preference locking/atomic writes, absent secrets, corrupt state, rebuild/reboot, final empty state, and operator collisions. Demand executable generated-artifact witnesses rather than source-only assertions.
+4. **Ownership-manifest version transition (verify pass-1 fix).** Pass 1's BLOCKER fix requires the reconciler to upgrade a valid prior-version manifest in place rather than refusing it as corrupt. Verify the plan distinguishes prior-version from genuinely corrupt state without weakening the corrupt-state refusal, and that the upgrade re-derives owned links from the desired set rather than trusting stale link records (`archetypes/modules/pi-provider-reconcile.sh`, `archetypes/checks/pi-provider-lifecycle.nix`).
 
-5. **SIMPLIFY.** Look for commands, metadata, compatibility paths, state helpers, or deployment work that can be deleted while preserving the settled issue contract. Do not add generic quota/failover machinery.
+5. **Generated ownership and state concurrency.** Check token links, extension installation/removal, preference locking/atomic writes, absent secrets, corrupt state, rebuild/reboot, final empty state, and operator collisions. Demand executable generated-artifact witnesses rather than source-only assertions.
+
+6. **SIMPLIFY.** Look for commands, metadata, compatibility paths, state helpers, or deployment work that can be deleted while preserving the settled issue contract. Do not add generic quota/failover machinery.
 
 ## Review Guidelines
 
