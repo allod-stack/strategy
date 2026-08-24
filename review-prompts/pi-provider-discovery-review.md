@@ -23,11 +23,19 @@ Verify Tracking Issue, Goal, Scope, Risk Assessment, Interface Contracts, Agent 
 
 ## Focus Areas
 
-1. **Bearer flow.** Can prompted/decrypted plaintext reach only curl/Age stdin, remain out of every child environment/argv and persistent path, and still survive long enough for new-credential discovery followed by encryption? Does every error path redact it?
-2. **Remote boundary.** Is URL validation coherent, redirect behavior fail-closed, the size/error bound real, and `/models` the only reachable route even under malformed provider data?
-3. **Translation and refresh.** Do provider-level versus model-level adapters match Pi, are precedence and wrong-shape behavior deterministic, and can unchanged, changed, or removed catalogues accidentally rewrite credential state or manual schema?
-4. **Removal and transaction ordering.** Are the second snapshot and explicit confirmation completed before staging/journaling? Do refusal, EOF, signal, rollback, and `recover` preserve both repositories at each boundary?
-5. **Witness quality and simplification.** Do fixtures exercise the production command seam and sabotage the validator/client? Delete abstractions or compatibility paths that do not buy an issue requirement.
+1. **Plaintext lifetime across staging.** A new credential's bearer now survives from the prompt, through discovery, staging, and `nix eval` preflight, and only then reaches Age. Does anything in that window put it into a child environment, a shell trace, an error string, or the tmpfs staging tree, and is one paste guaranteed to be both the discovery bearer and the encrypted `default`, with no second prompt that could diverge?
+2. **Single-route proof under stdin contention.** curl takes the bearer from a pipe while the hidden prompt and the removal `yes` read the operator's stdin. Can the ordering be implemented without one consuming the other, and can a PATH-shimmed client fixture prove no route but the exact `/models` path is ever requested, including on the second snapshot and the refresh path?
+3. **Shape failure versus warning.** Discovery fails on a wrong-shaped allowlisted field but only warns on an absent one, so a single junk `context_length` blocks a whole catalogue. Is fail-closed right here, or should a malformed optional field be dropped under the same incomplete-metadata warning? Are the remaining limit/capability spellings grounded in a catalogue anyone has actually seen, or is the next SIMPLIFY cutting more of them?
+4. **Confirmation placement in the transaction.** Refusal leaves no journal, but the plan never pins the `yes` gate relative to the impact summary, tmpfs staging, and derived-output preflight. Where does it sit, does refresh assert both repositories clean before the second snapshot, and do refusal, EOF, signal, rollback, and `recover` hold at each boundary?
+5. **Witnesses for this pass's refusals.** Fixtures must execute the production path for the impact summary preceding any prompt or decryption, a stored `baseUrl` that fails the URL rule, a stored catalogue carrying non-allowlisted fields, and an oversized chunked body with no `Content-Length`. Are these reachable at the existing PATH-shim seam, or does one of them need plan text no fixture can execute?
+
+## Pass History
+
+| Pass | Model | Effort | Reviewed | New findings (origin) | Fixes | Stability |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `claude-opus-5` | `high` | `cf8acaa`, full plan | 0 BLOCKER, 5 GAP, 1 SIMPLIFY, all original-plan | `0e075f6`, `a648e1d`, `194284a`, `68898ef` | pending |
+
+Next pass: full pass over `cf8acaa..68898ef`; no blocker-level structural fix landed, so a scoped diff review is not required. Recommend `gpt-5.6-sol` at `xhigh` for cross-vendor rotation against this pass's Claude-authored fixes and as the roster default for R3 security boundaries.
 
 ## Review Guidelines
 
