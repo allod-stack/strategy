@@ -33,9 +33,16 @@ Verify Tracking Issue, Goal, Scope, Risk Assessment, Interface Contracts, Agent 
 
 | Pass | Model | Effort | Reviewed | New findings (origin) | Fixes | Stability |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `claude-opus-5` | `high` | `cf8acaa`, full plan | 0 BLOCKER, 5 GAP, 1 SIMPLIFY, all original-plan | `0e075f6`, `a648e1d`, `194284a`, `68898ef` | pending |
+| 1 | `claude-opus-5` | `high` | `cf8acaa`, full plan | 0 BLOCKER, 5 GAP, 1 SIMPLIFY, all original-plan | `0e075f6`, `a648e1d`, `194284a`, `68898ef` | superseded |
+| 2 | `gpt-5.6-terra` | `high` | `cf8acaa..6f15216`, full plan, Nexus command/tests, Pi schema | 0 BLOCKER, 3 GAP, 0 SIMPLIFY, all original-plan | `694104f` | terminal |
 
-Next pass: full pass over `cf8acaa..68898ef`; no blocker-level structural fix landed, so a scoped diff review is not required. Recommend `gpt-5.6-sol` at `xhigh` for cross-vendor rotation against this pass's Claude-authored fixes and as the roster default for R3 security boundaries.
+Terminal pass findings:
+
+1. [GAP] A bearer header sent through curl is not confined to the planned request while curl still reads a user curlrc or proxy environment. The plan now requires initial `--disable`, `--noproxy '*'`, stdin-only curl config, and an executable client witness for those arguments and `/models`.
+2. [GAP] An existing ciphertext can decrypt to text that was never accepted at a prompt; without validating it, it can violate the curl-config transport boundary. The plan now validates decrypted `b64token` text, resolves once, suppresses xtrace, removes inherited export, and requires malformed-default, one-paste, and xtrace leak witnesses.
+3. [GAP] The removal `yes` gate had no fixed relationship to preflight or a late source-tree cleanliness check. The plan now takes the agreeing snapshots before tmpfs staging/preflight, asks only after their result is known, and checks both repositories before the second read and immediately before journaling; dirt/refusal/signal witnesses cover the no-journal boundary.
+
+SIMPLIFY sweep considered removing direct-client options, the late clean checks, and malformed-default fallback; each closes an authenticated-boundary or source-loss hole. The remaining catalogue spelling and optional-field questions are implementation witnesses under the existing fail-closed translation contract, not grounds for a third prose pass. The Nexus implementation PR alone still closes `allod/nexus#32`; execute its named synthetic witnesses and stop this strategy review here.
 
 ## Review Guidelines
 
