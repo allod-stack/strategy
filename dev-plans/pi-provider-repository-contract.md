@@ -14,7 +14,7 @@ Make the plain installed `pi-provider` command operate safely on redirected depl
 
 Two ordered public implementation slices:
 
-1. `allod/secrets` separates the hypervisor recipient source from VM host-key data. Its existing recipient derivation accepts an explicit ordered `nexusPublicKeys` list, uses `identity.hostPublicKeys` in the live flake and `secrets.nix`, and leaves `machine-host-keys.json` responsible only for targeted VM keys. The exported `mkPiCredentialContract` keeps a compatibility fallback to `machineHostKeys.${nexusName}` for its existing deploy consumer, but the secrets flake itself and all new fixtures exercise the split source.
+1. `allod/secrets` separates the hypervisor recipient source from VM host-key data. Its existing recipient derivation accepts an explicit ordered `hypervisorPublicKeys` list, uses `identity.hostPublicKeys` in the live flake and `secrets.nix`, and leaves `machine-host-keys.json` responsible only for targeted VM keys. The exported `mkPiCredentialContract` keeps a compatibility fallback to `machineHostKeys.${nexusName}` for its existing deploy consumer, but the secrets flake itself and all new fixtures exercise the split source.
 2. `allod/nexus`, after the secrets slice is available:
 
 - render the configured inventory checkout as both `INVENTORY` and the compatibility pointer `INVENTORY_CHECKOUT` in the host session;
@@ -32,9 +32,9 @@ Residual risk is **R3 High** for each slice. The secrets slice changes a shared 
 
 ## Interface Contracts
 
-`lib/pi-credential-recipients.nix` receives `nexusPublicKeys` separately from `machineHostKeys`. The list must be non-empty, contain only non-empty unique strings, and preserves its supplied active-then-staged order. Target VM recipients then follow registry target order, with each target's active key before its optional staged key. Duplicate source keys are rejected globally across the hypervisor list and every referenced target record; the derivation never silently deduplicates.
+`lib/pi-credential-recipients.nix` receives `hypervisorPublicKeys` separately from `machineHostKeys`. The list must be non-empty, contain only non-empty unique strings, and preserves its supplied active-then-staged order. Target VM recipients then follow registry target order, with each target's active key before its optional staged key. Duplicate source keys are rejected globally across the hypervisor list and every referenced target record; the derivation never silently deduplicates.
 
-`lib.mkPiCredentialContract` accepts optional `nexusPublicKeys`. The live secrets flake and `secrets.nix` always pass `identity.hostPublicKeys`, so they never require the hypervisor in `machine-host-keys.json`. When an external caller omits the new argument, the constructor temporarily derives the old list from `machineHostKeys.${nexusName}`; this compatibility path preserves the current deploy canary and is covered as an existing consumer, not used as the new deployment contract. `lib.nexusIdentity.sshPublicKeys` continues to expose the same ordered identity list.
+`lib.mkPiCredentialContract` accepts optional `hypervisorPublicKeys`. The live secrets flake and `secrets.nix` always pass `identity.hostPublicKeys`, so they never require the hypervisor in `machine-host-keys.json` and do not pass `nexusName`. When an external caller omits the new argument, `nexusName` becomes required and the constructor temporarily derives the old list from `machineHostKeys.${nexusName}`; this compatibility path preserves the current deploy canary and is covered as an existing consumer, not used as the new deployment contract. `lib.nexusIdentity.sshPublicKeys` continues to expose the same ordered identity list.
 
 The host option `nexus.provisioning.inventoryCheckout`, when set, renders both `INVENTORY` and `INVENTORY_CHECKOUT` to the same absolute path. An unset option renders neither, preserving the public template fallback; malformed paths still fail Nix evaluation.
 
