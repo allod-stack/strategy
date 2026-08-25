@@ -59,3 +59,24 @@ Use `[BLOCKER]` for likely secret exposure, inference access, unsafe removal/mut
 ## Deliverable
 
 Every pass ends with plan-file commits for real findings (or explicit no findings), then a review-prompt commit recording model, effort, reviewed commit, finding counts/origins/fixes, SIMPLIFY sweep, and next focus. Push and leave the worktree clean. Stop according to `dev-plans.md`; a blocker-level fix requires a different-model scoped verification next.
+
+## Implementation Review
+
+| Pass | Model | Effort | Reviewed | Findings | Fixes | Stability |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `claude-opus-4-8` | `high` | uncommitted Nexus implementation and full plan | 0 BLOCKER, 1 GAP, 0 SIMPLIFY | redact before truncating; add boundary witness | superseded |
+| 2 | `gpt-5.6-terra` | `high` | scoped diagnostic fix and witness | 0 BLOCKER, 0 GAP, 0 SIMPLIFY | none | terminal |
+
+The independent implementation review found one diagnostic-boundary gap: the
+HTTP provider error was truncated before exact bearer redaction, so a bearer
+straddling character 512 could leave a displayed prefix that no longer matched
+the whole token. The Nexus implementation now normalizes the bounded response,
+redacts the complete synthetic bearer in the shell, and only then truncates the
+diagnostic to 512 characters. Its executable witness places the bearer across
+that boundary. The same pass verified the stdin-only curl route, tmpfs body
+bound, translation vocabulary, removal cleanliness/confirmation ordering,
+transaction recovery, manual-command isolation, and leak sweep, and found no
+simplification that would preserve all authenticated-boundary guarantees. A
+different-model scoped pass verified the corrected ordering, the bearer-free
+shell-only replacement, and that the witness would fail under the old ordering;
+it found no new regression.
