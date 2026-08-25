@@ -40,7 +40,7 @@ Human scrutiny should focus on the exact all-model equality predicate, whether t
 
 `pi-provider discover-refresh <provider>` keeps the existing discovery-compatible model fields. It additionally accepts a stored `name` field only when every model carrying `name` has `name == id`. Models without `name` may coexist with redundant-name models. The next non-dry refresh compares the original models, reports affected retained IDs as changed, and replaces them with discovery-translated models that omit `name`.
 
-A custom name, non-string name, or `name` unequal to `id` fails before bearer prompting/decryption or HTTP. Every other field outside `api`, `contextWindow`, `id`, `input`, `maxTokens`, and `reasoning` remains a pre-bearer refusal. Diagnostics tell the operator to normalize/remove `name` or remove unsupported fields from the existing provider before retrying; they do not recommend `add`, which only creates providers.
+A custom name, non-string name, or `name` unequal to `id` fails before bearer prompting/decryption or HTTP, even when sibling models have absent or redundant names. Every other field outside `api`, `contextWindow`, `id`, `input`, `maxTokens`, and `reasoning` remains a pre-bearer refusal. Diagnostics tell the operator to edit and commit the existing profiles catalogue to normalize/remove `name` or remove unsupported fields, then retry `discover-refresh`; they do not recommend `add` or `--models-file`, which cannot update an existing provider. The operator may instead keep the hand-authored catalogue and not use discovery refresh.
 
 No CLI syntax, JSON schema, network route, bearer handling, credential state, removal confirmation, transaction, or recovery interface changes.
 
@@ -58,7 +58,7 @@ bash tests/pi-provider.sh
 nix build .#checks.x86_64-linux.provisioning-contract
 ```
 
-The production-command witness must show that a mixed catalogue of absent and redundant names refreshes successfully, reports the redundant-name model as changed, and persists no `name`. Separate custom-name and unsupported-field fixtures must fail without invoking Age or HTTP and must print executable remediation. The existing discovery and manual lifecycle suite remains green.
+The production-command witness must show that a mixed catalogue of absent and redundant names refreshes successfully, reports the redundant-name model as changed, and persists no `name`. A custom-name sabotage must include an absent-name or redundant-name sibling so an existential predicate fails the witness; it and a separate unsupported-field fixture must fail without invoking Age or HTTP. Both diagnostics must direct the operator to edit and commit the existing catalogue before retrying and must not recommend `add` or `--models-file`. The existing discovery and manual lifecycle suite remains green.
 
 ## Rollback Plan
 

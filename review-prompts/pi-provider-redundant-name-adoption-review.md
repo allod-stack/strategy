@@ -33,6 +33,14 @@ Verify Tracking Issue, Goal, Scope, Risk Assessment, Interface Contracts, Agent 
 
 Use `[BLOCKER]` for likely bearer-boundary violation, accepted metadata loss, nonfunctional implementation, or missing human authority. Use `[GAP]` for material ambiguity, contradictory contracts, stale remediation, or witness/rollback blind spots. Use `[SIMPLIFY]` for removable scope or abstraction. Use `[QUESTION]` only when repository evidence cannot answer it.
 
+## Pass History
+
+| Pass | Model | Effort | Reviewed | Findings | Fixes | Next focus |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `gpt-5.6-terra` | `high` | `42e3103`, full plan and Nexus implementation baseline | 0 BLOCKER, 2 GAP, 0 SIMPLIFY, 1 linkage QUESTION | require a mixed-sibling universal-predicate sabotage and commit-before-retry guidance | implementation verification |
+
+The pass confirmed the direct jq equality approach, original-model comparison, translation omission, narrow scope, R3 calibration, and straight-revert rollback. It found that the refusal witness needed a sibling accepted model to reject an accidental existential predicate, and that remediation must tell the operator to edit and commit the existing catalogue before retrying rather than merely “normalize/remove” metadata. PR linkage is verified when both PRs are opened. The SIMPLIFY sweep found no abstraction or scope to remove.
+
 ## Deliverable
 
 Return a numbered finding list with tags, or explicitly state no findings. Name sound decisions briefly so implementation does not undo them. Do not edit files; the driver records the result and applies any justified fixes.
