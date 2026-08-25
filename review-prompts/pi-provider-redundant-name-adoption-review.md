@@ -41,6 +41,15 @@ Use `[BLOCKER]` for likely bearer-boundary violation, accepted metadata loss, no
 
 The pass confirmed the direct jq equality approach, original-model comparison, translation omission, narrow scope, R3 calibration, and straight-revert rollback. It found that the refusal witness needed a sibling accepted model to reject an accidental existential predicate, and that remediation must tell the operator to edit and commit the existing catalogue before retrying rather than merely “normalize/remove” metadata. PR linkage is verified when both PRs are opened. The SIMPLIFY sweep found no abstraction or scope to remove.
 
+## Implementation Review
+
+| Pass | Model | Effort | Reviewed | Findings | Fixes | Stability |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `gpt-5.5` | `high` | uncommitted Nexus implementation and final plan | 1 BLOCKER, 1 GAP, 0 SIMPLIFY | detect unsupported-key array length; add non-string and empty-key refusals | superseded |
+| 2 | `gpt-5.6-terra` | `high` | scoped unsupported-key and non-string-name fixes | 0 BLOCKER, 0 GAP, 0 SIMPLIFY | none | terminal |
+
+The implementation review found that joining unsupported keys into diagnostic text made an empty-string key indistinguishable from no unsupported keys, allowing bearer access and metadata loss. The implementation now retains the key array for the decision and renders it separately, with an empty-key production-command sabotage. It also adds the missing non-string-name refusal witness. A different-model scoped pass verified both fixes, ordinary unsupported-field refusal, redundant-name normalization, safely escaped diagnostics, and the direct implementation; it found no remaining issue or simplification.
+
 ## Deliverable
 
 Return a numbered finding list with tags, or explicitly state no findings. Name sound decisions briefly so implementation does not undo them. Do not edit files; the driver records the result and applies any justified fixes.

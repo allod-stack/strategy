@@ -58,7 +58,7 @@ bash tests/pi-provider.sh
 nix build .#checks.x86_64-linux.provisioning-contract
 ```
 
-The production-command witness must show that a mixed catalogue of absent and redundant names refreshes successfully, reports the redundant-name model as changed, and persists no `name`. A custom-name sabotage must include an absent-name or redundant-name sibling so an existential predicate fails the witness; it and a separate unsupported-field fixture must fail without invoking Age or HTTP. Both diagnostics must direct the operator to edit and commit the existing catalogue before retrying and must not recommend `add` or `--models-file`. The existing discovery and manual lifecycle suite remains green.
+The production-command witness must show that a mixed catalogue of absent and redundant names refreshes successfully, reports the redundant-name model as changed, and persists no `name`. A custom-name sabotage must include an absent-name or redundant-name sibling so an existential predicate fails the witness; a non-string name must also fail. Unsupported-field fixtures cover both an ordinary field and an empty-string key, proving refusal is based on the unsupported-key array rather than non-empty rendered diagnostic text. Every refusal precedes Age and HTTP. Diagnostics must direct the operator to edit and commit the existing catalogue before retrying and must not recommend `add` or `--models-file`. The existing discovery and manual lifecycle suite remains green.
 
 ## Rollback Plan
 
