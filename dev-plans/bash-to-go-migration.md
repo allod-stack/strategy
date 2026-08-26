@@ -7,6 +7,18 @@ https://forge.anarch.diy/allod/tools/issues/98
 Multi-phase, multi-repo work. All implementation PRs use `Refs allod/tools#98`.
 The final Phase 4 cleanup PR in `allod/tools` carries `Closes allod/tools#98`.
 
+## Status
+
+- Phase 1 (`forge`): complete. Go package deployed to allod-dev and nexus; the
+  Bash implementation was retired (Refs allod/tools#98).
+- Phase 2 (`allod`) and the Phase 4 allod cleanup: complete. The root Bash
+  `allod` oracle was deleted in `allod/tools@8c5188b`; change/patch and
+  pr-explain test defaults resolve the Go binary; no wrapper references the bash
+  source. pr-explain, pm, and `lib/workspace.sh` stay bash by design.
+- Phase 3 (`flake-status`, `flake-update-cascade`): not started; both remain
+  Bash and still ship via `writeShellApplication`.
+- The pr-explain report validator remains a bash carve-off (allod/tools#142).
+
 ## Goal
 
 Replace the four program-shaped bash tools in `allod/tools` (`forge`, `allod`,
@@ -274,7 +286,8 @@ go test ./... && for t in tests/workspace/*.sh tests/git-hooks/*.sh; do bash "$t
   and rebuilding.
 - Partial-phase state (tools PR merged, cutover not merged) is safe: Go code
   in the repo is inert until a wrapper references it.
-- If a deployed Go tool misbehaves between rebuilds, the bash source remains
-  executable directly from the checkout
-  (`~/work/allod/tools/forge`, needs `jq`+`curl` which stay on dev VMs) as an
-  immediate operator workaround.
+- Before Phase 4, a misbehaving deployed Go tool could be run straight from the
+  bash checkout as an operator workaround. After Phase 4 (allod/forge track),
+  the rollback is a plain git revert of the Go port commit(s) plus a rebuild,
+  re-adding a wrapper only if a consumer referenced the bash path — none does
+  since the cutovers.
