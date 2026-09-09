@@ -14,7 +14,7 @@ The final Phase 4 cleanup PR in `allod/tools` carries `Closes allod/tools#98`.
 - Phase 2 (`allod`) and the Phase 4 allod cleanup: complete. The root Bash
   `allod` oracle was deleted in `allod/tools@8c5188b`; change/patch and
   pr-explain test defaults resolve the Go binary; no wrapper references the bash
-  source. pr-explain, pm, and `lib/workspace.sh` stay bash by design.
+  source. pr-explain and `lib/workspace.sh` stay bash by design.
 - Phase 3 (`flake-update-cascade`): complete. Ported in `allod/tools@db218e6`,
   packaged with `buildGoModule` by `allod/archetypes` and `allod/nexus`, deployed
   to the development machines and the host, and the Bash source and parity
