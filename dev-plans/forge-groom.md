@@ -41,6 +41,8 @@ Out of scope:
 | 3 archetypes | `forge-groom.nix`: timer, wrapper, msmtp config, options for token path, credential path, recipient, sender, relay, repos, schedule | Generated unit and timer inspected; a manual `systemctl --user start forge-groom.service` on a VM with a stub relay writes the report and produces one mail in the stub | 4 |
 | 4 private | Enables the module on one VM with real values; creates the scoped token and SMTP credential | First real email received; two consecutive weekly runs compared by hand against the trackers before any autonomy is widened | done |
 
+Gate between slices 2 and 3: slices 3 and 4 do not start until the skill has been run by hand twice in report-only mode, first over allod/tools and compared line by line against the 2026-09-09 manual pass recorded on allod/strategy#48, then over every public repo with pi headless (the model and thinking level in the decisions section) and spot-checked by the owner. Each report is attached to allod/strategy#48 as a comment, and any misclassification is fixed in the skill and re-run before the timer or the mail path exists. Starting slice 3 is the owner's decision, taken after reading the second report.
+
 Contracts bind when a slice starts. Slice 3's option names are written in its PR, informed by what slice 1 needed on the command line.
 
 ## Risk Assessment
@@ -65,6 +67,8 @@ Human scrutiny:
 | 2 forge pr list -s | R1 | Read-only flag, fixture-tested | Merged marker correctness |
 | 3 archetypes module | R3 | Systemd unit, two credentials, mail path | Environment, credential paths, failure mailing |
 | 4 private enable | R3 | Live token with write scope on a schedule | Token scope on the forge, first emails |
+
+Gate between slices 2 and 3: slices 3 and 4 do not start until the skill has been run by hand twice in report-only mode, first over allod/tools and compared line by line against the 2026-09-09 manual pass recorded on allod/strategy#48, then over every public repo with pi headless (the model and thinking level in the decisions section) and spot-checked by the owner. Each report is attached to allod/strategy#48 as a comment, and any misclassification is fixed in the skill and re-run before the timer or the mail path exists. Starting slice 3 is the owner's decision, taken after reading the second report.
 
 ## Interface Contracts
 
