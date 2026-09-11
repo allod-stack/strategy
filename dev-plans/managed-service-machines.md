@@ -57,7 +57,7 @@ paths still evaluate through compatibility exports, and ownership is documented.
 Entry: M1 merged.
 
 - Split common managed-machine facts from a discriminated placement record.
-- Support the existing libvirt and microVM placements plus an `external` placement
+- Support the existing libvirt placement plus an `external` placement
   that requires no fake hypervisor, runtime, MAC, volume, or VM sizing fields.
 - Derive legacy `vmSpecs` and `vmFacts` views for current consumers during migration.
 - Add positive and mutation-style negative fixtures for each placement.
