@@ -30,10 +30,6 @@ builds, backup schedules, automatic rollback, high availability, service-data
 rollback, and a generic stateful-service lifecycle. One service per machine is a
 reasonable deployment default, not a framework invariant.
 
-`dev-plans/buzz-service-archetype.md` must not be executed as written: its VM-only
-inventory and application-specific archetype assumptions are superseded here.
-Its application work may resume later as a consumer of the interfaces below.
-
 ## Milestones and Landing Order
 
 ### M1 — Establish the service-module boundary
@@ -108,8 +104,7 @@ Entry: M1–M4 merged and one downstream deployment has adopted the new interfac
 - Document the ownership map and application integration contract.
 - Remove archetypes' service-module re-exports and other migration adapters only
   after repository-wide reference searches show no consumers.
-- Rebase the future buzz work onto this model or close its old tracking issue as
-  superseded; do not add state abstractions during this milestone.
+- Do not add state abstractions during this milestone.
 
 Exit: the end-to-end check passes, compatibility references are zero, and the
 tracking issue records downstream adoption evidence.
