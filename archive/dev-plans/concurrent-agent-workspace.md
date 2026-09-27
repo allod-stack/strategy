@@ -1,5 +1,7 @@
 # Concurrent Agent Workspace Safety
 
+**Archived.** The arc's goal is met: contracts C1 to C4 landed in allod/tools#116 and allod/tools#117, and the two record refusals landed in allod/tools#118. The second wave, allod/tools#112 and allod/tools#119, continues as standalone issues that need no shared contract; each carries its own gates. The default-branch helper this plan flagged is fixed by allod/tools#126. Nothing below is maintained.
+
 ## Tracking Issue
 
 https://forge.anarch.diy/allod/tools/issues/115
